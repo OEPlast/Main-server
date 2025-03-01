@@ -1,12 +1,12 @@
-import express, { Application, Request, Response, NextFunction } from 'express';
+import express, { Application, Request, Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import { config as envConfig } from 'dotenv';
 import { morganMiddleware } from './middleware/morgan';
-//---------------
 import ProductsRoute from '@/routes/users/products';
 import connectDB from './lib/db';
-//---------------
+import ReviewRoute from './routes/general/review';
+
 const app: Application = express();
 // Express Middlewares
 envConfig();
@@ -18,6 +18,7 @@ app.use(morganMiddleware);
 
 // Root Route
 app.use('/products', ProductsRoute);
+app.use('/reviews', ReviewRoute);
 
 // server Health Check
 app.get('/health-check', (req: Request, res: Response) => {

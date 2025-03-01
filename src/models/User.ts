@@ -3,9 +3,13 @@ const { ObjectId } = mongoose.Schema;
 
 const userSchema = new mongoose.Schema(
   {
-    name: {
+    firstname: {
       type: String,
-      required: 'Please enter your full name.',
+      required: 'Please enter your first name.',
+    },
+    lastname: {
+      type: String,
+      required: 'Please enter your last name.',
     },
     email: {
       type: String,
