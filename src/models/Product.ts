@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import mongoose, { InferSchemaType } from 'mongoose';
 const { ObjectId } = mongoose.Schema;
 
 const productSchema = new mongoose.Schema(
@@ -97,6 +97,8 @@ const productSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+export type ProductType = InferSchemaType<typeof productSchema>;
 const Product = mongoose.model('Product', productSchema);
 
 export default Product;

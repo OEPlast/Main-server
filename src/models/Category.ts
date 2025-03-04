@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import mongoose, { InferSchemaType, model } from 'mongoose';
 
 const categorySchema = new mongoose.Schema(
   {
@@ -14,12 +14,18 @@ const categorySchema = new mongoose.Schema(
       lowercase: true,
       index: true,
     },
+    sub_categories: [
+      {
+        type: mongoose.Schema.ObjectId,
+        ref: 'SubCategory',
+      },
+    ],
   },
   {
     timestamps: true,
   }
 );
-
-const Category = mongoose.model('Category', categorySchema);
+export type CategoryType = InferSchemaType<typeof categorySchema>;
+const Category = model('Category', categorySchema);
 
 export default Category;
