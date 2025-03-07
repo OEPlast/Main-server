@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import mongoose, { InferSchemaType } from 'mongoose';
 
 const couponSchema = new mongoose.Schema(
   {
@@ -23,12 +23,17 @@ const couponSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    active: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,
   }
 );
 
+export type CouponType = InferSchemaType<typeof couponSchema>;
 const Coupon = mongoose.model('Coupon', couponSchema);
 
 export default Coupon;

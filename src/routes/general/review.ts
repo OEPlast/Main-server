@@ -1,46 +1,14 @@
 import express from 'express';
-import { likeReview, unlikeReview, isLikedByUser, getLikeCount, addReply, deleteReply } from '../../services/reviewService';
+import { isAuthenticated } from '../../middleware/auth';
+import ReviewController from '../../controller/reviewController';
 
 const router = express.Router();
 
-router.post('/:reviewId/like', async (req, res) => {
-  const { reviewId } = req.params;
-  const { userId } = req.body;
-  await likeReview(reviewId, userId);
-  res.sendStatus(200);
-});
-
-router.post('/:reviewId/unlike', async (req, res) => {
-  const { reviewId } = req.params;
-  const { userId } = req.body;
-  await unlikeReview(reviewId, userId);
-  res.sendStatus(200);
-});
-
-router.get('/:reviewId/isLikedByUser', async (req, res) => {
-  const { reviewId } = req.params;
-  const { userId } = req.query;
-  const liked = await isLikedByUser(reviewId, userId);
-  res.json({ liked });
-});
-
-router.get('/:reviewId/likeCount', async (req, res) => {
-  const { reviewId } = req.params;
-  const likeCount = await getLikeCount(reviewId);
-  res.json({ likeCount });
-});
-
-router.post('/:reviewId/reply', async (req, res) => {
-  const { reviewId } = req.params;
-  const reply = req.body;
-  await addReply(reviewId, reply);
-  res.sendStatus(200);
-});
-
-router.delete('/:reviewId/reply/:replyId', async (req, res) => {
-  const { reviewId, replyId } = req.params;
-  await deleteReply(reviewId, replyId);
-  res.sendStatus(200);
-});
+router.post('/:reviewId/like', isAuthenticated, ReviewController.likeReview);
+router.post('/:reviewId/unlike', isAuthenticated, ReviewController.unlikeReview);
+router.get('/:reviewId/isLikedByUser', isAuthenticated, ReviewController.isLikedByUser);
+router.get('/:reviewId/likeCount', isAuthenticated, ReviewController.getLikeCount);
+router.post('/:reviewId/reply', isAuthenticated, ReviewController.addReply);
+router.delete('/:reviewId/reply/:replyId', isAuthenticated, ReviewController.deleteReply);
 
 export default router;

@@ -1,21 +1,5 @@
-import mongoose from 'mongoose';
+import mongoose, { InferSchemaType } from 'mongoose';
 const { ObjectId } = mongoose.Schema;
-
-const replySchema = new mongoose.Schema({
-  replyBy: {
-    type: ObjectId,
-    ref: 'User',
-    required: true,
-  },
-  reply: {
-    type: String,
-    required: true,
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-});
 
 const reviewSchema = new mongoose.Schema(
   {
@@ -55,11 +39,17 @@ const reviewSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
-    replies: [replySchema],
+    replies: [
+      {
+        type: ObjectId,
+        ref: 'Reply',
+      },
+    ],
   },
   { timestamps: true }
 );
 
+export type ReviewType = InferSchemaType<typeof reviewSchema>;
 const Review = mongoose.model('Review', reviewSchema);
 
 export default Review;

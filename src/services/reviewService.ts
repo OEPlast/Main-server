@@ -1,7 +1,17 @@
 import { ObjectId } from 'mongodb';
-import Review from '../models/Review';
-import { ObjectId as ObjectIdType } from 'mongoose';
+import Review, { ReviewType } from '../models/Review';
+import Reply from '@/models/Reply';
 
+type IReview = {
+  product: string;
+  reviewBy: string;
+  rating: number;
+  review: string;
+  size?: string;
+  style?: { color: string; image: string };
+  fit?: string;
+  images: [];
+};
 type ReplyData = { _id: string; replyBy: string; reply: string; createdAt: Date };
 
 type CustomResponseType<T> = {
@@ -15,10 +25,10 @@ type CustomResponseType<T> = {
  * @param reviewId - The ID of the review to like.
  * @param userId - The ID of the user liking the review.
  */
-const likeReview = async (reviewId: string, userId: ObjectIdType): Promise<CustomResponseType<void>> => {
+const likeReview = async (reviewId: string, userId: string): Promise<CustomResponseType<void>> => {
   try {
     await Review.findByIdAndUpdate(reviewId, {
-      $addToSet: { likes: userId },
+      $addToSet: { likes: new ObjectId(userId) },
     });
     return {
       message: 'Review liked successfully',
@@ -26,7 +36,7 @@ const likeReview = async (reviewId: string, userId: ObjectIdType): Promise<Custo
       code: 200,
     };
   } catch (error) {
-    console.log(error);
+    console.error(error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -40,10 +50,10 @@ const likeReview = async (reviewId: string, userId: ObjectIdType): Promise<Custo
  * @param reviewId - The ID of the review to unlike.
  * @param userId - The ID of the user unliking the review.
  */
-const unlikeReview = async (reviewId: string, userId: ObjectIdType): Promise<CustomResponseType<void>> => {
+const unlikeReview = async (reviewId: string, userId: string): Promise<CustomResponseType<void>> => {
   try {
     await Review.findByIdAndUpdate(reviewId, {
-      $pull: { likes: userId },
+      $pull: { likes: new ObjectId(userId) },
     });
     return {
       message: 'Review unliked successfully',
@@ -51,7 +61,7 @@ const unlikeReview = async (reviewId: string, userId: ObjectIdType): Promise<Cus
       code: 200,
     };
   } catch (error) {
-    console.log(error);
+    console.error(error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -66,10 +76,10 @@ const unlikeReview = async (reviewId: string, userId: ObjectIdType): Promise<Cus
  * @param userId - The ID of the user.
  * @returns A boolean indicating if the review is liked by the user.
  */
-const isLikedByUser = async (reviewId: string, userId: ObjectIdType): Promise<CustomResponseType<boolean>> => {
+const isLikedByUser = async (reviewId: string, userId: string): Promise<CustomResponseType<boolean>> => {
   try {
     const review = await Review.findById(reviewId, {
-      likes: { $in: [userId] },
+      likes: { $in: [new ObjectId(userId)] },
     });
     return {
       message: 'Review like status retrieved successfully',
@@ -77,7 +87,7 @@ const isLikedByUser = async (reviewId: string, userId: ObjectIdType): Promise<Cu
       code: 200,
     };
   } catch (error) {
-    console.log(error);
+    console.error(error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -103,7 +113,7 @@ const getLikeCount = async (reviewId: string): Promise<CustomResponseType<number
       code: 200,
     };
   } catch (error) {
-    console.log(error);
+    console.error(error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -163,7 +173,7 @@ const getReviewsByProductId = async (
       code: 200,
     };
   } catch (error) {
-    console.log(error);
+    console.error(error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -220,7 +230,7 @@ const getRepliesByReviewId = async (
       code: 200,
     };
   } catch (error) {
-    console.log(error);
+    console.error(error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -236,11 +246,11 @@ const getRepliesByReviewId = async (
  */
 const addReply = async (
   reviewId: string,
-  reply: { replyBy: ObjectIdType; reply: string }
+  reply: { replyBy: string; reply: string }
 ): Promise<CustomResponseType<void>> => {
   try {
     await Review.findByIdAndUpdate(reviewId, {
-      $push: { replies: reply },
+      $push: { replies: { reply: reply.reply, replyBy: new ObjectId(reply.replyBy) } },
     });
     return {
       message: 'Reply added successfully',
@@ -248,7 +258,7 @@ const addReply = async (
       code: 200,
     };
   } catch (error) {
-    console.log(error);
+    console.error(error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -256,6 +266,7 @@ const addReply = async (
     };
   }
 };
+
 /**
  * Deletes a reply from a specific review.
  * @param reviewId - The ID of the review.
@@ -273,7 +284,7 @@ const deleteReply = async (reviewId: string, replyId: string, replyBy: string): 
       code: 200,
     };
   } catch (error) {
-    console.log(error);
+    console.error(error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -282,7 +293,102 @@ const deleteReply = async (reviewId: string, replyId: string, replyBy: string): 
   }
 };
 
-export const ReviewService = {
+/**
+ * Creates a new review.
+ * @param reviewData - The data for the new review.
+ */
+const createReview = async (reviewData: IReview): Promise<CustomResponseType<ReviewType>> => {
+  try {
+    //logic to check if user ordered a product
+
+    const newReview = new Review(reviewData);
+    await newReview.save();
+
+    return {
+      message: 'Review created successfully',
+      data: newReview,
+      code: 201,
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Updates an existing review.
+ * @param reviewId - The ID of the review to update.
+ * @param reviewData - The updated data for the review.
+ */
+const updateReview = async (
+  reviewId: string,
+  reviewData: Pick<IReview, 'review' | 'rating'>
+): Promise<CustomResponseType<IReview | null>> => {
+  try {
+    const updatedReview = await Review.findByIdAndUpdate(reviewId, reviewData);
+    if (!updatedReview) {
+      return {
+        message: 'Review not found',
+        data: null,
+        code: 404,
+      };
+    }
+    return {
+      message: 'Review updated successfully',
+      data: null,
+      code: 200,
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Deletes a review.
+ * @param reviewId - The ID of the review to delete.
+ */
+const deleteReview = async ({
+  reviewId,
+  reviewBy,
+}: {
+  reviewId: string;
+  reviewBy: string;
+}): Promise<CustomResponseType<void>> => {
+  try {
+    const deleteReview = await Review.deleteOne({ _id: reviewId, reviewBy });
+    if (deleteReview.deletedCount === 0) {
+      return {
+        message: 'Review not found or not deleted',
+        data: null,
+        code: 404,
+      };
+    }
+    await Reply.deleteMany({ review: reviewId });
+    return {
+      message: 'Review deleted successfully',
+      data: null,
+      code: 200,
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+const ReviewService = {
   likeReview,
   unlikeReview,
   isLikedByUser,
@@ -291,6 +397,10 @@ export const ReviewService = {
   getRepliesByReviewId,
   addReply,
   deleteReply,
+  createReview,
+  updateReview,
+  deleteReview,
 };
 
+export default ReviewService;
 // TODO: scaling issue of max likes and max replies allowed

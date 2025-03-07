@@ -1,5 +1,4 @@
-import mongoose from 'mongoose';
-const { ObjectId } = mongoose.Schema;
+import mongoose, { InferSchemaType } from 'mongoose';
 
 const userSchema = new mongoose.Schema(
   {
@@ -73,22 +72,13 @@ const userSchema = new mongoose.Schema(
         },
       },
     ],
-    wishlist: [
-      {
-        product: {
-          type: ObjectId,
-          ref: 'Product',
-        },
-        style: {
-          type: String,
-        },
-      },
-    ],
   },
   {
     timestamps: true,
   }
 );
+
+export type UserType = InferSchemaType<typeof userSchema>;
 const User = mongoose.model('User', userSchema);
 
 export default User;

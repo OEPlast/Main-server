@@ -102,6 +102,21 @@ const orderSchema = new mongoose.Schema(
       default: 'Not Processed',
       enum: ['Not Processed', 'Processing', 'Dispatched', 'Cancelled', 'Completed'],
     },
+    deliveryStatus: {
+      type: String,
+      default: 'Pending',
+      enum: ['Pending', 'Shipped', 'Out for Delivery', 'Delivered', 'Returned'],
+    },
+    deliveryProgress: [
+      {
+        date: {
+          type: Date,
+        },
+        place: {
+          type: String,
+        },
+      },
+    ],
     paidAt: {
       type: Date,
     },

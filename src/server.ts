@@ -6,6 +6,7 @@ import { morganMiddleware } from './middleware/morgan';
 import ProductsRoute from '@/routes/users/products';
 import connectDB from './lib/db';
 import ReviewRoute from './routes/general/review';
+import AuthRoute from '@/routes/auth/user';
 
 const app: Application = express();
 // Express Middlewares
@@ -19,6 +20,7 @@ app.use(morganMiddleware);
 // Root Route
 app.use('/products', ProductsRoute);
 app.use('/reviews', ReviewRoute);
+app.use('/auth', AuthRoute);
 
 // server Health Check
 app.get('/health-check', (req: Request, res: Response) => {
