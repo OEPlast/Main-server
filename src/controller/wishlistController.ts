@@ -1,24 +1,16 @@
+import WishlistService from '@/services/wishlist';
 import { Request, Response } from 'express';
-
-// Get all wishlist items
-const getWishlist = async (req: Request, res: Response) => {
-  try {
-    // Logic to get all wishlist items
-    res.status(200).json({ message: 'Wishlist retrieved successfully' });
-  } catch (error) {
-    console.error('Error in getWishlist:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
 
 // Add an item to the wishlist
 const addToWishlist = async (req: Request, res: Response) => {
   try {
-    // Logic to add an item to the wishlist
-    res.status(201).json({ message: 'Item added to wishlist successfully' });
+    const { product } = req.body;
+    const user = req.userId!;
+    const { data, message, code } = await WishlistService.createWishlist({ product, user });
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in addToWishlist:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -26,12 +18,43 @@ const addToWishlist = async (req: Request, res: Response) => {
 const removeFromWishlist = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    // Logic to remove an item from the wishlist
-    res.status(200).json({ message: 'Item removed from wishlist successfully' });
+    const user = req.userId!;
+    const { data, message, code } = await WishlistService.deleteWishlist({ id, user });
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in removeFromWishlist:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-export { getWishlist, addToWishlist, removeFromWishlist };
+// Get all wishlist items with pagination
+const getAllWishlists = async (req: Request, res: Response) => {
+  try {
+    const { page = 1, limit = 50 } = req.query;
+    const user = req.userId!;
+    const { data, message, code } = await WishlistService.getAllWishlists({
+      page: Number(page),
+      limit: Number(limit),
+      user,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getAllWishlists:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Get total wishlist count
+const getTotalWishlistCount = async (req: Request, res: Response) => {
+  try {
+    const user = req.userId!;
+    const { data, message, code } = await WishlistService.getTotalWishlistCount(user);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTotalWishlistCount:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const WishlistController = { addToWishlist, removeFromWishlist, getAllWishlists, getTotalWishlistCount };
+export default WishlistController;

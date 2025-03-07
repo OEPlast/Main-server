@@ -1,6 +1,39 @@
 import mongoose, { InferSchemaType } from 'mongoose';
 const { ObjectId } = mongoose.Schema;
 
+const subProductSchema = new mongoose.Schema({
+  _id: {
+    type: ObjectId,
+    default: new mongoose.Types.ObjectId(),
+  },
+  sku: String,
+  images: [],
+  description_images: [],
+  color: {
+    color: {
+      type: String,
+    },
+    image: {
+      type: String,
+    },
+  },
+  sizes: [
+    {
+      size: String,
+      qty: Number,
+      price: Number,
+    },
+  ],
+  discount: {
+    type: Number,
+    default: 0,
+  },
+  sold: {
+    type: Number,
+    default: 0,
+  },
+});
+
 const productSchema = new mongoose.Schema(
   {
     name: {
@@ -62,36 +95,7 @@ const productSchema = new mongoose.Schema(
       required: true,
       default: 0,
     },
-    subProducts: [
-      {
-        sku: String,
-        images: [],
-        description_images: [],
-        color: {
-          color: {
-            type: String,
-          },
-          image: {
-            type: String,
-          },
-        },
-        sizes: [
-          {
-            size: String,
-            qty: Number,
-            price: Number,
-          },
-        ],
-        discount: {
-          type: Number,
-          default: 0,
-        },
-        sold: {
-          type: Number,
-          default: 0,
-        },
-      },
-    ],
+    subProducts: [subProductSchema],
   },
   {
     timestamps: true,
