@@ -20,6 +20,10 @@ const replySchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  isAdmin: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 export type ReplyType = InferSchemaType<typeof replySchema>;

@@ -25,9 +25,13 @@ const SignData = (data: object, expires: SignOptions['expiresIn'] = '7d') => {
  * @param data - string to be decoded
  * @returns object data
  */
-const VerifyData = (data: string) => {
+const VerifyData = <T>(data: string): T => {
   try {
-    return jwt.verify(data, JWT_SECRET);
+    const decoded = jwt.verify(data, JWT_SECRET);
+    if (typeof decoded === 'object' && decoded !== null) {
+      return decoded as T;
+    }
+    throw new Error('Decoded token is not of the expected type');
   } catch (error) {
     if (error instanceof Error) {
       console.log(error.message);

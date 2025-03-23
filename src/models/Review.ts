@@ -41,8 +41,14 @@ const reviewSchema = new mongoose.Schema(
     ],
     replies: [
       {
-        type: ObjectId,
-        ref: 'Reply',
+        _id: { type: mongoose.Schema.Types.ObjectId, auto: true },
+        reply: {
+          type: String,
+        },
+        replyBy: {
+          type: ObjectId,
+          ref: 'User',
+        },
       },
     ],
   },

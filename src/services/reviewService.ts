@@ -240,34 +240,6 @@ const getRepliesByReviewId = async (
 };
 
 /**
- * Adds a reply to a specific review.
- * @param reviewId - The ID of the review to reply to.
- * @param reply - The reply data including the user ID and the reply text.
- */
-const addReply = async (
-  reviewId: string,
-  reply: { replyBy: string; reply: string }
-): Promise<CustomResponseType<void>> => {
-  try {
-    await Review.findByIdAndUpdate(reviewId, {
-      $push: { replies: { reply: reply.reply, replyBy: new ObjectId(reply.replyBy) } },
-    });
-    return {
-      message: 'Reply added successfully',
-      data: null,
-      code: 200,
-    };
-  } catch (error) {
-    console.error(error);
-    return {
-      message: 'Something went wrong',
-      data: null,
-      code: 500,
-    };
-  }
-};
-
-/**
  * Deletes a reply from a specific review.
  * @param reviewId - The ID of the review.
  * @param replyId - The ID of the reply to delete.
@@ -388,6 +360,202 @@ const deleteReview = async ({
   }
 };
 
+/**
+ * Get all reviews for one product with pagination.
+ * This function retrieves paginated reviews for a specific product, including user details, likes count, and replies count.
+ * @param productId - The ID of the product to retrieve reviews for.
+ * @param page - The page number for pagination (default is 1).
+ * @param limit - The maximum number of reviews to return per page (default is 10).
+ * @returns A paginated array of reviews for the specified product.
+ */
+const allReviews = async (
+  productId: string,
+  page: number = 1,
+  limit: number = 10
+): Promise<CustomResponseType<IReview[]>> => {
+  try {
+    const reviews = await Review.aggregate([
+      { $match: { product: new ObjectId(productId) } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'reviewBy',
+          foreignField: '_id',
+          as: 'userDetails',
+        },
+      },
+      { $unwind: '$userDetails' },
+      {
+        $project: {
+          _id: 1,
+          reviewBy: {
+            _id: '$reviewBy',
+            name: { $concat: ['$userDetails.firstname', ' ', '$userDetails.lastname'] },
+            image: '$userDetails.image',
+          },
+          review: 1,
+          rating: 1,
+          product: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          images: 1,
+          size: 1,
+          style: 1,
+          fit: 1,
+          likesCount: { $size: '$likes' },
+          repliesCount: { $size: '$replies' },
+        },
+      },
+      { $sort: { createdAt: -1 } }, // Sort by creation date in descending order
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+    ]);
+
+    return {
+      message: 'Reviews retrieved successfully',
+      data: reviews,
+      code: 200,
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Get all of a user reviews with pagination.
+ * This function retrieves paginated reviews for a specific product, including user details, likes count, and replies count.
+ * @param userId - The ID of the product to retrieve reviews for.
+ * @param page - The page number for pagination (default is 1).
+ * @param limit - The maximum number of reviews to return per page (default is 10).
+ * @returns A paginated array of reviews for the specified product.
+ */
+const userReviews = async (
+  userId: string,
+  page: number = 1,
+  limit: number = 10
+): Promise<CustomResponseType<IReview[]>> => {
+  try {
+    const reviews = await Review.aggregate([
+      { $match: { reviewBy: new ObjectId(userId) } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'reviewBy',
+          foreignField: '_id',
+          as: 'userDetails',
+        },
+      },
+      { $unwind: '$userDetails' },
+      {
+        $project: {
+          _id: 1,
+          reviewBy: {
+            _id: '$reviewBy',
+            name: { $concat: ['$userDetails.firstname', ' ', '$userDetails.lastname'] },
+            image: '$userDetails.image',
+          },
+          review: 1,
+          rating: 1,
+          product: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          images: 1,
+          size: 1,
+          style: 1,
+          fit: 1,
+          likesCount: { $size: '$likes' },
+          repliesCount: { $size: '$replies' },
+        },
+      },
+      { $sort: { createdAt: -1 } }, // Sort by creation date in descending order
+      { $skip: (page - 1) * limit },
+      { $limit: limit },
+    ]);
+
+    return {
+      message: 'Reviews retrieved successfully',
+      data: reviews,
+      code: 200,
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Get the single review of a user for a specific product.
+ * This function retrieves the single review for a specific product made by a specific user.
+ * @param userId - The ID of the user to retrieve the review for.
+ * @param productId - The ID of the product to retrieve the review for.
+ * @returns The review for the specified product by the user.
+ */
+const userReviewPerProduct = async ({
+  userId,
+  productId,
+}: {
+  userId: string;
+  productId: string;
+}): Promise<CustomResponseType<IReview | null>> => {
+  try {
+    const review = await Review.aggregate([
+      { $match: { reviewBy: new ObjectId(userId), product: new ObjectId(productId) } },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'reviewBy',
+          foreignField: '_id',
+          as: 'userDetails',
+        },
+      },
+      { $unwind: '$userDetails' },
+      {
+        $project: {
+          _id: 1,
+          reviewBy: {
+            _id: '$reviewBy',
+            name: { $concat: ['$userDetails.firstname', ' ', '$userDetails.lastname'] },
+            image: '$userDetails.image',
+          },
+          review: 1,
+          rating: 1,
+          product: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          images: 1,
+          size: 1,
+          style: 1,
+          fit: 1,
+          likesCount: { $size: '$likes' },
+          repliesCount: { $size: '$replies' },
+        },
+      },
+    ]);
+
+    return {
+      message: 'User review for product retrieved successfully',
+      data: review.length > 0 ? review[0] : null,
+      code: 200,
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const ReviewService = {
   likeReview,
   unlikeReview,
@@ -395,11 +563,13 @@ const ReviewService = {
   getLikeCount,
   getReviewsByProductId,
   getRepliesByReviewId,
-  addReply,
   deleteReply,
   createReview,
   updateReview,
   deleteReview,
+  allReviews,
+  userReviews,
+  userReviewPerProduct,
 };
 
 export default ReviewService;

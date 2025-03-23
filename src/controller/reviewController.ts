@@ -4,8 +4,10 @@ import ReviewService from '@/services/reviewService';
 // Get all reviews
 const getReviews = async (req: Request, res: Response) => {
   try {
-    // Logic to get all reviews
-    res.status(200).json({ message: 'Reviews retrieved successfully' });
+    const { product } = req.body;
+    const { page } = req.params;
+    const { code, message, data } = await ReviewService.allReviews(product, ~~page);
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getReviews:', error);
     return res.status(404).json({ error: 'Something went wrong' });
@@ -139,6 +141,32 @@ const deleteReply = async (req: Request, res: Response) => {
   }
 };
 
+// get all the review a user has made
+const getUserReviews = async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId;
+    const { page } = req.params;
+    const { data, message, code } = await ReviewService.userReviews(userId!, ~~page);
+    return res.status(code).json({ data, message });
+  } catch (error) {
+    console.error('Error in deleteReply:', error);
+    return res.status(404).json({ error: 'Something went wrong' });
+  }
+};
+
+// get the review a user has made for a product
+const getUserProductReview = async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId;
+    const { product } = req.params;
+    const { data, message, code } = await ReviewService.userReviewPerProduct({ productId: product, userId: userId! });
+    return res.status(code).json({ data, message });
+  } catch (error) {
+    console.error('Error in deleteReply:', error);
+    return res.status(404).json({ error: 'Something went wrong' });
+  }
+};
+
 const ReviewController = {
   getReviews,
   createReview,
@@ -150,6 +178,8 @@ const ReviewController = {
   getLikeCount,
   addReply,
   deleteReply,
+  getUserReviews,
+  getUserProductReview,
 };
 
 export default ReviewController;
