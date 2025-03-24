@@ -1,7 +1,9 @@
+import { UserType } from '@/models/User';
+
 declare module 'express' {
   export interface Request {
     userId?: string;
-    role?: string;
+    role?: UserType['role'];
   }
 }
 

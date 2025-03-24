@@ -1,3 +1,4 @@
+import { UserType } from '@/models/User';
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
@@ -9,7 +10,7 @@ export const isAuthenticated = (req: Request, res: Response, next: NextFunction)
     return res.status(401).json({ message: 'No token provided' });
   }
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: UserType['role'] };
     req.userId = decoded.userId;
     req.role = decoded.role;
     next();
@@ -19,7 +20,7 @@ export const isAuthenticated = (req: Request, res: Response, next: NextFunction)
 };
 
 export const isAdmin = (req: Request, res: Response, next: NextFunction) => {
-  if (req.role !== 'admin') {
+  if (req.role !== 'owner' || 'manager' || 'employee') {
     return res.status(403).json({ message: 'Access denied' });
   }
   next();
