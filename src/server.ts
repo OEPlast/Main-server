@@ -7,8 +7,9 @@ import ProductsRoute from '@/routes/users/products';
 import connectDB from './lib/db';
 import ReviewRoute from './routes/general/review';
 import AuthRoute from '@/routes/auth/user';
-import AdminProductRoute from '@/routes/admin/product';
+
 import WishlistRoute from '@/routes/users/wishlist';
+import { AdminGalleryRoute, AdminProductRoute, AdminRoleRoute } from './routes/admin';
 const app: Application = express();
 // Express Middlewares
 envConfig();
@@ -20,11 +21,15 @@ app.use(morganMiddleware);
 
 // Root Route
 app.use('/products', ProductsRoute);
-app.use('/admin/product', AdminProductRoute);
 app.use('/reviews', ReviewRoute);
 app.use('/auth', AuthRoute);
 app.use('/wishlist', WishlistRoute);
-
+//------------------
+//admin
+app.use('/admin/product', AdminProductRoute);
+app.use('/admin/gallery', AdminGalleryRoute);
+app.use('/admin/roles', AdminRoleRoute);
+//------------------
 // server Health Check
 app.get('/health-check', (req: Request, res: Response) => {
   res.status(200).json({ message: 'Server is up and running!' });

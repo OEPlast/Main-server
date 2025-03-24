@@ -1,0 +1,10 @@
+export { default as AdminProductRoute } from './product';
+export { default as AdminGalleryRoute } from './gallery';
+export { default as AdminCategoryRoute } from './category';
+export { default as AdminCouponRoute } from './coupon';
+export { default as AdminInfoRoute } from './info';
+export { default as AdminOrderRoute } from './order';
+export { default as AdminReviewRoute } from './review';
+export { default as AdminRoleRoute } from './role';
+export { default as AdminSubCategoryRoute } from './subcategory';
+export { default as AdminUsersRoute } from './users';

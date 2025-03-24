@@ -7,7 +7,7 @@ declare module 'express' {
   }
 }
 
-export interface CustomResponseType<T> {
+export interface CustomResponseType<T = undefined> {
   message: string;
   data: T | null;
   code: number;
