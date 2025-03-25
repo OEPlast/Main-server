@@ -9,7 +9,7 @@ import ReviewRoute from './routes/general/review';
 import AuthRoute from '@/routes/auth/user';
 
 import WishlistRoute from '@/routes/users/wishlist';
-import { AdminGalleryRoute, AdminProductRoute, AdminRoleRoute } from './routes/admin';
+import { AdminAttributeRoute, AdminGalleryRoute, AdminProductRoute, AdminRoleRoute } from './routes/admin';
 const app: Application = express();
 // Express Middlewares
 envConfig();
@@ -29,6 +29,7 @@ app.use('/wishlist', WishlistRoute);
 app.use('/admin/product', AdminProductRoute);
 app.use('/admin/gallery', AdminGalleryRoute);
 app.use('/admin/roles', AdminRoleRoute);
+app.use('/admin/attributes', AdminAttributeRoute);
 //------------------
 // server Health Check
 app.get('/health-check', (req: Request, res: Response) => {
