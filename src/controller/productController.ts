@@ -1,10 +1,12 @@
 import { Request, Response } from 'express';
+import ProductService from '../services/productService';
 
 // Get all products
 const getAllProducts = async (req: Request, res: Response) => {
   try {
-    // Logic to get all products
-    res.status(200).json({ message: 'Products retrieved successfully' });
+    const filters = req.query;
+    const { data, message, code } = await ProductService.getAllProducts(filters);
+    res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getAllProducts:', error);
     res.status(500).json({ error: 'Internal server error' });
@@ -70,9 +72,9 @@ const getProductsByCategory = async (req: Request, res: Response) => {
 // Get product by ID
 const getProductById = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    // Logic to get product by ID
-    res.status(200).json({ message: 'Product retrieved successfully' });
+    const { productId } = req.params;
+    const { data, message, code } = await ProductService.getProductById(productId);
+    res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getProductById:', error);
     res.status(500).json({ error: 'Internal server error' });

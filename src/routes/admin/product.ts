@@ -5,18 +5,6 @@ import ProductController from '@/controller/admin/ProductController';
 
 const router = express.Router();
 
-// Get all products
-router.get('/', isAuthenticated, isAdmin, ProductValidator.getAllProductsValidator, ProductController.getAllProducts);
-
-// Search products
-router.get(
-  '/search',
-  isAuthenticated,
-  isAdmin,
-  ProductValidator.searchProductsValidator,
-  ProductController.searchProducts
-);
-
 // Get product by ID
 router.get(
   '/:id',
@@ -59,13 +47,13 @@ router.delete(
   ProductController.deleteProduct
 );
 
-// Delete sub-product
-router.delete(
-  '/:id/sub/:subId',
+// update cover image
+router.patch(
+  '/coverImage/update/:id',
   isAuthenticated,
   isAdmin,
-  ProductValidator.deleteSubProductValidator,
-  ProductController.deleteSubProduct
+  ProductValidator.updateCoverImageValidator,
+  ProductController.updateCoverImage
 );
 
 export default router;

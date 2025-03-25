@@ -1,22 +1,13 @@
 import { Request, Response } from 'express';
-import ProductService from '@/services/admin/Product';
-
-// Get all products
-const getAllProducts = async (req: Request, res: Response) => {
-  try {
-    const { page, limit } = req.query;
-    const { data, code, message } = await ProductService.getAllProducts(Number(page), Number(limit));
-    return res.status(code).json({ data, message });
-  } catch (error) {
-    console.error('Error in getAllProducts:', error);
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-};
+import Admin_ProductService from '../../services/admin/Product';
 
 // Search products
-const searchProducts = async (req: Request, res: Response) => {
+const updateCoverImage = async (req: Request, res: Response) => {
   try {
-    const { data, code, message } = await ProductService.searchProducts(req.query);
+    const { id } = req.params;
+    const { imageUrl } = req.body;
+
+    const { data, code, message } = await Admin_ProductService.updateCoverImage(id, imageUrl);
     return res.status(code).json({ data, message });
   } catch (error) {
     console.error('Error in searchProducts:', error);
@@ -28,7 +19,7 @@ const searchProducts = async (req: Request, res: Response) => {
 const getProductById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { data, code, message } = await ProductService.getProductById(id);
+    const { data, code, message } = await Admin_ProductService.getProductById(id);
     return res.status(code).json({ data, message });
   } catch (error) {
     console.error('Error in getProductById:', error);
@@ -36,85 +27,91 @@ const getProductById = async (req: Request, res: Response) => {
   }
 };
 
-// Create product
-const createProduct = async (req: Request, res: Response) => {
+// Duplicate product
+const duplicateProduct = async (req: Request, res: Response) => {
   try {
-    const { data, code, message } = await ProductService.createProduct(req.body);
-    return res.status(code).json({ data, message });
+    const { id } = req.params;
+    const { data, message, code } = await Admin_ProductService.duplicateProduct(id);
+    return res.status(code).json({ message, data });
   } catch (error) {
-    console.error('Error in createProduct:', error);
-    return res.status(500).json({ error: 'Something went wrong' });
+    console.error('Error in addProduct:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-// Update product
+// Update product details
 const updateProduct = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const { data, code, message } = await ProductService.updateProduct(id, req.body);
-    return res.status(code).json({ data, message });
+    const { productId } = req.params;
+    const productData = req.body;
+    const { data, message, code } = await Admin_ProductService.updateProduct(productId, productData);
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in updateProduct:', error);
-    return res.status(500).json({ error: 'Something went wrong' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-// Update sub-product
-const addSubProduct = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { data, code, message } = await ProductService.addSubProduct(id, req.body);
-    return res.status(code).json({ data, message });
-  } catch (error) {
-    console.error('Error in addSubProduct:', error);
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-};
-// Update sub-product
-const updateSubProduct = async (req: Request, res: Response) => {
-  try {
-    const { id, subId } = req.params;
-    const { data, code, message } = await ProductService.updateSubProduct(id, subId, req.body);
-    return res.status(code).json({ data, message });
-  } catch (error) {
-    console.error('Error in updateSubProduct:', error);
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-};
-
-// Delete product
+// Delete a product
 const deleteProduct = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    const { data, code, message } = await ProductService.deleteProduct(id);
-    return res.status(code).json({ data, message });
+    const { productId } = req.params;
+    const { message, code } = await Admin_ProductService.deleteProduct(productId);
+    res.status(code).json({ message });
   } catch (error) {
     console.error('Error in deleteProduct:', error);
-    return res.status(500).json({ error: 'Something went wrong' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-// Delete sub-product
-const deleteSubProduct = async (req: Request, res: Response) => {
+// Create a product
+const createProduct = async (req: Request, res: Response) => {
   try {
-    const { id, subId } = req.params;
-    const { data, code, message } = await ProductService.deleteSubProduct(id, subId);
-    return res.status(code).json({ data, message });
+    const {
+      name,
+      description,
+      brand,
+      price,
+      category,
+      subCategories,
+      description_images,
+      specifications,
+      shipping,
+      deliveryTime,
+      attributes,
+      tags,
+      stock,
+      discount,
+    } = req.body;
+    const { message, code, data } = await Admin_ProductService.createProduct({
+      name,
+      description,
+      brand,
+      price,
+      category,
+      subCategories,
+      description_images,
+      specifications,
+      shipping,
+      deliveryTime,
+      attributes,
+      tags,
+      stock,
+      discount,
+    });
+    return res.status(code).json({ message, data });
   } catch (error) {
-    console.error('Error in deleteSubProduct:', error);
-    return res.status(500).json({ error: 'Something went wrong' });
+    console.error('Error in deleteProduct:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-const ProductController = {
-  getAllProducts,
-  searchProducts,
-  getProductById,
+const Admin_ProductController = {
   createProduct,
+  updateCoverImage,
+  getProductById,
+  duplicateProduct,
   updateProduct,
-  updateSubProduct,
   deleteProduct,
-  deleteSubProduct,
-  addSubProduct,
 };
-export default ProductController;
+export default Admin_ProductController;

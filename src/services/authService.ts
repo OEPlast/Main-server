@@ -36,7 +36,7 @@ const signup = async (userData: {
       };
     }
 
-    const token = tokenizer.SignData({ userId: newUser._id });
+    const token = tokenizer.SignData({ userId: newUser._id, role: newUser.role });
 
     // Send the OTP code to the user (e.g., via email or SMS)
     // For now, we assume the OTP code is returned in the response for testing purposes.
@@ -92,7 +92,7 @@ const login = async ({
         code: 401,
       };
     }
-    const token = tokenizer.SignData({ userId: user._id });
+    const token = tokenizer.SignData({ userId: user._id, role: user.role });
     return {
       message: 'Login successful',
       data: { ...user, token },

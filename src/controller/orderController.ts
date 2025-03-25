@@ -1,12 +1,26 @@
 import { Request, Response } from 'express';
+import { getUserOrders, createOrder } from '../services/orderService';
 
-// Get all orders
-const getOrders = async (req: Request, res: Response) => {
+// Get all orders for a user
+export const getOrders = async (req: Request, res: Response) => {
   try {
-    // Logic to get all orders
-    res.status(200).json({ message: 'Orders retrieved successfully' });
+    const userId = req.userId!;
+    const { data, message, code } = await getUserOrders(userId);
+    res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getOrders:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Place a new order
+export const placeOrder = async (req: Request, res: Response) => {
+  try {
+    const orderData = req.body;
+    const { data, message, code } = await createOrder(orderData);
+    res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in placeOrder:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -19,17 +33,6 @@ const getOrderById = async (req: Request, res: Response) => {
     res.status(200).json({ message: 'Order retrieved successfully' });
   } catch (error) {
     console.error('Error in getOrderById:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Create a new order
-const createOrder = async (req: Request, res: Response) => {
-  try {
-    // Logic to create a new order
-    res.status(201).json({ message: 'Order created successfully' });
-  } catch (error) {
-    console.error('Error in createOrder:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -58,4 +61,4 @@ const deleteOrder = async (req: Request, res: Response) => {
   }
 };
 
-export { getOrders, getOrderById, createOrder, updateOrder, deleteOrder };
+export { getOrders, getOrderById, placeOrder, updateOrder, deleteOrder };

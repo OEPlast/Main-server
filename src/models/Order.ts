@@ -2,6 +2,11 @@ import mongoose from 'mongoose';
 
 const { ObjectId } = mongoose.Schema;
 
+const shippingProgressSchema = new mongoose.Schema({
+  location: { type: String, required: true },
+  date: { type: Date, required: true },
+});
+
 const orderSchema = new mongoose.Schema(
   {
     user: {
@@ -117,6 +122,7 @@ const orderSchema = new mongoose.Schema(
         },
       },
     ],
+    shippingProgress: [shippingProgressSchema],
     paidAt: {
       type: Date,
     },
