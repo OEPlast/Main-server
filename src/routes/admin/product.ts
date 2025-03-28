@@ -1,7 +1,7 @@
 import express from 'express';
 import ProductValidator from '@/validators/admin/Products';
 import { isAdmin, isAuthenticated } from '@/middleware/auth';
-import ProductController from '@/controller/admin/ProductController';
+import Admin_ProductController from '@/controller/admin/ProductController';
 
 const router = express.Router();
 
@@ -11,32 +11,29 @@ router.get(
   isAuthenticated,
   isAdmin,
   ProductValidator.getProductByIdValidator,
-  ProductController.getProductById
+  Admin_ProductController.getProductById
 );
 
 // Create product
-router.post('/', isAuthenticated, isAdmin, ProductValidator.createProductValidator, ProductController.createProduct);
-
-// Update product
-router.put('/:id', isAuthenticated, isAdmin, ProductValidator.updateProductValidator, ProductController.updateProduct);
-
-// create sub-product
 router.post(
-  '/:id/sub',
+  '/',
   isAuthenticated,
   isAdmin,
-  ProductValidator.addSubProductValidator,
-  ProductController.addSubProduct
+  ProductValidator.createProductValidator,
+  Admin_ProductController.createProduct
+);
+
+// Update product
+router.patch(
+  '/:id',
+  isAuthenticated,
+  isAdmin,
+  ProductValidator.updateProductValidator,
+  Admin_ProductController.updateProduct
 );
 
 // Update sub-product
-router.put(
-  '/:id/sub/:subId',
-  isAuthenticated,
-  isAdmin,
-  ProductValidator.updateSubProductValidator,
-  ProductController.updateSubProduct
-);
+router.post('/duplicate/:id', isAuthenticated, isAdmin, Admin_ProductController.duplicateProduct);
 
 // Delete product
 router.delete(
@@ -44,7 +41,7 @@ router.delete(
   isAuthenticated,
   isAdmin,
   ProductValidator.deleteProductValidator,
-  ProductController.deleteProduct
+  Admin_ProductController.deleteProduct
 );
 
 // update cover image
@@ -53,7 +50,7 @@ router.patch(
   isAuthenticated,
   isAdmin,
   ProductValidator.updateCoverImageValidator,
-  ProductController.updateCoverImage
+  Admin_ProductController.updateCoverImage
 );
 
 export default router;
