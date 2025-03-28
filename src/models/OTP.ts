@@ -18,14 +18,12 @@ const otpSchema = new mongoose.Schema(
       required: true,
       match: /^\d{6}$/, // Ensures the code is a 6-digit number
     },
+    createdAt: { type: Date, default: Date.now, expires: 60 * 6 },
   },
   {
     timestamps: true,
   }
 );
-
-// Set the document to expire 6 minutes after creation
-otpSchema.index({ createdAt: 1 }, { expireAfterSeconds: 600 });
 
 export type OtpType = InferSchemaType<typeof otpSchema>;
 const OTP = mongoose.model('otp', otpSchema);

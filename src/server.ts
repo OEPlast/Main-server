@@ -8,6 +8,7 @@ import connectDB from './lib/db';
 import ReviewRoute from './routes/general/review';
 import AuthRoute from '@/routes/auth/user';
 import OrderRoute from '@/routes/users/orders';
+import CartRoute from '@/routes/users/cart';
 
 import WishlistRoute from '@/routes/users/wishlist';
 import {
@@ -33,6 +34,8 @@ app.use('/reviews', ReviewRoute);
 app.use('/auth', AuthRoute);
 app.use('/wishlist', WishlistRoute);
 app.use('/orders', OrderRoute);
+app.use('/carts', CartRoute);
+
 //------------------
 //admin
 app.use('/admin/product', AdminProductRoute);

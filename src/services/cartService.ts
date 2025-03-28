@@ -1,14 +1,32 @@
-import Cart from '../models/Cart';
+import Cart, { CartType } from '../models/Cart';
 import Product from '../models/Product';
 import { CustomResponseType } from '../types';
+
+type PopulatedProduct = {
+  product: {
+    name: string;
+    price: number;
+  };
+  qty: number;
+  price: number;
+  attributes: { name: string; value: string }[];
+};
+
+// Define the populated cart type
+type PopulatedCartType = Omit<CartType, 'products'> & {
+  products: PopulatedProduct[];
+};
 
 /**
  * Fetches the cart items for a user.
  * @param userId - The ID of the user.
  */
-const getCartItems = async (userId: string): Promise<CustomResponseType<any>> => {
+const getCartItems = async (userId: string): Promise<CustomResponseType<PopulatedCartType>> => {
   try {
-    const cartItems = await Cart.find({ user: userId }).populate('products.product');
+    const cartItems = (await Cart.findOne({ user: userId }).populate({
+      path: 'products.product',
+      select: 'name price',
+    })) as unknown as PopulatedCartType;
     return {
       message: 'Cart items retrieved successfully',
       data: cartItems,
@@ -29,8 +47,14 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<any>> =>
  * @param userId - The ID of the user.
  * @param productId - The ID of the product.
  * @param qty - The quantity to add.
+ * @param attributes - The attributes of the product.
  */
-const addToCart = async (userId: string, productId: string, qty: number): Promise<CustomResponseType<any>> => {
+const addToCart = async (
+  userId: string,
+  productId: string,
+  qty: number,
+  attributes: { name: string; value: string }[]
+): Promise<CustomResponseType<CartType>> => {
   try {
     const product = await Product.findById(productId);
     if (!product) {
@@ -41,11 +65,7 @@ const addToCart = async (userId: string, productId: string, qty: number): Promis
       };
     }
 
-    const totalStock = product.subProducts.reduce(
-      (total, subProduct) => total + subProduct.sizes.reduce((sum, size) => sum + size.qty, 0),
-      0
-    );
-    if (qty > totalStock) {
+    if (qty > product.stock) {
       return {
         message: 'Insufficient stock',
         data: null,
@@ -53,25 +73,11 @@ const addToCart = async (userId: string, productId: string, qty: number): Promis
       };
     }
 
-    const cart = await Cart.findOne({ user: userId });
-    if (!cart) {
-      const newCart = new Cart({ user: userId, products: [{ product: productId, qty }] });
-      await newCart.save();
-      return {
-        message: 'Item added to cart successfully',
-        data: newCart,
-        code: 201,
-      };
-    }
-
-    const existingProduct = cart.products.find((item) => item.product.toString() === productId);
-    if (existingProduct) {
-      existingProduct.qty += qty;
-    } else {
-      cart.products.push({ product: productId, qty });
-    }
-
-    await cart.save();
+    const cart = await Cart.findOneAndUpdate(
+      { user: userId },
+      { $push: { products: { product: productId, qty, price: product.price, attributes } } },
+      { new: true }
+    );
     return {
       message: 'Item added to cart successfully',
       data: cart,
@@ -87,5 +93,99 @@ const addToCart = async (userId: string, productId: string, qty: number): Promis
   }
 };
 
-const CartService = { getCartItems, addToCart };
+/**
+ * Clears the entire cart for a user.
+ * @param userId - The ID of the user.
+ */
+const clearCart = async (userId: string): Promise<CustomResponseType> => {
+  try {
+    const cart = await Cart.findOneAndDelete({ user: userId });
+    if (!cart) {
+      return {
+        message: 'Cart not found',
+        data: null,
+        code: 404,
+      };
+    }
+    return {
+      message: 'Cart cleared successfully',
+      data: null,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error clearing cart:', error);
+    return {
+      message: 'Failed to clear cart',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Removes an item from the cart.
+ * @param userId - The ID of the user.
+ * @param productId - The ID of the product to remove.
+ */
+const removeFromCart = async (userId: string, productId: string): Promise<CustomResponseType<CartType>> => {
+  try {
+    const cart = await Cart.findOneAndUpdate({ user: userId }, { $pull: { products: { product: productId } } });
+
+    if (!cart) {
+      return {
+        message: 'Cart not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    return {
+      message: 'Item removed from cart successfully',
+      data: cart,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error removing item from cart:', error);
+    return {
+      message: 'Failed to remove item from cart',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Updates the quantity of an item in the cart.
+ * @param userId - The ID of the user.
+ * @param productId - The ID of the product to update.
+ * @param qty - The new quantity.
+ */
+const updateCartItem = async (
+  userId: string,
+  productId: string,
+  qty: number
+): Promise<CustomResponseType<CartType>> => {
+  try {
+    const cart = await Cart.findOneAndUpdate(
+      { user: userId, 'products.product': productId },
+      { $set: { 'products.$.qty': qty } },
+      { new: true }
+    );
+
+    return {
+      message: 'Cart item updated successfully',
+      data: cart,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error updating cart item:', error);
+    return {
+      message: 'Failed to update cart item',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+const CartService = { getCartItems, addToCart, removeFromCart, clearCart, updateCartItem };
 export default CartService;
