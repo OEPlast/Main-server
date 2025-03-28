@@ -1,4 +1,4 @@
-import mongoose from 'mongoose';
+import mongoose, { InferSchemaType } from 'mongoose';
 
 const { ObjectId } = mongoose.Schema;
 
@@ -20,25 +20,24 @@ const orderSchema = new mongoose.Schema(
           type: ObjectId,
           ref: 'Product',
         },
-        name: {
-          type: String,
-        },
-        image: {
-          type: String,
-        },
-        size: {
-          type: String,
-        },
         qty: {
           type: Number,
-        },
-        color: {
-          color: String,
-          image: String,
         },
         price: {
           type: Number,
         },
+        attributes: [
+          {
+            name: {
+              type: String,
+              required: true,
+            },
+            value: {
+              type: String,
+              required: true,
+            },
+          },
+        ],
       },
     ],
     shippingAddress: {
@@ -104,24 +103,14 @@ const orderSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      default: 'Not Processed',
-      enum: ['Not Processed', 'Processing', 'Dispatched', 'Cancelled', 'Completed'],
+      default: 'Pending',
+      enum: ['Pending', 'Processing', 'Cancelled', 'Completed'],
     },
     deliveryStatus: {
       type: String,
-      default: 'Pending',
-      enum: ['Pending', 'Shipped', 'Out for Delivery', 'Delivered', 'Returned'],
+      default: 'In-Warehouse',
+      enum: ['In-Warehouse', 'Shipped', 'Dispatched', 'Delivered', 'Returned'],
     },
-    deliveryProgress: [
-      {
-        date: {
-          type: Date,
-        },
-        place: {
-          type: String,
-        },
-      },
-    ],
     shippingProgress: [shippingProgressSchema],
     paidAt: {
       type: Date,
@@ -135,6 +124,11 @@ const orderSchema = new mongoose.Schema(
   }
 );
 
+// Added indexes for efficient filtering and searching
+orderSchema.index({ createdAt: 1 });
+orderSchema.index({ user: 1 });
+
+export type OrderType = InferSchemaType<typeof orderSchema>;
 const Order = mongoose.model('Order', orderSchema);
 
 export default Order;

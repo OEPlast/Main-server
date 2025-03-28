@@ -2,13 +2,23 @@ import { Request, Response } from 'express';
 import OrderService from '../../services/admin/Order';
 
 // Get all orders
-const getAllOrders = async (req: Request, res: Response) => {
+const getOrders = async (req: Request, res: Response) => {
   try {
-    const { data, message, code } = await OrderService.getAllOrders();
-    res.status(code).json({ message, data });
+    const { page = 1, limit = 10, status, deliveryStatus, orderId, customerId, startDate, endDate } = req.query;
+
+    const filters: Record<string, unknown> = {};
+    if (status) filters.status = status;
+    if (deliveryStatus) filters.deliveryStatus = deliveryStatus;
+    if (orderId) filters.orderId = orderId;
+    if (customerId) filters.customerId = customerId;
+    if (startDate && endDate)
+      filters.dateRange = { start: new Date(startDate as string), end: new Date(endDate as string) };
+
+    const { data, message, code } = await OrderService.getOrders(Number(page), Number(limit), filters);
+    return res.status(code).json({ message, data });
   } catch (error) {
-    console.error('Error in getAllOrders:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error in getOrders:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -17,23 +27,10 @@ const getOrderById = async (req: Request, res: Response) => {
   try {
     const { orderId } = req.params;
     const { data, message, code } = await OrderService.getOrderById(orderId);
-    res.status(code).json({ message, data });
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getOrderById:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Update order status
-const updateOrderStatus = async (req: Request, res: Response) => {
-  try {
-    const { orderId } = req.params;
-    const { status } = req.body;
-    const { message, code } = await OrderService.updateOrderStatus(orderId, status);
-    res.status(code).json({ message });
-  } catch (error) {
-    console.error('Error in updateOrderStatus:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -42,10 +39,10 @@ const cancelOrder = async (req: Request, res: Response) => {
   try {
     const { orderId } = req.params;
     const { message, code } = await OrderService.cancelOrder(orderId);
-    res.status(code).json({ message });
+    return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in cancelOrder:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -54,23 +51,11 @@ const updateDeliveryTimeline = async (req: Request, res: Response) => {
   try {
     const { orderId } = req.params;
     const { timeline } = req.body;
-    const { message, code } = await OrderService.updateDeliveryTimeline(orderId, timeline);
-    res.status(code).json({ message });
+    const { message, code, data } = await OrderService.updateDeliveryTimeline(orderId, timeline);
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in updateDeliveryTimeline:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Confirm an order
-const confirmOrder = async (req: Request, res: Response) => {
-  try {
-    const { orderId } = req.params;
-    const { message, code } = await OrderService.confirmOrder(orderId);
-    res.status(code).json({ message });
-  } catch (error) {
-    console.error('Error in confirmOrder:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -79,19 +64,33 @@ const rejectOrder = async (req: Request, res: Response) => {
   try {
     const { orderId } = req.params;
     const { message, code } = await OrderService.rejectOrder(orderId);
-    res.status(code).json({ message });
+    return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in rejectOrder:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-export {
-  getAllOrders,
+// Update order details
+const updateOrderDetails = async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const updates = req.body;
+    const { message, code, data } = await OrderService.updateOrderDetails(orderId, updates);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in updateOrderDetails:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const Admin_OrderController = {
+  getOrders,
   getOrderById,
-  updateOrderStatus,
   cancelOrder,
   updateDeliveryTimeline,
-  confirmOrder,
   rejectOrder,
+  updateOrderDetails,
 };
+
+export default Admin_OrderController;
