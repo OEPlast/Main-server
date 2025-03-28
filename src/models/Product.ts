@@ -1,37 +1,35 @@
 import mongoose, { InferSchemaType } from 'mongoose';
 const { ObjectId } = mongoose.Schema;
 
-const subProductSchema = new mongoose.Schema({
-  _id: {
-    type: ObjectId,
-    default: new mongoose.Types.ObjectId(),
+const attributeSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
   },
-  sku: String,
-  images: [],
-  description_images: [],
-  color: {
-    color: {
-      type: String,
-    },
-    image: {
-      type: String,
-    },
-  },
-  sizes: [
+  children: [
     {
-      size: String,
-      qty: Number,
-      price: Number,
+      name: {
+        type: String,
+        required: true,
+      },
+      price: {
+        type: Number,
+      },
+      discount: {
+        type: Number,
+        default: 0,
+      },
+      stock: {
+        type: Number,
+        required: true,
+        default: 0,
+      },
+      image: {
+        type: String,
+        required: true,
+      },
     },
   ],
-  discount: {
-    type: Number,
-    default: 0,
-  },
-  sold: {
-    type: Number,
-    default: 0,
-  },
 });
 
 const productSchema = new mongoose.Schema(
@@ -47,55 +45,70 @@ const productSchema = new mongoose.Schema(
     brand: {
       type: String,
     },
+    price: {
+      type: Number,
+      required: true,
+    },
     slug: {
       type: String,
       required: true,
       unique: true,
-      //lowercase: true,
     },
     category: {
       type: ObjectId,
       required: true,
       ref: 'Category',
     },
-    subCategories: [
+    subCategories: {
+      type: ObjectId,
+      ref: 'subCategory',
+    },
+    tags: [{ type: String }],
+    description_images: [
       {
-        type: ObjectId,
-        ref: 'subCategory',
+        url: { type: String, required: true },
+        cover_image: {
+          type: Boolean,
+          default: false,
+        },
       },
     ],
-    details: [
+    specifications: [
       {
-        name: String,
-        value: String,
+        key: {
+          type: String,
+          required: true,
+        },
+        value: {
+          type: String,
+          required: true,
+        },
       },
     ],
-    questions: [
-      {
-        question: String,
-        answer: String,
-      },
-    ],
-    refundPolicy: {
-      type: String,
-      default: '30 days',
-    },
-    rating: {
-      type: Number,
-      required: true,
-      default: 0,
-    },
-    numReviews: {
-      type: Number,
-      required: true,
-      default: 0,
-    },
     shipping: {
       type: Number,
       required: true,
       default: 0,
     },
-    subProducts: [subProductSchema],
+    deliveryTime: {
+      type: Number,
+      required: true,
+    },
+    attributes: [attributeSchema],
+    stock: {
+      type: Number,
+      required: true,
+      default: 0,
+    },
+    discount: {
+      type: Number,
+      default: 0,
+    },
+    status: {
+      type: String,
+      enum: ['active', 'inactive', 'archived'],
+      default: 'inactive',
+    },
   },
   {
     timestamps: true,
@@ -104,5 +117,4 @@ const productSchema = new mongoose.Schema(
 
 export type ProductType = InferSchemaType<typeof productSchema>;
 const Product = mongoose.model('Product', productSchema);
-
 export default Product;

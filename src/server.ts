@@ -3,13 +3,22 @@ import helmet from 'helmet';
 import cors from 'cors';
 import { config as envConfig } from 'dotenv';
 import { morganMiddleware } from './middleware/morgan';
-import ProductsRoute from '@/routes/users/products';
+import ProductsRoute from '@/routes/general/products';
 import connectDB from './lib/db';
 import ReviewRoute from './routes/general/review';
 import AuthRoute from '@/routes/auth/user';
+import OrderRoute from '@/routes/users/orders';
+import CartRoute from '@/routes/users/cart';
 
 import WishlistRoute from '@/routes/users/wishlist';
-import { AdminAttributeRoute, AdminGalleryRoute, AdminProductRoute, AdminRoleRoute } from './routes/admin';
+import {
+  AdminAttributeRoute,
+  AdminCategoryRoute,
+  AdminGalleryRoute,
+  AdminOrderRoute,
+  AdminProductRoute,
+  AdminRoleRoute,
+} from './routes/admin';
 const app: Application = express();
 // Express Middlewares
 envConfig();
@@ -24,12 +33,18 @@ app.use('/products', ProductsRoute);
 app.use('/reviews', ReviewRoute);
 app.use('/auth', AuthRoute);
 app.use('/wishlist', WishlistRoute);
+app.use('/orders', OrderRoute);
+app.use('/carts', CartRoute);
+
 //------------------
 //admin
 app.use('/admin/product', AdminProductRoute);
 app.use('/admin/gallery', AdminGalleryRoute);
 app.use('/admin/roles', AdminRoleRoute);
 app.use('/admin/attributes', AdminAttributeRoute);
+app.use('/admin/category', AdminCategoryRoute);
+app.use('/admin/orders', AdminOrderRoute);
+
 //------------------
 // server Health Check
 app.get('/health-check', (req: Request, res: Response) => {

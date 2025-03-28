@@ -165,8 +165,9 @@ const deleteProductValidator = (req: Request, res: Response, next: NextFunction)
 const getProductByIdValidator = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({
     id: {
+      in: ['params'],
       isString: true,
-      notEmpty: true,
+      optional: false,
       errorMessage: 'ID is required and should be a string',
     },
   });
@@ -334,7 +335,7 @@ const updateSubProductValidator = (req: Request, res: Response, next: NextFuncti
 };
 
 // Validator for deleting a sub-product
-const deleteSubProductValidator = (req: Request, res: Response, next: NextFunction) => {
+const updateCoverImageValidator = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({
     id: {
       in: ['params'],
@@ -342,11 +343,11 @@ const deleteSubProductValidator = (req: Request, res: Response, next: NextFuncti
       notEmpty: true,
       errorMessage: 'Product ID is required and should be a string',
     },
-    subId: {
-      in: ['params'],
+    imageUrl: {
+      in: ['body'],
       isString: true,
-      notEmpty: true,
-      errorMessage: 'Sub-product ID is required and should be a string',
+      optional: false,
+      errorMessage: 'imageUrl is required and should be a string',
     },
   });
 
@@ -366,7 +367,7 @@ const ProductValidator = {
   searchProductsValidator,
   getAllProductsValidator,
   updateSubProductValidator,
-  deleteSubProductValidator,
+  updateCoverImageValidator,
   addSubProductValidator,
 };
 

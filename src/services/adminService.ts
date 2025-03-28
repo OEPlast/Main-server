@@ -59,7 +59,7 @@ export const updateUserRole = async (userId: string, newRole: string): Promise<C
  * @param userId - The ID of the user to delete.
  * @returns A promise that resolves to a custom response indicating the result.
  */
-export const deleteUser = async (userId: string): Promise<CustomResponseType<null>> => {
+export const deleteUser = async (userId: string): Promise<CustomResponseType> => {
   try {
     const user = await User.findByIdAndDelete(userId);
     if (!user) {

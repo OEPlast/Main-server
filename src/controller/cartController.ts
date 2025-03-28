@@ -1,49 +1,73 @@
 import { Request, Response } from 'express';
+import CartService from '../services/cartService';
 
-// Get cart items
-const getCart = async (req: Request, res: Response) => {
+// Get cart items for a user
+export const getCart = async (req: Request, res: Response) => {
   try {
-    // Logic to get cart items
-    res.status(200).json({ message: 'Cart items retrieved successfully' });
+    const userId = req.userId!;
+    const { data, message, code } = await CartService.getCartItems(userId);
+    return res.status(code).json({ message, data });
   } catch (error) {
-    console.error('Error in getCart:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error in fetchCartItems:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 // Add an item to the cart
-const addToCart = async (req: Request, res: Response) => {
+export const addToCart = async (req: Request, res: Response) => {
   try {
-    // Logic to add an item to the cart
-    res.status(201).json({ message: 'Item added to cart successfully' });
+    const userId = req.userId!;
+    const { productId, qty, attributes } = req.body;
+    const { data, message, code } = await CartService.addToCart(userId, productId, qty, attributes);
+    return res.status(code).json({ message, data });
   } catch (error) {
-    console.error('Error in addToCart:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Update an item in the cart
-const updateCart = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    // Logic to update an item in the cart
-    res.status(200).json({ message: 'Cart item updated successfully' });
-  } catch (error) {
-    console.error('Error in updateCart:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('Error in addItemToCart:', error);
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 // Remove an item from the cart
-const removeFromCart = async (req: Request, res: Response) => {
+export const removeFromCart = async (req: Request, res: Response) => {
   try {
-    const { id } = req.params;
-    // Logic to remove an item from the cart
-    res.status(200).json({ message: 'Item removed from cart successfully' });
+    const userId = req.userId!;
+    const { productId } = req.params;
+    const { data, message, code } = await CartService.removeFromCart(userId, productId);
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in removeFromCart:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-export { getCart, addToCart, updateCart, removeFromCart };
+// Clear the cart for a user
+export const clearUserCart = async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const { message, code } = await CartService.clearCart(userId);
+    return res.status(code).json({ message });
+  } catch (error) {
+    console.error('Error in clearUserCart:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Update the quantity of an item in the cart
+export const updateCartItemQuantity = async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const { productId, qty } = req.body;
+    const { message, data, code } = await CartService.updateCartItem(userId, productId, qty);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in updateCartItemQuantity:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export default {
+  getCart,
+  addToCart,
+  removeFromCart,
+  clearUserCart,
+  updateCartItemQuantity,
+};
