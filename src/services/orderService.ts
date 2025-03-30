@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Order, { OrderType } from '../models/Order';
 import Product from '../models/Product';
 import { CustomResponseType } from '../types';
+import AnalyticsService from './AnalyticsService';
 
 /**
  * Fetches paginated orders for user with optional filters.
@@ -97,6 +98,12 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
     await session.commitTransaction();
     session.endSession();
 
+    // Track order analytics after successful transaction
+    // This runs independently and won't affect the response time
+    AnalyticsService.trackOrderPlaced(order._id.toString(), order.total).catch((err) =>
+      console.error('Failed to track order analytics:', err)
+    );
+
     return {
       message: 'Order placed successfully',
       data: order,
@@ -180,6 +187,12 @@ const cancelOrder = async (orderId: string, userId: string): Promise<CustomRespo
 
     await session.commitTransaction();
     session.endSession();
+
+    // Track order cancellation for analytics
+    // This runs independently and won't affect the response time
+    AnalyticsService.trackOrderReturned(orderId).catch((err) =>
+      console.error('Failed to track order return analytics:', err)
+    );
 
     return { message: 'Order canceled successfully', data: null, code: 200 };
   } catch (error) {

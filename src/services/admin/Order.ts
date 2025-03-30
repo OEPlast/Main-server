@@ -1,5 +1,6 @@
 import Order, { OrderType } from '../../models/Order';
 import { CustomResponseType } from '../../types';
+import AnalyticsService from '../AnalyticsService';
 
 /**
  * Fetches orders with optional filters and pagination.
@@ -95,6 +96,64 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<OrderTy
 };
 
 /**
+ * Updates order details for admin.
+ * @param orderId - The ID of the order to update.
+ * @param updates - The fields to update.
+ */
+const updateOrderDetails = async (
+  orderId: string,
+  updates: Partial<
+    Pick<OrderType, 'shippingProgress' | 'deliveryStatus' | 'status' | 'products' | 'shippingAddress' | 'deliveredAt'>
+  >
+): Promise<CustomResponseType<null>> => {
+  try {
+    const previousOrder = await Order.findById(orderId);
+    if (!previousOrder) {
+      return {
+        message: 'Order not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    await Order.findByIdAndUpdate(orderId, updates, { new: true });
+
+    // Track analytics for status changes
+    if (updates.status && previousOrder.status !== updates.status) {
+      // If the order was completed, track it as a successful sale
+      if (updates.status === 'Completed') {
+        AnalyticsService.trackOrderCompleted(orderId, previousOrder.total).catch((err) =>
+          console.error('Failed to track order completion analytics:', err)
+        );
+      }
+    }
+
+    // Track analytics for delivery status changes
+    if (updates.deliveryStatus && previousOrder.deliveryStatus !== updates.deliveryStatus) {
+      // Track returned orders for analytics
+      if (updates.deliveryStatus === 'Returned') {
+        AnalyticsService.trackOrderReturned(orderId).catch((err) =>
+          console.error('Failed to track order return analytics:', err)
+        );
+      }
+    }
+
+    return {
+      message: 'Order updated successfully',
+      data: null,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error updating order details:', error);
+    return {
+      message: 'Failed to update order',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
  * Cancels an order by its ID.
  * @param orderId - The ID of the order to cancel.
  */
@@ -108,6 +167,10 @@ const cancelOrder = async (orderId: string): Promise<CustomResponseType<null>> =
         code: 404,
       };
     }
+    // Track order cancellation analytics
+    AnalyticsService.trackOrderReturned(orderId).catch((err) =>
+      console.error('Failed to track order cancellation analytics:', err)
+    );
     return {
       message: 'Order canceled successfully',
       data: null,
@@ -176,43 +239,6 @@ const rejectOrder = async (orderId: string): Promise<CustomResponseType<null>> =
     console.error('Error rejecting order:', error);
     return {
       message: 'Failed to reject order',
-      data: null,
-      code: 500,
-    };
-  }
-};
-
-/**
- * Updates order details for admin.
- * @param orderId - The ID of the order to update.
- * @param updates - The fields to update.
- */
-const updateOrderDetails = async (
-  orderId: string,
-  updates: Partial<
-    Pick<OrderType, 'shippingProgress' | 'deliveryStatus' | 'status' | 'products' | 'shippingAddress' | 'deliveredAt'>
-  >
-): Promise<CustomResponseType<null>> => {
-  try {
-    const order = await Order.findByIdAndUpdate(orderId, updates);
-
-    if (!order) {
-      return {
-        message: 'Order not found',
-        data: null,
-        code: 404,
-      };
-    }
-
-    return {
-      message: 'Order updated successfully',
-      data: null,
-      code: 200,
-    };
-  } catch (error) {
-    console.error('Error updating order details:', error);
-    return {
-      message: 'Failed to update order',
       data: null,
       code: 500,
     };

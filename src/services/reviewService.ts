@@ -1,6 +1,7 @@
-import { ObjectId } from 'mongodb';
 import Review, { ReviewType } from '../models/Review';
 import Reply from '@/models/Reply';
+import { ObjectId } from 'mongodb';
+import AnalyticsService from './AnalyticsService';
 
 type IReview = {
   product: string;
@@ -275,6 +276,14 @@ const createReview = async (reviewData: IReview): Promise<CustomResponseType<Rev
 
     const newReview = new Review(reviewData);
     await newReview.save();
+
+    // Track review creation for analytics
+    // This runs independently and won't affect the response time
+    if (newReview._id && reviewData.product && reviewData.reviewBy) {
+      AnalyticsService.trackReviewCreated(newReview._id.toString(), reviewData.product, reviewData.reviewBy).catch(
+        (err) => console.error('Failed to track review analytics:', err)
+      );
+    }
 
     return {
       message: 'Review created successfully',

@@ -29,11 +29,13 @@ const searchProducts = async (req: Request, res: Response) => {
   }
 };
 
+// Enhanced analytics and recommendation functions
+
 // Get products of the week
 const getWeekProducts = async (req: Request, res: Response) => {
   try {
-    // Logic to get products of the week
-    return res.status(200).json({ message: 'Week products retrieved successfully' });
+    const { data, message, code } = await ProductService.getWeekProducts();
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getWeekProducts:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -43,8 +45,8 @@ const getWeekProducts = async (req: Request, res: Response) => {
 // Get top sold products
 const getTopSoldProducts = async (req: Request, res: Response) => {
   try {
-    // Logic to get top sold products
-    return res.status(200).json({ message: 'Top sold products retrieved successfully' });
+    const { data, message, code } = await ProductService.getTopSoldProducts();
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getTopSoldProducts:', error);
     return res.status(500).json({ error: 'Internal server error' });
@@ -54,8 +56,8 @@ const getTopSoldProducts = async (req: Request, res: Response) => {
 // Get hot sales products
 const getHotSalesProducts = async (req: Request, res: Response) => {
   try {
-    // Logic to get hot sales products
-    return res.status(200).json({ message: 'Hot sales products retrieved successfully' });
+    const { data, message, code } = await ProductService.getHotSalesProducts();
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getHotSalesProducts:', error);
     return res.status(500).json({ error: 'Internal server error' });

@@ -1,5 +1,7 @@
+import Order from '@/models/Order';
 import Product, { ProductType } from '../models/Product';
 import { CustomResponseType } from '../types';
+import AnalyticsService from './AnalyticsService';
 
 /**
  * Fetches all products with optional filters.
@@ -37,6 +39,13 @@ const getProductById = async (productId: string): Promise<CustomResponseType<Pro
         code: 404,
       };
     }
+
+    // Track product view for analytics
+    // This runs independently and won't affect the response time
+    AnalyticsService.trackProductView(productId).catch((err) =>
+      console.error('Failed to track product view analytics:', err)
+    );
+
     return {
       message: 'Product retrieved successfully',
       data: product,
@@ -197,11 +206,181 @@ const getProductsByCategoryAndSubCategory = async (
   }
 };
 
+/**
+ * Fetches products of the week based on orders placed in the last 7 days.
+ */
+const getWeekProducts = async (): Promise<CustomResponseType<ProductType[]>> => {
+  try {
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 7);
+
+    const weekProducts = await Order.aggregate([
+      { $match: { createdAt: { $gte: weekStart }, status: 'Completed' } },
+      { $unwind: '$products' },
+      {
+        $group: {
+          _id: '$products.product',
+          totalSold: { $sum: '$products.qty' },
+        },
+      },
+      { $sort: { totalSold: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'productDetails',
+        },
+      },
+      { $unwind: '$productDetails' },
+      { $replaceRoot: { newRoot: '$productDetails' } },
+    ]);
+
+    return {
+      message: 'Week products retrieved successfully',
+      data: weekProducts,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching week products:', error);
+    return {
+      message: 'Failed to fetch week products',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Fetches top sold products based on total sales from orders.
+ */
+const getTopSoldProducts = async (): Promise<CustomResponseType<ProductType[]>> => {
+  try {
+    const topProducts = await Order.aggregate([
+      { $match: { status: 'Completed' } },
+      { $unwind: '$products' },
+      {
+        $group: {
+          _id: '$products.product',
+          totalSold: { $sum: '$products.qty' },
+        },
+      },
+      { $sort: { totalSold: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'productDetails',
+        },
+      },
+      { $unwind: '$productDetails' },
+      { $replaceRoot: { newRoot: '$productDetails' } },
+    ]);
+
+    return {
+      message: 'Top sold products retrieved successfully',
+      data: topProducts,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching top sold products:', error);
+    return {
+      message: 'Failed to fetch top sold products',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Fetches hot sales products based on recent orders.
+ */
+const getHotSalesProducts = async (): Promise<CustomResponseType<ProductType[]>> => {
+  try {
+    const recentSalesThreshold = new Date();
+    recentSalesThreshold.setDate(recentSalesThreshold.getDate() - 30);
+
+    const hotProducts = await Order.aggregate([
+      { $match: { createdAt: { $gte: recentSalesThreshold }, status: 'Completed' } },
+      { $unwind: '$products' },
+      {
+        $group: {
+          _id: '$products.product',
+          totalSold: { $sum: '$products.qty' },
+        },
+      },
+      { $sort: { totalSold: -1 } },
+      { $limit: 10 },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'productDetails',
+        },
+      },
+      { $unwind: '$productDetails' },
+      { $replaceRoot: { newRoot: '$productDetails' } },
+    ]);
+
+    return {
+      message: 'Hot sales products retrieved successfully',
+      data: hotProducts,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching hot sales products:', error);
+    return {
+      message: 'Failed to fetch hot sales products',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Fetches product recommendations using advanced aggregation.
+ */
+const getProductRecommendations = async (userId: string): Promise<CustomResponseType<ProductType[]>> => {
+  try {
+    const recommendations = await Product.aggregate([
+      { $lookup: { from: 'orders', localField: '_id', foreignField: 'products.product', as: 'orderData' } },
+      { $unwind: '$orderData' },
+      { $match: { 'orderData.user': userId } },
+      { $group: { _id: '$_id', product: { $first: '$$ROOT' }, orderCount: { $sum: 1 } } },
+      { $sort: { orderCount: -1 } },
+      { $limit: 10 },
+      { $replaceRoot: { newRoot: '$product' } },
+    ]);
+
+    return {
+      message: 'Product recommendations retrieved successfully',
+      data: recommendations,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching product recommendations:', error);
+    return {
+      message: 'Failed to fetch product recommendations',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const ProductService = {
   getAllProducts,
   getProductById,
   getProductStock,
   searchProducts,
   getProductsByCategoryAndSubCategory,
+  getWeekProducts,
+  getTopSoldProducts,
+  getHotSalesProducts,
+  getProductRecommendations,
 };
+
 export default ProductService;
