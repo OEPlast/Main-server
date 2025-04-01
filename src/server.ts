@@ -9,10 +9,12 @@ import ReviewRoute from './routes/general/review';
 import AuthRoute from '@/routes/auth/user';
 import OrderRoute from '@/routes/users/orders';
 import CartRoute from '@/routes/users/cart';
+import BannersRoute from '@/routes/general/banners';
 
 import WishlistRoute from '@/routes/users/wishlist';
 import {
   AdminAttributeRoute,
+  AdminBannerRoute,
   AdminCategoryRoute,
   AdminGalleryRoute,
   AdminOrderRoute,
@@ -35,6 +37,7 @@ app.use('/auth', AuthRoute);
 app.use('/wishlist', WishlistRoute);
 app.use('/orders', OrderRoute);
 app.use('/carts', CartRoute);
+app.use('/banners', BannersRoute);
 
 //------------------
 //admin
@@ -44,6 +47,7 @@ app.use('/admin/roles', AdminRoleRoute);
 app.use('/admin/attributes', AdminAttributeRoute);
 app.use('/admin/category', AdminCategoryRoute);
 app.use('/admin/orders', AdminOrderRoute);
+app.use('/admin/banners', AdminBannerRoute);
 
 //------------------
 // server Health Check

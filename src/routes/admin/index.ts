@@ -9,3 +9,4 @@ export { default as AdminRoleRoute } from './role';
 export { default as AdminSubCategoryRoute } from './subcategory';
 export { default as AdminUsersRoute } from './users';
 export { default as AdminAttributeRoute } from './attributes';
+export { default as AdminBannerRoute } from './banner';
