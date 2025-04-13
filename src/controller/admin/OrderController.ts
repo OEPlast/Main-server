@@ -99,6 +99,27 @@ const getAllReturns = async (req: Request, res: Response) => {
   }
 };
 
+// Fetch the 15 most ordered products within a time frame
+const getTopOrderedProducts = async (req: Request, res: Response) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'Start date and end date are required' });
+    }
+
+    const { data, message, code } = await OrderService.getTopOrderedProducts(
+      new Date(startDate as string),
+      new Date(endDate as string)
+    );
+
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTopOrderedProducts:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 const Admin_OrderController = {
   getOrders,
   getOrderById,
@@ -107,6 +128,7 @@ const Admin_OrderController = {
   rejectOrder,
   updateOrderDetails,
   getAllReturns,
+  getTopOrderedProducts,
 };
 
 export default Admin_OrderController;

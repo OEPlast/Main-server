@@ -277,6 +277,54 @@ const getAllReturns = async ({
   }
 };
 
+/**
+ * Fetches the 15 most ordered products within a specified time frame.
+ * @param startDate - The start date of the time frame.
+ * @param endDate - The end date of the time frame.
+ */
+const getTopOrderedProducts = async (
+  startDate: Date,
+  endDate: Date
+): Promise<CustomResponseType<{ productId: string; totalQuantity: number }[]>> => {
+  try {
+    const result = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: startDate, $lte: endDate },
+        },
+      },
+      {
+        $unwind: '$products',
+      },
+      {
+        $group: {
+          _id: '$products.product',
+          totalQuantity: { $sum: '$products.qty' },
+        },
+      },
+      {
+        $sort: { totalQuantity: -1 },
+      },
+      {
+        $limit: 15,
+      },
+    ]);
+
+    return {
+      message: 'Top ordered products retrieved successfully',
+      data: result.map((item) => ({ productId: item._id, totalQuantity: item.totalQuantity })),
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching top ordered products:', error);
+    return {
+      message: 'Failed to fetch top ordered products',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const OrderService = {
   getOrderById,
   cancelOrder,
@@ -285,6 +333,7 @@ const OrderService = {
   updateOrderDetails,
   getOrders,
   getAllReturns,
+  getTopOrderedProducts,
 };
 
 export default OrderService;

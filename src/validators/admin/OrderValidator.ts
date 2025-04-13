@@ -170,11 +170,41 @@ const validatePagination = (req: Request, res: Response, next: NextFunction) => 
   next();
 };
 
+const validateTopOrderedProducts = (req: Request, res: Response, next: NextFunction) => {
+  checkSchema({
+    startDate: {
+      in: ['query'],
+      isISO8601: {
+        errorMessage: 'Start date must be a valid ISO 8601 date',
+      },
+      notEmpty: {
+        errorMessage: 'Start date is required',
+      },
+    },
+    endDate: {
+      in: ['query'],
+      isISO8601: {
+        errorMessage: 'End date must be a valid ISO 8601 date',
+      },
+      notEmpty: {
+        errorMessage: 'End date is required',
+      },
+    },
+  });
+
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
 const OrderValidator = {
   updateOrderDetails,
   validateRejectOrder,
   updateDeliveryTimeline,
   validatePagination,
+  validateTopOrderedProducts,
 };
 
 export default OrderValidator;
