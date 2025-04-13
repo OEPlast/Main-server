@@ -9,6 +9,9 @@ const router = express.Router();
 router.get('/', isAuthenticated, isAdmin, Admin_OrderController.getOrders);
 router.get('/:orderId', isAuthenticated, isAdmin, Admin_OrderController.getOrderById);
 
+// Fetch all returned orders
+router.get('/returns', isAuthenticated, isAdmin, Admin_OrderController.getAllReturns);
+
 // Update delivery timeline
 router.put(
   '/:orderId/timeline',

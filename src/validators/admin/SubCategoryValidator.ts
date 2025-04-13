@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { checkSchema, validationResult } from 'express-validator';
 
-const createSubCategoryValidator = [
+const createSubCategoryValidator = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({
     name: {
       in: ['body'],
@@ -15,17 +15,15 @@ const createSubCategoryValidator = [
       notEmpty: true,
       errorMessage: 'Category ID is required and should be a string',
     },
-  }),
-  (req: Request, res: Response, next: NextFunction) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-    next();
-  },
-];
+  });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
 
-const updateSubCategoryValidator = [
+const updateSubCategoryValidator = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({
     id: {
       in: ['params'],
@@ -39,17 +37,15 @@ const updateSubCategoryValidator = [
       notEmpty: true,
       errorMessage: 'Name is required and should be a string',
     },
-  }),
-  (req: Request, res: Response, next: NextFunction) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-    next();
-  },
-];
+  });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
 
-const deleteSubCategoryValidator = [
+const deleteSubCategoryValidator = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({
     id: {
       in: ['params'],
@@ -57,15 +53,13 @@ const deleteSubCategoryValidator = [
       notEmpty: true,
       errorMessage: 'ID is required and should be a string',
     },
-  }),
-  (req: Request, res: Response, next: NextFunction) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-    next();
-  },
-];
+  });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
 
 const SubCategoryValidator = {
   createSubCategoryValidator,

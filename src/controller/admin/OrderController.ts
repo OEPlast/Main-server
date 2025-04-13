@@ -84,6 +84,21 @@ const updateOrderDetails = async (req: Request, res: Response) => {
   }
 };
 
+// Get all returned orders
+const getAllReturns = async (req: Request, res: Response) => {
+  try {
+    const { page = 1, limit = 10 } = req.query;
+    const { data, message, code } = await OrderService.getAllReturns({
+      page: ~~page,
+      limit: ~~limit,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getAllReturns:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 const Admin_OrderController = {
   getOrders,
   getOrderById,
@@ -91,6 +106,7 @@ const Admin_OrderController = {
   updateDeliveryTimeline,
   rejectOrder,
   updateOrderDetails,
+  getAllReturns,
 };
 
 export default Admin_OrderController;

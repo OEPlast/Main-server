@@ -6,13 +6,7 @@ import CategoryController from '@/controller/admin/CategoryController';
 const router = express.Router();
 
 // Get all categories
-router.get(
-  '/',
-  isAuthenticated,
-  isAdmin,
-  CategoryValidator.getAllCategoriesValidator,
-  CategoryController.getAllCategories
-);
+router.get('/', isAuthenticated, isAdmin, CategoryController.getAllCategories);
 
 // Create category
 router.post(
@@ -33,12 +27,6 @@ router.put(
 );
 
 // Delete category
-router.delete(
-  '/:id',
-  isAuthenticated,
-  isAdmin,
-  CategoryValidator.deleteCategoryValidator,
-  CategoryController.deleteCategory
-);
+router.delete('/:id', isAuthenticated, isAdmin, CategoryController.deleteCategory);
 
 export default router;

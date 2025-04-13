@@ -231,12 +231,98 @@ const getOneOrder = async ({
     return { message: 'Failed to fetch order', data: null, code: 500 };
   }
 };
+
+const initiateReturn = async (orderId: string, userId: string): Promise<CustomResponseType<null>> => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const order = await Order.findOne({ _id: orderId, user: userId }).session(session);
+
+    if (!order) {
+      throw new Error('Order not found.');
+    }
+
+    if (order.deliveryStatus !== 'Delivered') {
+      throw new Error('Only delivered orders can be returned.');
+    }
+
+    // Update order status to Returned
+    order.deliveryStatus = 'Returned';
+    await order.save({ session });
+
+    await session.commitTransaction();
+    session.endSession();
+
+    // Track order return for analytics
+    AnalyticsService.trackOrderReturned(orderId).catch((err) =>
+      console.error('Failed to track order return analytics:', err)
+    );
+
+    return { message: 'Order return initiated successfully', data: null, code: 200 };
+  } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
+
+    if (error instanceof Error) {
+      return { message: error.message || 'Failed to initiate return', data: null, code: 500 };
+    } else {
+      return {
+        message: 'Internal server error',
+        data: null,
+        code: 500,
+      };
+    }
+  }
+};
+
+const getAllReturns = async ({
+  userId,
+  page = 1,
+  limit = 10,
+}: {
+  userId?: string;
+  page?: number;
+  limit?: number;
+}): Promise<CustomResponseType<{ orders: OrderType[]; totalOrders: number }>> => {
+  try {
+    const pipeline = [
+      { $match: { user: userId, deliveryStatus: 'Returned' } },
+      {
+        $facet: {
+          orders: [{ $skip: (page - 1) * limit }, { $limit: limit }],
+          totalOrders: [{ $count: 'count' }],
+        },
+      },
+    ];
+
+    const result = await Order.aggregate(pipeline);
+    const orders = result[0]?.orders || [];
+    const totalOrders = result[0]?.totalOrders[0]?.count || 0;
+
+    return {
+      message: 'Returned orders retrieved successfully',
+      data: { orders, totalOrders },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching returned orders:', error);
+    return {
+      message: 'Failed to fetch returned orders',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const OrderService = {
   getOrderHistory,
   placeOrderWithStockValidation,
   cancelOrder,
   updateOrderDetails,
   getOneOrder,
+  initiateReturn,
+  getAllReturns,
 };
 
 export default OrderService;

@@ -21,4 +21,10 @@ router.put('/orders/:id', isAuthenticated, OrderValidator.validateOrderId, Order
 // Cancel an order
 router.delete('/orders/:id', isAuthenticated, OrderValidator.validateOrderId, OrderController.cancelOrder);
 
+// Initiate a return for an order
+router.post('/orders/:id/return', isAuthenticated, OrderValidator.validateOrderId, OrderController.initiateReturn);
+
+// Fetch all returned orders
+router.get('/orders/returns', isAuthenticated, OrderController.getAllReturns);
+
 export default router;

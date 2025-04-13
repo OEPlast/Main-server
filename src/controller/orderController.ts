@@ -107,5 +107,40 @@ export const cancelOrder = async (req: Request, res: Response) => {
   }
 };
 
-const OrderController = { getOrders, getOrderById, placeOrder, updateOrder, cancelOrder };
+// Initiate a return for an order
+export const initiateReturn = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const userId = req.userId!;
+
+    const { message, code } = await OrderService.initiateReturn(id, userId);
+    return res.status(code).json({ message });
+  } catch (error) {
+    console.error('Error in initiateReturn:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getAllReturns = async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId;
+    const { page = 1, limit = 10 } = req.query;
+
+    const { data, message, code } = await OrderService.getAllReturns({ userId, page: ~~page, limit: ~~limit });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getAllReturns:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const OrderController = {
+  getOrders,
+  getOrderById,
+  placeOrder,
+  updateOrder,
+  cancelOrder,
+  initiateReturn,
+  getAllReturns,
+};
 export default OrderController;

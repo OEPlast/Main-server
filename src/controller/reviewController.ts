@@ -114,20 +114,6 @@ const getLikeCount = async (req: Request, res: Response) => {
   }
 };
 
-// Add a reply to a review
-const addReply = async (req: Request, res: Response) => {
-  try {
-    const { reviewId } = req.params;
-    const { reply } = req.body;
-    const userId = req.userId;
-    const { data, message, code } = await ReviewService.addReply(reviewId, { reply, replyBy: userId! });
-    return res.status(code).json({ data, message });
-  } catch (error) {
-    console.error('Error in addReply:', error);
-    return res.status(404).json({ error: 'Something went wrong' });
-  }
-};
-
 // Delete a reply from a review
 const deleteReply = async (req: Request, res: Response) => {
   try {
@@ -176,7 +162,6 @@ const ReviewController = {
   unlikeReview,
   isLikedByUser,
   getLikeCount,
-  addReply,
   deleteReply,
   getUserReviews,
   getUserProductReview,

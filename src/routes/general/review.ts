@@ -8,7 +8,5 @@ router.post('/:reviewId/like', isAuthenticated, ReviewController.likeReview);
 router.post('/:reviewId/unlike', isAuthenticated, ReviewController.unlikeReview);
 router.get('/:reviewId/isLikedByUser', isAuthenticated, ReviewController.isLikedByUser);
 router.get('/:reviewId/likeCount', isAuthenticated, ReviewController.getLikeCount);
-router.post('/:reviewId/reply', isAuthenticated, ReviewController.addReply);
-router.delete('/:reviewId/reply/:replyId', isAuthenticated, ReviewController.deleteReply);
 
 export default router;

@@ -59,9 +59,37 @@ const validateOrderId = (req: Request, res: Response, next: NextFunction) => {
   next();
 };
 
+const validatePagination = (req: Request, res: Response, next: NextFunction) => {
+  checkSchema({
+    page: {
+      in: ['query'],
+      optional: true,
+      isInt: {
+        options: { min: 1 },
+        errorMessage: 'Page must be a positive integer.',
+      },
+    },
+    limit: {
+      in: ['query'],
+      optional: true,
+      isInt: {
+        options: { min: 1 },
+        errorMessage: 'Limit must be a positive integer.',
+      },
+    },
+  });
+
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
 const OrderValidator = {
   validateOrderPlacement,
   validateOrderId,
+  validatePagination,
 };
 
 export default OrderValidator;

@@ -245,6 +245,38 @@ const rejectOrder = async (orderId: string): Promise<CustomResponseType<null>> =
   }
 };
 
+/**
+ * Fetches all returned orders.
+ */
+const getAllReturns = async ({
+  page = 1,
+  limit = 10,
+}: {
+  page?: number;
+  limit?: number;
+}): Promise<CustomResponseType<{ orders: OrderType[]; totalOrders: number }>> => {
+  try {
+    const skip = (page - 1) * limit;
+    const [returnedOrders, totalOrders] = await Promise.all([
+      Order.find({ deliveryStatus: 'Returned' }).skip(skip).limit(limit),
+      Order.countDocuments({ deliveryStatus: 'Returned' }),
+    ]);
+
+    return {
+      message: 'Returned orders retrieved successfully',
+      data: { orders: returnedOrders, totalOrders },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching returned orders:', error);
+    return {
+      message: 'Failed to fetch returned orders',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const OrderService = {
   getOrderById,
   cancelOrder,
@@ -252,6 +284,7 @@ const OrderService = {
   rejectOrder,
   updateOrderDetails,
   getOrders,
+  getAllReturns,
 };
 
 export default OrderService;
