@@ -20,6 +20,7 @@ import {
   AdminOrderRoute,
   AdminProductRoute,
   AdminUsersRoute,
+  AdminAnalyticsRoute,
 } from './routes/admin';
 const app: Application = express();
 // Express Middlewares
@@ -48,6 +49,7 @@ app.use('/admin/category', AdminCategoryRoute);
 app.use('/admin/orders', AdminOrderRoute);
 app.use('/admin/banners', AdminBannerRoute);
 app.use('/admin/users', AdminUsersRoute);
+app.use('/admin/analytics', AdminAnalyticsRoute);
 
 //------------------
 // server Health Check

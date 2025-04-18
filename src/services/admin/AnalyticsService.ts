@@ -1,159 +1,413 @@
-import Order from '@/models/Order';
-import User from '@/models/User';
+import Statistics, { StatisticsType } from '@/models/Statistics';
+import { CustomResponsePromise } from '@/types';
 
 /**
- * Fetches the total number of orders.
+ * Fetches seller statistics (revenue and profit) for a given date range.
  */
-const getTotalAmount = async () => {
+const getSellerStatistics = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{ revenue: number; profit: number }> => {
   try {
-    const totalAmount = await Order.countDocuments();
-    return totalAmount;
-  } catch (error) {
-    console.error('Error fetching total amount:', error);
-    throw new Error('Failed to fetch total amount');
-  }
-};
-
-/**
- * Fetches the total revenue from completed orders.
- */
-const getTotalRevenue = async () => {
-  try {
-    const totalRevenue = await Order.aggregate([
-      { $match: { status: 'Completed' } },
-      { $group: { _id: null, total: { $sum: '$total' } } },
-    ]);
-    return totalRevenue[0]?.total || 0;
-  } catch (error) {
-    console.error('Error fetching total revenue:', error);
-    throw new Error('Failed to fetch total revenue');
-  }
-};
-
-/**
- * Fetches the total number of unique customers.
- */
-const getTotalCustomers = async () => {
-  try {
-    const totalCustomers = await User.countDocuments();
-    return totalCustomers;
-  } catch (error) {
-    console.error('Error fetching total customers:', error);
-    throw new Error('Failed to fetch total customers');
-  }
-};
-
-/**
- * Fetches seller statistics (revenue and profit) for the last x days.
- */
-const getSellerStatistics = async (days: number) => {
-  try {
-    const dateThreshold = new Date();
-    dateThreshold.setDate(dateThreshold.getDate() - days);
-
-    const stats = await Order.aggregate([
-      { $match: { createdAt: { $gte: dateThreshold }, status: 'Completed' } },
+    const stats = await Statistics.aggregate([
+      { $match: { date: { $gte: from, $lte: to } } },
       {
         $group: {
           _id: null,
-          revenue: { $sum: '$total' },
-          profit: { $sum: { $subtract: ['$total', '$totalBeforeDiscount'] } },
+          revenue: { $sum: '$totalRevenue' },
+          profit: { $sum: { $subtract: ['$totalRevenue', '$totalAmount'] } },
         },
       },
     ]);
 
-    return stats[0] || { revenue: 0, profit: 0 };
+    return {
+      message: 'Seller statistics fetched successfully',
+      data: stats[0] || { revenue: 0, profit: 0 },
+      code: 200,
+    };
   } catch (error) {
     console.error('Error fetching seller statistics:', error);
-    throw new Error('Failed to fetch seller statistics');
+    return { message: 'Internal server error', data: null, code: 500 };
   }
 };
 
 /**
- * Fetches total sales (revenue and profit) for the last x days.
+ * Fetches total sales (revenue and profit) for a given date range.
  */
-const getTotalSales = async (days: number) => {
+const getTotalSales = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{ revenue: number; profit: number }> => {
   try {
-    const dateThreshold = new Date();
-    dateThreshold.setDate(dateThreshold.getDate() - days);
-
-    const sales = await Order.aggregate([
-      { $match: { createdAt: { $gte: dateThreshold }, status: 'Completed' } },
+    const sales = await Statistics.aggregate([
+      { $match: { date: { $gte: from, $lte: to } } },
       {
         $group: {
           _id: null,
-          revenue: { $sum: '$total' },
-          profit: { $sum: { $subtract: ['$total', '$totalBeforeDiscount'] } },
+          revenue: { $sum: '$totalRevenue' },
+          profit: { $sum: { $subtract: ['$totalRevenue', '$totalAmount'] } },
         },
       },
     ]);
 
-    return sales[0] || { revenue: 0, profit: 0 };
+    return {
+      message: 'Total sales fetched successfully',
+      data: sales[0] || { revenue: 0, profit: 0 },
+      code: 200,
+    };
   } catch (error) {
     console.error('Error fetching total sales:', error);
-    throw new Error('Failed to fetch total sales');
+    return { message: 'Internal server error', data: null, code: 500 };
   }
 };
 
 /**
- * Fetches aggregated sale/purchase return data.
+ * Fetches a chart for a given metric over a specified date range.
  */
-const getSalePurchaseReturn = async () => {
+const getChartData = async ({
+  metric,
+  from,
+  to,
+}: {
+  metric: string;
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{ date: string; value: number }[]> => {
   try {
-    const returns = await Order.aggregate([
-      { $match: { deliveryStatus: 'Returned' } },
-      { $group: { _id: null, totalReturns: { $sum: '$total' } } },
+    const data = await Statistics.aggregate([
+      { $match: { date: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+          value: { $sum: `$${metric}` },
+        },
+      },
+      { $sort: { _id: 1 } },
+      {
+        $project: {
+          _id: 0,
+          date: '$_id',
+          value: 1,
+        },
+      },
     ]);
-    return returns[0]?.totalReturns || 0;
+
+    return {
+      message: 'Chart data fetched successfully',
+      data,
+      code: 200,
+    };
   } catch (error) {
-    console.error('Error fetching sale/purchase return data:', error);
-    throw new Error('Failed to fetch sale/purchase return data');
+    console.error(`Error fetching chart data for ${metric}:`, error);
+    return { message: 'Internal server error', data: null, code: 500 };
   }
 };
 
 /**
- * Fetches the transfer history (recent completed orders).
+ * Fetches order vs. return statistics for a given date range.
  */
-const getOrderHistory = async (limit: number) => {
+const getOrderVsReturns = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{ date: string; orders: number; returns: number }[]> => {
   try {
-    const transfers = await Order.find({ status: 'Completed' })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .select('_id user createdAt total')
-      .populate('user', 'name');
+    const data = await Statistics.aggregate([
+      { $match: { date: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+          totalOrders: { $sum: '$totalOrders' },
+          totalReturns: { $sum: '$totalReturns' },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
 
-    return transfers;
+    return {
+      message: 'Order vs. returns data fetched successfully',
+      data: data.map((entry) => ({
+        date: entry._id,
+        orders: entry.totalOrders,
+        returns: entry.totalReturns,
+      })),
+      code: 200,
+    };
   } catch (error) {
-    console.error('Error fetching transfer history:', error);
-    throw new Error('Failed to fetch transfer history');
+    console.error('Error fetching order vs. returns data:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
   }
 };
 
 /**
- * Fetches the return history (recent returned orders).
+ * Fetches daily counts for orders, revenue, sales, and returns over a specified date range.
  */
-const getReturnHistory = async (limit: number) => {
+const getRangeCount = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{ date: string; orders: number; revenue: number; sales: number; returns: number }[]> => {
   try {
-    const returns = await Order.find({ deliveryStatus: 'Returned' })
-      .sort({ createdAt: -1 })
-      .limit(limit)
-      .select('_id user createdAt total')
-      .populate('user', 'name');
+    const data = await Statistics.aggregate([
+      { $match: { date: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$date' } },
+          orderCount: { $sum: '$totalOrders' },
+          revenueCount: { $sum: '$totalRevenue' },
+          salesCount: { $sum: '$totalAmount' },
+          returnCount: { $sum: '$totalReturns' },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
 
-    return returns;
+    return {
+      message: 'Range count data fetched successfully',
+      data: data.map((entry) => ({
+        date: entry._id,
+        orders: entry.orderCount,
+        revenue: entry.revenueCount,
+        sales: entry.salesCount,
+        returns: entry.returnCount,
+      })),
+      code: 200,
+    };
   } catch (error) {
-    console.error('Error fetching return history:', error);
-    throw new Error('Failed to fetch return history');
+    console.error('Error fetching daily counts:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
   }
 };
 
-export default {
-  getTotalAmount,
-  getTotalRevenue,
-  getTotalCustomers,
+/**
+ * Fetches paginated statistics data for a given date range.
+ */
+const getPaginatedStatisticsDays = async ({
+  from,
+  to,
+  page = 1,
+  limit = 50,
+}: {
+  from: Date;
+  to: Date;
+  page: number;
+  limit?: number;
+}): CustomResponsePromise<{
+  data: StatisticsType[];
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+    const data = await Statistics.aggregate([
+      { $match: { date: { $gte: from, $lte: to } } },
+      { $sort: { date: 1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ]);
+
+    const totalRecords = await Statistics.countDocuments({ date: { $gte: from, $lte: to } });
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return {
+      message: 'Paginated statistics fetched successfully',
+      data: {
+        data,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalRecords,
+        },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching paginated statistics:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Fetches paginated statistics data grouped by weeks for a given date range.
+ */
+const getPaginatedStatisticsWeeks = async ({
+  from,
+  to,
+  page = 1,
+  limit = 50,
+}: {
+  from: Date;
+  to: Date;
+  page: number;
+  limit?: number;
+}): CustomResponsePromise<{
+  data: StatisticsType[];
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+    const data = await Statistics.aggregate([
+      { $match: { date: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: { $isoWeek: '$date' },
+          revenue: { $sum: '$totalRevenue' },
+          profit: { $sum: { $subtract: ['$totalRevenue', '$totalAmount'] } },
+        },
+      },
+      { $sort: { _id: 1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ]);
+
+    const totalRecords = await Statistics.countDocuments({ date: { $gte: from, $lte: to } });
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return {
+      message: 'Paginated weekly statistics fetched successfully',
+      data: {
+        data,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalRecords,
+        },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching paginated weekly statistics:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Fetches paginated statistics data grouped by months for a given date range.
+ */
+const getPaginatedStatisticsMonths = async ({
+  from,
+  to,
+  page = 1,
+  limit = 50,
+}: {
+  from: Date;
+  to: Date;
+  page: number;
+  limit?: number;
+}): CustomResponsePromise<{
+  data: StatisticsType[];
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+    const data = await Statistics.aggregate([
+      { $match: { date: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: { $month: '$date' },
+          revenue: { $sum: '$totalRevenue' },
+          profit: { $sum: { $subtract: ['$totalRevenue', '$totalAmount'] } },
+        },
+      },
+      { $sort: { _id: 1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ]);
+
+    const totalRecords = await Statistics.countDocuments({ date: { $gte: from, $lte: to } });
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return {
+      message: 'Paginated monthly statistics fetched successfully',
+      data: {
+        data,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalRecords,
+        },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching paginated monthly statistics:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Fetches paginated statistics data grouped by years for a given date range.
+ */
+const getPaginatedStatisticsYears = async ({
+  from,
+  to,
+  page = 1,
+  limit = 50,
+}: {
+  from: Date;
+  to: Date;
+  page: number;
+  limit?: number;
+}): CustomResponsePromise<{
+  data: StatisticsType[];
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+    const data = await Statistics.aggregate([
+      { $match: { date: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: { $year: '$date' },
+          revenue: { $sum: '$totalRevenue' },
+          profit: { $sum: { $subtract: ['$totalRevenue', '$totalAmount'] } },
+        },
+      },
+      { $sort: { _id: 1 } },
+      { $skip: skip },
+      { $limit: limit },
+    ]);
+
+    const totalRecords = await Statistics.countDocuments({ date: { $gte: from, $lte: to } });
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return {
+      message: 'Paginated yearly statistics fetched successfully',
+      data: {
+        data,
+        pagination: {
+          currentPage: page,
+          totalPages,
+          totalRecords,
+        },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching paginated yearly statistics:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+const Admin_AnalyticsService = {
   getSellerStatistics,
   getTotalSales,
-  getSalePurchaseReturn,
-  getOrderHistory,
-  getReturnHistory,
+  getChartData,
+  getOrderVsReturns,
+  getRangeCount,
+  getPaginatedStatisticsDays,
+  getPaginatedStatisticsWeeks,
+  getPaginatedStatisticsMonths,
+  getPaginatedStatisticsYears,
 };
+
+export default Admin_AnalyticsService;
