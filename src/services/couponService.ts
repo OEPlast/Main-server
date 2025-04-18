@@ -1,6 +1,6 @@
 import Coupon, { CouponType } from '../models/Coupon';
 import { CustomResponseType } from '@/types';
-import AnalyticsService from './AnalyticsService';
+import AnalyticsService from './MainAnalyticsService';
 
 /**
  * Creates a new coupon.

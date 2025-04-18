@@ -1,6 +1,6 @@
 import Order, { OrderType } from '../../models/Order';
 import { CustomResponseType } from '../../types';
-import AnalyticsService from '../AnalyticsService';
+import AnalyticsService from '../MainAnalyticsService';
 
 /**
  * Fetches orders with optional filters and pagination.

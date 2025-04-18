@@ -19,7 +19,6 @@ import {
   AdminGalleryRoute,
   AdminOrderRoute,
   AdminProductRoute,
-  AdminRoleRoute,
   AdminUsersRoute,
 } from './routes/admin';
 const app: Application = express();
@@ -44,7 +43,6 @@ app.use('/banners', BannersRoute);
 //admin
 app.use('/admin/product', AdminProductRoute);
 app.use('/admin/gallery', AdminGalleryRoute);
-app.use('/admin/roles', AdminRoleRoute);
 app.use('/admin/attributes', AdminAttributeRoute);
 app.use('/admin/category', AdminCategoryRoute);
 app.use('/admin/orders', AdminOrderRoute);

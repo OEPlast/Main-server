@@ -1,7 +1,7 @@
 import Review, { ReviewType } from '../models/Review';
 import Reply from '@/models/Reply';
 import { ObjectId } from 'mongodb';
-import AnalyticsService from './AnalyticsService';
+import AnalyticsService from './MainAnalyticsService';
 
 type IReview = {
   product: string;

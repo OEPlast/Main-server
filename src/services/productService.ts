@@ -1,7 +1,7 @@
 import Order from '@/models/Order';
 import Product, { ProductType } from '../models/Product';
 import { CustomResponseType } from '../types';
-import AnalyticsService from './AnalyticsService';
+import AnalyticsService from './MainAnalyticsService';
 
 /**
  * Fetches all products with optional filters.

@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 import Order, { OrderType } from '../models/Order';
 import Product from '../models/Product';
 import { CustomResponseType } from '../types';
-import AnalyticsService from './AnalyticsService';
+import AnalyticsService from './MainAnalyticsService';
 
 /**
  * Fetches paginated orders for user with optional filters.
