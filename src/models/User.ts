@@ -37,6 +37,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    suspended: {
+      type: Boolean,
+      default: false,
+    },
     address: [
       {
         firstName: {

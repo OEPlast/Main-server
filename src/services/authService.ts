@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import User, { UserType } from '../models/User';
-import { CustomResponseType } from '../types';
+import { CustomResponsePromise, CustomResponseType } from '../types';
 import tokenizer from '@/lib/tokenizer';
 import OTPService from './OTP';
 
@@ -12,7 +12,7 @@ import OTPService from './OTP';
 const signup = async (userData: {
   email: string;
   password: string;
-}): Promise<CustomResponseType<UserType & { token: string; otpCode: number }>> => {
+}): CustomResponsePromise<UserType & { token: string; otpCode: number }> => {
   try {
     const existingUser = await User.findOne({ email: userData.email });
     if (existingUser) {

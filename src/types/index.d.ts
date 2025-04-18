@@ -12,3 +12,5 @@ export interface CustomResponseType<T = undefined> {
   data: T | null;
   code: number;
 }
+
+export type CustomResponsePromise<T = undefined> = Promise<CustomResponseType<T>>;
