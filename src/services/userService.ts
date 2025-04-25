@@ -183,9 +183,13 @@ const changePassword = async (
 const manageAddress = async (
   userId: string,
   addressData: AddressType[]
-): Promise<CustomResponseType<AddressType[]>> => {
+): Promise<CustomResponseType<UserType['address']>> => {
   try {
-    const user = await User.findOneAndUpdate({ _id: userId }, { address: addressData });
+    const user = await User.findOneAndUpdate(
+      { _id: userId },
+      { address: addressData },
+      { new: true } // Return the updated document
+    );
     if (!user) {
       return {
         message: 'User not found',
@@ -196,7 +200,7 @@ const manageAddress = async (
 
     return {
       message: 'Address managed successfully',
-      data: null,
+      data: user.address,
       code: 200,
     };
   } catch (error) {
