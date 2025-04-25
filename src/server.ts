@@ -3,15 +3,16 @@ import helmet from 'helmet';
 import cors from 'cors';
 import { config as envConfig } from 'dotenv';
 import { morganMiddleware } from './middleware/morgan';
-import ProductsRoute from '@/routes/general/products';
 import connectDB from './lib/db';
+
+import ProductsRoute from '@/routes/general/products';
 import ReviewRoute from './routes/general/review';
 import AuthRoute from '@/routes/auth/user';
 import OrderRoute from '@/routes/users/orders';
 import CartRoute from '@/routes/users/cart';
 import BannersRoute from '@/routes/general/banners';
-
 import WishlistRoute from '@/routes/users/wishlist';
+
 import {
   AdminAttributeRoute,
   AdminBannerRoute,
@@ -21,6 +22,7 @@ import {
   AdminProductRoute,
   AdminUsersRoute,
   AdminAnalyticsRoute,
+  AdminCouponRoute,
 } from './routes/admin';
 const app: Application = express();
 // Express Middlewares
@@ -50,6 +52,7 @@ app.use('/admin/orders', AdminOrderRoute);
 app.use('/admin/banners', AdminBannerRoute);
 app.use('/admin/users', AdminUsersRoute);
 app.use('/admin/analytics', AdminAnalyticsRoute);
+app.use('/admin/coupon', AdminCouponRoute);
 
 //------------------
 // server Health Check

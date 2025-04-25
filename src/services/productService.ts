@@ -1,6 +1,6 @@
 import Order from '@/models/Order';
 import Product, { ProductType } from '../models/Product';
-import { CustomResponseType } from '../types';
+import { CustomResponsePromise, CustomResponseType } from '../types';
 import AnalyticsService from './MainAnalyticsService';
 
 /**
@@ -371,6 +371,39 @@ const getProductRecommendations = async (userId: string): Promise<CustomResponse
   }
 };
 
+/**
+ * Fetches product recommendations based off product id.
+ */
+const recommendBasedOnCurrentProduct = async (productId: string): CustomResponsePromise<ProductType[]> => {
+  try {
+    const currentProduct = await Product.findById(productId);
+    if (!currentProduct) {
+      return { message: 'Product not found', data: [], code: 404 };
+    }
+
+    const recommendation = await Product.find({
+      _id: { $ne: productId },
+      status: 'active',
+      $or: [
+        { category: currentProduct.category },
+        { name: { $regex: currentProduct.name.split(' ').join('|'), $options: 'i' } },
+      ],
+    }).limit(20);
+    return {
+      message: 'Product recommendations retrieved successfully',
+      data: recommendation,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching product recommendations:', error);
+    return {
+      message: 'Failed to fetch product recommendations',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const ProductService = {
   getAllProducts,
   getProductById,
@@ -381,6 +414,7 @@ const ProductService = {
   getTopSoldProducts,
   getHotSalesProducts,
   getProductRecommendations,
+  recommendBasedOnCurrentProduct,
 };
 
 export default ProductService;

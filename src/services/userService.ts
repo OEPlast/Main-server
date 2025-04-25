@@ -1,7 +1,9 @@
 import bcrypt from 'bcrypt';
 import User, { UserType } from '../models/User';
-import { CustomResponseType } from '../types';
+import { CustomResponsePromise, CustomResponseType } from '../types';
 import { AddressType } from '../types/userTypes';
+import Coupon, { CouponType } from '@/models/Coupon';
+import AnalyticsService from './MainAnalyticsService';
 
 /**
  * Creates a new user.
@@ -180,11 +182,14 @@ const changePassword = async (
  */
 const manageAddress = async (
   userId: string,
-  addressData: AddressType,
-  action: 'add' | 'update' | 'delete'
-): Promise<CustomResponseType<AddressType[]>> => {
+  addressData: AddressType[]
+): Promise<CustomResponseType<UserType['address']>> => {
   try {
-    const user = await User.findById(userId);
+    const user = await User.findOneAndUpdate(
+      { _id: userId },
+      { address: addressData },
+      { new: true } // Return the updated document
+    );
     if (!user) {
       return {
         message: 'User not found',
@@ -192,23 +197,7 @@ const manageAddress = async (
         code: 404,
       };
     }
-    if (action === 'add') {
-      user.address.push(addressData);
-    } else if (action === 'update') {
-      const index = user.address.findIndex((addr) => addr._id.toString() === addressData._id);
-      if (index !== -1) {
-        user.address[index] = addressData;
-      } else {
-        return {
-          message: 'Address not found',
-          data: null,
-          code: 404,
-        };
-      }
-    } else if (action === 'delete') {
-      user.address = user.address.filter((addr) => addr._id.toString() !== addressData._id);
-    }
-    await user.save();
+
     return {
       message: 'Address managed successfully',
       data: user.address,
@@ -230,12 +219,32 @@ const manageAddress = async (
  * @param couponCode - The coupon code to apply.
  * @returns A promise that resolves to a custom response indicating the result.
  */
-const applyCoupon = async (userId: string, couponCode: string): Promise<CustomResponseType<null>> => {
+const applyCoupon = async (userId: string, couponCode: string): CustomResponsePromise<CouponType> => {
   try {
-    // Implement coupon application logic here
+    const currentDate = new Date();
+    const coupon = await Coupon.findOne({
+      coupon: couponCode,
+      deleted: { $ne: true },
+      active: true,
+      startDate: { $lte: currentDate },
+      endDate: { $gte: currentDate },
+    }).select({ coupon: 1, discount: 1, couponType: 1 });
+    if (!coupon) {
+      return {
+        message: 'Coupon not found or not valid',
+        data: null,
+        code: 404,
+      };
+    }
+    // Track coupon usage for analytics
+    // This runs independently and won't affect the response time
+    AnalyticsService.trackCouponUsed(coupon._id.toString(), userId).catch((err) =>
+      console.error('Failed to track coupon usage analytics:', err)
+    );
+
     return {
       message: 'Coupon applied successfully',
-      data: null,
+      data: coupon,
       code: 200,
     };
   } catch (error) {

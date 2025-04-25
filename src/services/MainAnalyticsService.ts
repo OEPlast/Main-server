@@ -183,10 +183,10 @@ class AnalyticsService {
    * @param userId - The ID of the user.
    * @param discountAmount - The discount amount.
    */
-  static async trackCouponUsed(couponId: string, userId: string, discountAmount: number): Promise<void> {
+  static async trackCouponUsed(couponId: string, userId: string): Promise<void> {
     try {
       // Log coupon usage for future analytics expansions
-      logger.info(`Analytics: Coupon used - Coupon: ${couponId}, User: ${userId}, Discount: ${discountAmount}`);
+      logger.info(`Analytics: Coupon used - Coupon: ${couponId}, User: ${userId}`);
     } catch (error) {
       logger.error(`Analytics error tracking coupon used: ${error instanceof Error ? error.message : String(error)}`);
     }

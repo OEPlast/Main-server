@@ -1,4 +1,5 @@
 import mongoose, { InferSchemaType } from 'mongoose';
+const { ObjectId } = mongoose.Schema;
 
 const couponSchema = new mongoose.Schema(
   {
@@ -9,7 +10,7 @@ const couponSchema = new mongoose.Schema(
       uppercase: true,
       required: true,
       minLength: 4,
-      maxLength: 10,
+      maxLength: 12,
     },
     startDate: {
       type: String,
@@ -24,6 +25,20 @@ const couponSchema = new mongoose.Schema(
       required: true,
     },
     active: {
+      type: Boolean,
+      default: true,
+    },
+    couponType: {
+      type: String,
+      enum: ['one-off', 'one-off-user', 'normal'],
+      default: 'normal',
+    },
+    creator: {
+      type: ObjectId,
+      required: true,
+      ref: 'User',
+    },
+    deleted: {
       type: Boolean,
       default: false,
     },

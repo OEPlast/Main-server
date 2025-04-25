@@ -43,13 +43,6 @@ const createWishlist = async ({
 };
 
 /**
- * Retrieves all wishlist items with pagination.
- * @param page - The page number to retrieve.
- * @param limit - The number of items per page (max 50).
- * @param user - User id.
- * @returns A promise that resolves to a custom response containing the wishlist items and total count.
- */
-/**
  * Retrieves all wishlists for a specific user with pagination.
  *
  * @param {Object} params - The parameters for retrieving wishlists.
