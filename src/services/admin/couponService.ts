@@ -1,6 +1,5 @@
-import Coupon, { CouponType } from '../models/Coupon';
-import { CustomResponseType } from '@/types';
-import AnalyticsService from './MainAnalyticsService';
+import Coupon, { CouponType } from '../../models/Coupon';
+import { CustomResponsePromise, CustomResponseType } from '@/types';
 
 /**
  * Creates a new coupon.
@@ -17,15 +16,17 @@ const createCoupon = async ({
   endDate,
   discount,
   active,
+  creator,
 }: {
   coupon: string;
   startDate: string;
   endDate: string;
   discount: number;
   active: boolean;
+  creator: string;
 }): Promise<CustomResponseType<CouponType>> => {
   try {
-    const newCoupon = new Coupon({ coupon, startDate, endDate, discount, active });
+    const newCoupon = new Coupon({ coupon, startDate, endDate, discount, active, creator });
     await newCoupon.save();
     return {
       message: 'Coupon created successfully',
@@ -51,6 +52,27 @@ const createCoupon = async ({
   }
 };
 
+/**
+ * Retrieves a couponas.
+ * @returns All coupons
+ */
+const getAllCoupons = async (): CustomResponsePromise<CouponType[]> => {
+  try {
+    const coupon = await Coupon.find();
+    return {
+      message: 'Coupon retrieved successfully',
+      data: coupon,
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
 /**
  * Retrieves a coupon by ID.
  * @param id - The ID of the coupon to retrieve.
@@ -89,7 +111,13 @@ const getCoupon = async (id: string): Promise<CustomResponseType<CouponType>> =>
  */
 const updateCoupon = async (
   id: string,
-  updateData: Partial<{ coupon: string; startDate: string; endDate: string; discount: number; active: boolean }>
+  updateData: Partial<{
+    startDate: string;
+    endDate: string;
+    discount: number;
+    active: boolean;
+    deleted: boolean;
+  }>
 ): Promise<CustomResponseType<CouponType>> => {
   try {
     const coupon = await Coupon.findByIdAndUpdate(id, updateData);
@@ -185,65 +213,5 @@ const isCouponValid = async (couponCode: string): Promise<CustomResponseType<boo
   }
 };
 
-/**
- * Applies a coupon and returns the discount amount.
- * @param couponCode - The coupon code to apply.
- * @param userId - The ID of the user applying the coupon.
- * @param orderAmount - The total amount of the order before discount.
- * @returns A promise that resolves to a custom response indicating the discount amount.
- */
-const applyCoupon = async (
-  couponCode: string,
-  userId: string,
-  orderAmount: number
-): Promise<CustomResponseType<{ discount: number; couponId: string }>> => {
-  try {
-    const coupon = await Coupon.findOne({ coupon: couponCode });
-    if (!coupon) {
-      return {
-        message: 'Coupon not found',
-        data: null,
-        code: 404,
-      };
-    }
-
-    // Check if coupon is valid
-    const currentDate = new Date();
-    const startDate = new Date(coupon.startDate);
-    const endDate = new Date(coupon.endDate);
-
-    if (!(currentDate >= startDate && currentDate <= endDate && coupon.active)) {
-      return {
-        message: 'Coupon is not valid',
-        data: null,
-        code: 400,
-      };
-    }
-
-    const discountAmount = (orderAmount * coupon.discount) / 100;
-
-    // Track coupon usage for analytics
-    // This runs independently and won't affect the response time
-    AnalyticsService.trackCouponUsed(coupon._id.toString(), userId, discountAmount).catch((err) =>
-      console.error('Failed to track coupon usage analytics:', err)
-    );
-
-    return {
-      message: 'Coupon applied successfully',
-      data: {
-        discount: discountAmount,
-        couponId: coupon._id.toString(),
-      },
-      code: 200,
-    };
-  } catch (error) {
-    console.log(error);
-    return {
-      message: 'Something went wrong',
-      data: null,
-      code: 500,
-    };
-  }
-};
-
-export { createCoupon, getCoupon, updateCoupon, deleteCoupon, isCouponValid, applyCoupon };
+const Admin_CouponService = { createCoupon, getCoupon, updateCoupon, deleteCoupon, isCouponValid, getAllCoupons };
+export default Admin_CouponService;

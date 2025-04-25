@@ -97,14 +97,25 @@ const getProductById = async (req: Request, res: Response) => {
   }
 };
 
+// Get products recommended based off the current product ID
+const getRecommendation = async (req: Request, res: Response) => {
+  try {
+    const { productId } = req.params;
+    const { data, message, code } = await ProductService.recommendBasedOnCurrentProduct(productId);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getProductById:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export default {
   getAllProducts,
   searchProducts,
-
   getWeekProducts,
   getTopSoldProducts,
   getHotSalesProducts,
-
   getProductsByCategoryAndSubCategory,
   getProductById,
+  getRecommendation,
 };
