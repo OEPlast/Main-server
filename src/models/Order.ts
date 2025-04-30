@@ -118,6 +118,32 @@ const orderSchema = new mongoose.Schema(
     deliveredAt: {
       type: Date,
     },
+    flashSaleApplied: [
+      {
+        flashSale: {
+          type: mongoose.Schema.ObjectId,
+          required: true,
+          ref: 'FlashSale',
+        },
+        product: {
+          type: mongoose.Schema.ObjectId,
+          required: true,
+          ref: 'Product',
+        },
+        attributeName: {
+          type: String,
+          default: null,
+        },
+        attributeValue: {
+          type: String,
+          default: null,
+        },
+        discount: {
+          type: Number,
+          required: true,
+        },
+      },
+    ],
   },
   {
     timestamps: true,

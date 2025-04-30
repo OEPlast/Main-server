@@ -28,6 +28,10 @@ const couponSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    timesUsed: {
+      type: Number,
+      default: 0,
+    },
     couponType: {
       type: String,
       enum: ['one-off', 'one-off-user', 'normal'],
