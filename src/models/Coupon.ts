@@ -13,11 +13,11 @@ const couponSchema = new mongoose.Schema(
       maxLength: 12,
     },
     startDate: {
-      type: String,
+      type: Date,
       required: true,
     },
     endDate: {
-      type: String,
+      type: Date,
       required: true,
     },
     discount: {
