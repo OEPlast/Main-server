@@ -17,11 +17,11 @@ const variantSchema = new mongoose.Schema({
       message: 'attributeName and attributeValue must both be null or both be strings.',
     },
   },
-  discount: { type: Number, default: 10 },
+  discount: { type: Number, default: 10, required: true },
   maxBuys: { type: Number, default: 0 },
   boughtCount: { type: Number, default: 0 },
 });
-const flashSaleSchema = new mongoose.Schema(
+const salesSchema = new mongoose.Schema(
   {
     title: { type: String },
     product: {
@@ -44,18 +44,31 @@ const flashSaleSchema = new mongoose.Schema(
       ref: 'User',
       required: true,
     },
+    type: {
+      type: String,
+      enum: ['Flash', 'Limited', 'Normal'],
+      default: 'Normal',
+    },
+    limit: {
+      type: Number,
+      default: 1,
+    },
     startDate: {
       type: Date,
     },
     endDate: {
       type: Date,
     },
+    deleted: {
+      type: Boolean,
+      default: false,
+    },
     variants: [variantSchema],
   },
   { timestamps: true }
 );
 
-export type FlashSaleType = InferSchemaType<typeof flashSaleSchema>;
-const FlashSale = mongoose.model('FlashSales', flashSaleSchema);
+export type SalesType = InferSchemaType<typeof salesSchema>;
+const Sales = mongoose.model('Sales', salesSchema);
 
-export default FlashSale;
+export default Sales;

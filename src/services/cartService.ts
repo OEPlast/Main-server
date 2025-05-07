@@ -1,6 +1,66 @@
-import Cart, { CartType } from '../models/Cart';
-import Product from '../models/Product';
-import { CustomResponseType } from '../types';
+import Cart, { CartType } from '@/models/Cart';
+import Product from '@/models/Product';
+import { CustomResponseType } from '@/types';
+import { findActiveSaleForProduct, checkSaleAvailability } from '@/helpers/salesUtils';
+
+/**
+ * Validates the cart against current sales and discounts.
+ * Returns an array of products with sale changes or invalid sales.
+ */
+
+export async function validateCartSales(userId: string) {
+  const cart = await Cart.findOne({ user: userId });
+  if (!cart) return { valid: false, message: 'Cart not found', changed: [] };
+  const changed: any[] = [];
+  for (const item of cart.products) {
+    if (!item.product) {
+      continue;
+    }
+    // Get current sale for this product
+    const sale = await findActiveSaleForProduct(item.product.toString());
+    let currentDiscount = 0;
+    let currentSaleId = undefined;
+    let currentSaleType = undefined;
+    let currentVariantIndex = undefined;
+    if (sale) {
+      const { available, variantIndex, discount } = checkSaleAvailability(sale, item.attributes);
+      if (available) {
+        currentDiscount = discount || 0;
+        currentSaleId = sale._id.toString();
+        currentSaleType = sale.type;
+        currentVariantIndex = typeof variantIndex === 'number' ? variantIndex : undefined;
+      }
+    }
+    // Compare with cart's stored sale info
+    if (
+      (item.sale && (!currentSaleId || item.sale.toString() !== currentSaleId)) ||
+      item.saleDiscount !== currentDiscount ||
+      item.saleType !== currentSaleType ||
+      item.saleVariantIndex !== currentVariantIndex
+    ) {
+      changed.push({
+        product: item.product,
+        old: {
+          sale: item.sale,
+          saleType: item.saleType,
+          saleDiscount: item.saleDiscount,
+          saleVariantIndex: item.saleVariantIndex,
+        },
+        current: {
+          sale: currentSaleId,
+          saleType: currentSaleType,
+          saleDiscount: currentDiscount,
+          saleVariantIndex: currentVariantIndex,
+        },
+      });
+    }
+  }
+  return {
+    valid: changed.length === 0,
+    message: changed.length === 0 ? 'Cart sales are valid' : 'Some sales have changed or expired',
+    changed,
+  };
+}
 
 type PopulatedProduct = {
   product: {
@@ -73,9 +133,42 @@ const addToCart = async (
       };
     }
 
+    // Check for active sale
+    const sale = await findActiveSaleForProduct(productId);
+    let saleInfo: {
+      sale?: CartType['products'][number]['sale'];
+      saleType?: CartType['products'][number]['saleType'];
+      saleVariantIndex?: CartType['products'][number]['saleVariantIndex'];
+      saleDiscount?: CartType['products'][number]['saleDiscount'];
+    } = {};
+    let finalPrice = product.price;
+    if (sale) {
+      const { available, variantIndex, discount } = checkSaleAvailability(sale, attributes);
+      if (available) {
+        const appliedDiscount = typeof discount === 'number' ? discount : 0;
+        finalPrice = product.price - (product.price * appliedDiscount) / 100;
+        saleInfo = {
+          sale: sale._id,
+          saleType: sale.type,
+          saleVariantIndex: typeof variantIndex === 'number' ? variantIndex : undefined,
+          saleDiscount: appliedDiscount,
+        };
+      }
+    }
+
     const cart = await Cart.findOneAndUpdate(
       { user: userId },
-      { $push: { products: { product: productId, qty, price: product.price, attributes } } },
+      {
+        $push: {
+          products: {
+            product: productId,
+            qty,
+            price: finalPrice,
+            attributes,
+            ...saleInfo,
+          },
+        },
+      },
       { new: true }
     );
     return {

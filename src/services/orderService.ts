@@ -1,8 +1,11 @@
 import mongoose from 'mongoose';
 import Order, { OrderType } from '../models/Order';
-import Product from '../models/Product';
-import { CustomResponseType } from '../types';
+import Product from '@/models/Product';
+import { CustomResponseType } from '@/types';
 import AnalyticsService from './MainAnalyticsService';
+import { findActiveSaleForProduct, checkSaleAvailability } from '@/helpers/salesUtils';
+import { SaleOrderProduct, updateSaleCountersOnOrder } from '@/helpers/saleOrderUtils';
+import type { SalesType } from '@/models/Sales';
 
 /**
  * Fetches paginated orders for user with optional filters.
@@ -73,16 +76,33 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
       throw new Error('One or more products were not found.');
     }
 
+    // Validate sales for each product and prepare sale updates
+    for (const item of products) {
+      if (item.sale) {
+        // Re-fetch sale and check availability
+        if (!item.product) {
+          throw new Error('Product reference is missing for a sale item.');
+        }
+        const sale = (await findActiveSaleForProduct(item.product.toString())) as unknown as SalesType | null;
+        if (!sale) {
+          throw new Error('Sale no longer available for a product.');
+        }
+        const { available } = checkSaleAvailability(sale, item.attributes);
+        if (!available) {
+          throw new Error('Sale/variant is no longer available for a product.');
+        }
+      }
+    }
+
     // Check stock and prepare updates
     const bulkUpdates = products.map((item) => {
       const product = productDocs.find((p) => p._id.toString() === item.product!.toString());
       if (!product || product.stock < item.qty!) {
         throw new Error(`Product "${product?.name}" is out of stock or insufficient quantity.`);
       }
-
       return {
         updateOne: {
-          filter: { _id: item.product, stock: { $gte: item.qty } }, // Prevents over-selling
+          filter: { _id: item.product, stock: { $gte: item.qty } },
           update: { $inc: { stock: -item.qty! } },
         },
       };
@@ -90,6 +110,10 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
 
     // Perform bulk stock update
     await Product.bulkWrite(bulkUpdates, { session });
+
+    // Atomically update sale counters (limit, boughtCount, etc.)
+    // Ensure products are typed as SaleOrderProduct[] for updateSaleCountersOnOrder
+    await updateSaleCountersOnOrder(products as SaleOrderProduct[], session);
 
     // Create the order
     const order = new Order(orderData);
@@ -99,7 +123,6 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
     session.endSession();
 
     // Track order analytics after successful transaction
-    // This runs independently and won't affect the response time
     AnalyticsService.trackOrderPlaced(order._id.toString(), order.total).catch((err) =>
       console.error('Failed to track order analytics:', err)
     );

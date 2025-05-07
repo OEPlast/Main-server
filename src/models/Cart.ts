@@ -34,6 +34,20 @@ const cartSchema = new mongoose.Schema(
             },
           },
         ],
+        sale: {
+          type: ObjectId,
+          ref: 'Sales',
+        },
+        saleType: {
+          type: String,
+          enum: ['Flash', 'Limited', 'Normal'],
+        },
+        saleVariantIndex: {
+          type: Number,
+        },
+        saleDiscount: {
+          type: Number,
+        },
       },
     ],
     createdAt: {

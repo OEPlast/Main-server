@@ -1,3 +1,15 @@
+import { validateCartSales } from '../services/cartService';
+// Validate cart sales before checkout
+export const validateCart = async (req: Request, res: Response) => {
+  try {
+    const userId = req.userId!;
+    const result = await validateCartSales(userId);
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Error in validateCart:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
 import { Request, Response } from 'express';
 import CartService from '../services/cartService';
 
@@ -70,4 +82,5 @@ export default {
   removeFromCart,
   clearUserCart,
   updateCartItemQuantity,
+  validateCart,
 };

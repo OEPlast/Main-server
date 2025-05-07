@@ -9,5 +9,7 @@ router.post('/add', CartValidator.addToCart, CartController.addToCart);
 router.post('/clear', CartController.clearUserCart);
 router.put('/update/:id', CartValidator.updateCartItem, CartController.updateCartItemQuantity);
 router.patch('/remove/:id', CartController.removeFromCart);
+// Validate cart sales before checkout
+router.get('/validate-sales', CartController.validateCart);
 
 export default router;

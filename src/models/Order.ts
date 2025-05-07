@@ -38,6 +38,21 @@ const orderSchema = new mongoose.Schema(
             },
           },
         ],
+        // Sale info fields
+        sale: {
+          type: ObjectId,
+          ref: 'Sales',
+        },
+        saleType: {
+          type: String,
+          enum: ['Flash', 'Limited', 'Normal'],
+        },
+        saleVariantIndex: {
+          type: Number,
+        },
+        saleDiscount: {
+          type: Number,
+        },
       },
     ],
     shippingAddress: {
@@ -123,7 +138,7 @@ const orderSchema = new mongoose.Schema(
         flashSale: {
           type: mongoose.Schema.ObjectId,
           required: true,
-          ref: 'FlashSale',
+          ref: 'Sales',
         },
         product: {
           type: mongoose.Schema.ObjectId,
