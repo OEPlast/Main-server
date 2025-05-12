@@ -46,8 +46,15 @@ const salesSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ['Flash', 'Limited', 'Normal'],
+      enum: ['Flash', 'Limited', 'Normal', 'Special'],
       default: 'Normal',
+    },
+    specialCampaign: {
+      type: mongoose.Schema.ObjectId,
+      ref: 'SpecialCampaign',
+      required: function (this: SalesType) {
+        return this.type === 'Special';
+      },
     },
     limit: {
       type: Number,
