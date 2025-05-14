@@ -1,6 +1,6 @@
 import { model, Schema, InferSchemaType } from 'mongoose';
 
-const specialCampaignSchema = new Schema({
+const campaignSchema = new Schema({
   image: { type: String, required: true },
   title: { type: String, required: true },
   startDate: { type: Date },
@@ -8,7 +8,7 @@ const specialCampaignSchema = new Schema({
 });
 
 // Custom validation using pre hook
-specialCampaignSchema.pre('validate', function (next) {
+campaignSchema.pre('validate', function (next) {
   const hasStart = !!this.startDate;
   const hasEnd = !!this.endDate;
 
@@ -18,7 +18,7 @@ specialCampaignSchema.pre('validate', function (next) {
 
   next();
 });
-export type ISpecialCampaign = InferSchemaType<typeof specialCampaignSchema>;
+export type Icampaign = InferSchemaType<typeof campaignSchema>;
 
-const SpecialCampaign = model('SpecialCampaign', specialCampaignSchema);
-export default SpecialCampaign;
+const campaign = model('Campaign', campaignSchema);
+export default campaign;

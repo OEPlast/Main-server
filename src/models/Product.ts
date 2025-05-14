@@ -64,6 +64,11 @@ const productSchema = new mongoose.Schema(
       ref: 'subCategory',
     },
     tags: [{ type: String }],
+    cover_image: {
+      type: String,
+      required: true,
+    },
+
     description_images: [
       {
         url: { type: String, required: true },
