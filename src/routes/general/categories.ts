@@ -1,15 +1,10 @@
 import express from 'express';
+import CategoryController from '../../controller/categoryController';
+import CategoryValidator from '../../validators/CategoryValidator';
+
 const router = express.Router();
 
-router.get('/categories', () => {});
-router.get('/categories/:id', () => {});
-router.post('/categories', () => {});
-router.put('/categories/:id', () => {});
-router.delete('/categories/:id', () => {});
-
-// Special feature routes
-router.get('/categories/:id/subcategories', () => {});
-router.get('/categories/:id/products', () => {});
-router.get('/subcategories/:id/products', () => {});
+// Public route to get all categories
+router.get('/', ...CategoryValidator.validateCategoryQuery, CategoryController.getAllCategories);
 
 export default router;

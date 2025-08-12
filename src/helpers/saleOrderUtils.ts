@@ -1,5 +1,5 @@
 import { ClientSession } from 'mongoose';
-import Sales, { SalesType } from '../models/Sales';
+import Sales from '../models/Sales';
 import { Types } from 'mongoose';
 
 // Type for a product item in the order/cart with sale info
@@ -23,9 +23,7 @@ export async function updateSaleCountersOnOrder(products: SaleOrderProduct[], se
   for (const item of products) {
     try {
       if (!item.sale) continue;
-      const sale = (await Sales.findById(item.sale).session(session)) as SalesType & {
-        save: (opts: any) => Promise<any>;
-      };
+      const sale = await Sales.findById(item.sale).session(session);
       if (!sale) continue;
       // Handle Limited sale
       if (sale.type === 'Limited') {
@@ -36,7 +34,7 @@ export async function updateSaleCountersOnOrder(products: SaleOrderProduct[], se
         }
         // Variant
         if (typeof item.saleVariantIndex === 'number' && sale.variants[item.saleVariantIndex]) {
-          const variant = sale.variants[item.saleVariantIndex];
+          const variant = sale.variants[item.saleVariantIndex]!;
           if (typeof variant.boughtCount === 'number') {
             variant.boughtCount += item.qty;
             if (variant.maxBuys > 0 && variant.boughtCount >= variant.maxBuys) {
@@ -49,7 +47,7 @@ export async function updateSaleCountersOnOrder(products: SaleOrderProduct[], se
       // Handle Flash sale (date-based, no limit decrement, but can increment boughtCount)
       if (sale.type === 'Flash') {
         if (typeof item.saleVariantIndex === 'number' && sale.variants[item.saleVariantIndex]) {
-          const variant = sale.variants[item.saleVariantIndex];
+          const variant = sale.variants[item.saleVariantIndex]!;
           if (typeof variant.boughtCount === 'number') {
             variant.boughtCount += item.qty;
           }

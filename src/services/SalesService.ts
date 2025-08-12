@@ -2,17 +2,32 @@ import Sales, { SalesType } from '@/models/Sales';
 import { Types } from 'mongoose';
 import { CustomResponsePromise } from '@/types';
 
+// Shape of aggregated sale with product fields
+interface AggregatedSale {
+  _id: string;
+  title?: string;
+  type: SalesType['type'];
+  isActive: boolean;
+  limit?: number;
+  startDate?: Date;
+  endDate?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+  product: unknown; // Keep generic to avoid tight coupling; ideally define Product pick type
+  variants: SalesType['variants'];
+}
+
 /**
  * Gets all active and not deleted sales for users (paginated).
  */
 export const getAllActiveSales = async (
   page = 1,
   limit = 20
-): CustomResponsePromise<{ sales: any[]; page: number; total: number }> => {
+): CustomResponsePromise<{ sales: AggregatedSale[]; page: number; total: number }> => {
   try {
     const match = { isActive: true, deleted: { $ne: true } };
     const total = await Sales.countDocuments(match);
-    const sales = await Sales.aggregate([
+    const sales = (await Sales.aggregate([
       { $match: match },
       {
         $lookup: {
@@ -41,7 +56,7 @@ export const getAllActiveSales = async (
       { $sort: { createdAt: -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
-    ]);
+    ])) as AggregatedSale[];
     return {
       message: 'Active sales retrieved successfully',
       data: {
@@ -64,9 +79,9 @@ export const getAllActiveSales = async (
 /**
  * Gets a sale by id for users (only if active and not deleted).
  */
-export const getSaleById = async (id: string): CustomResponsePromise<any> => {
+export const getSaleById = async (id: string): CustomResponsePromise<AggregatedSale> => {
   try {
-    const result = await Sales.aggregate([
+    const result = (await Sales.aggregate([
       { $match: { _id: new Types.ObjectId(id), isActive: true, deleted: { $ne: true } } },
       {
         $lookup: {
@@ -92,7 +107,7 @@ export const getSaleById = async (id: string): CustomResponsePromise<any> => {
           variants: 1,
         },
       },
-    ]);
+    ])) as AggregatedSale[];
     if (!result[0]) {
       return {
         message: 'Sale not available',
@@ -121,18 +136,18 @@ export const getSaleById = async (id: string): CustomResponsePromise<any> => {
 export const getAllActiveFlashSales = async (
   page = 1,
   limit = 20
-): CustomResponsePromise<{ sales: any[]; page: number; total: number }> => {
+): CustomResponsePromise<{ sales: AggregatedSale[]; page: number; total: number }> => {
   try {
     const now = new Date();
     const match = {
-      type: 'Flash',
+      type: 'Flash' as SalesType['type'],
       isActive: true,
       deleted: { $ne: true },
       startDate: { $lte: now },
       endDate: { $gte: now },
     };
     const total = await Sales.countDocuments(match);
-    const sales = await Sales.aggregate([
+    const sales = (await Sales.aggregate([
       { $match: match },
       {
         $lookup: {
@@ -161,7 +176,7 @@ export const getAllActiveFlashSales = async (
       { $sort: { createdAt: -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
-    ]);
+    ])) as AggregatedSale[];
     return {
       message: 'Active flash sales retrieved successfully',
       data: {
@@ -187,16 +202,16 @@ export const getAllActiveFlashSales = async (
 export const getAllActiveLimitedSales = async (
   page = 1,
   limit = 20
-): CustomResponsePromise<{ sales: any[]; page: number; total: number }> => {
+): CustomResponsePromise<{ sales: AggregatedSale[]; page: number; total: number }> => {
   try {
     const match = {
-      type: 'Limited',
+      type: 'Limited' as SalesType['type'],
       isActive: true,
       deleted: { $ne: true },
       limit: { $gte: 1 },
     };
     const total = await Sales.countDocuments(match);
-    const sales = await Sales.aggregate([
+    const sales = (await Sales.aggregate([
       { $match: match },
       {
         $lookup: {
@@ -225,7 +240,7 @@ export const getAllActiveLimitedSales = async (
       { $sort: { createdAt: -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
-    ]);
+    ])) as AggregatedSale[];
     return {
       message: 'Active limited sales retrieved successfully',
       data: {
@@ -251,15 +266,15 @@ export const getAllActiveLimitedSales = async (
 export const getAllActiveNormalSales = async (
   page = 1,
   limit = 20
-): CustomResponsePromise<{ sales: any[]; page: number; total: number }> => {
+): CustomResponsePromise<{ sales: AggregatedSale[]; page: number; total: number }> => {
   try {
     const match = {
-      type: 'Normal',
+      type: 'Normal' as SalesType['type'],
       isActive: true,
       deleted: { $ne: true },
     };
     const total = await Sales.countDocuments(match);
-    const sales = await Sales.aggregate([
+    const sales = (await Sales.aggregate([
       { $match: match },
       {
         $lookup: {
@@ -288,7 +303,7 @@ export const getAllActiveNormalSales = async (
       { $sort: { createdAt: -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
-    ]);
+    ])) as AggregatedSale[];
     return {
       message: 'Active normal sales retrieved successfully',
       data: {
@@ -311,7 +326,7 @@ export const getAllActiveNormalSales = async (
 /**
  * Checks if a sale (and optionally a variant) is available for use.
  */
-export const isSaleAvailable = async (saleId: string, variantIndex?: number): CustomResponsePromise<any> => {
+export const isSaleAvailable = async (saleId: string, variantIndex?: number): CustomResponsePromise<SalesType> => {
   try {
     const sale = await Sales.findById(saleId);
     if (!sale || sale.deleted) {
@@ -371,7 +386,7 @@ export const isSaleAvailable = async (saleId: string, variantIndex?: number): Cu
     }
     // If no variants, or variantIndex not provided, check if any variant is available
     if (Array.isArray(sale.variants) && sale.variants.length > 0 && typeof variantIndex !== 'number') {
-      const hasAvailable = sale.variants.some((v: any) => v.maxBuys === 0 || v.boughtCount < v.maxBuys);
+      const hasAvailable = sale.variants.some((v) => v.maxBuys === 0 || v.boughtCount < v.maxBuys);
       if (!hasAvailable) {
         await markSaleInactiveIfNeeded(sale);
         return {
@@ -399,10 +414,10 @@ export const isSaleAvailable = async (saleId: string, variantIndex?: number): Cu
 /**
  * Marks a sale or its variant as inactive if maxBuys reached or other criteria.
  */
-export const markSaleInactiveIfNeeded = async (sale: any, variantIndex?: number) => {
+export const markSaleInactiveIfNeeded = async (sale: import('@/models/Sales').SalesDocument, variantIndex?: number) => {
   let updated = false;
   if (typeof variantIndex === 'number' && sale.variants[variantIndex]) {
-    const variant = sale.variants[variantIndex];
+    const variant = sale.variants[variantIndex]!;
     if (variant.maxBuys > 0 && variant.boughtCount >= variant.maxBuys) {
       sale.isActive = false;
       updated = true;
@@ -417,7 +432,7 @@ export const markSaleInactiveIfNeeded = async (sale: any, variantIndex?: number)
       updated = true;
     }
   } else if (Array.isArray(sale.variants) && sale.variants.length > 0) {
-    const allReached = sale.variants.every((v: any) => v.maxBuys > 0 && v.boughtCount >= v.maxBuys);
+    const allReached = sale.variants.every((v) => v.maxBuys > 0 && v.boughtCount >= v.maxBuys);
     if (allReached) {
       sale.isActive = false;
       updated = true;

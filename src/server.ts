@@ -7,11 +7,25 @@ import connectDB from './lib/db';
 
 import ProductsRoute from '@/routes/general/products';
 import ReviewRoute from './routes/general/review';
+import CategoriesRoute from '@/routes/general/categories';
+import PaymentRoute from '@/routes/general/payment';
 import AuthRoute from '@/routes/auth/user';
 import OrderRoute from '@/routes/users/orders';
 import CartRoute from '@/routes/users/cart';
 import BannersRoute from '@/routes/general/banners';
 import WishlistRoute from '@/routes/users/wishlist';
+import ProfileRoute from '@/routes/users/profile';
+import CheckoutRoute from '@/routes/users/checkout';
+import SettingsRoute from '@/routes/users/settings';
+import UserReviewsRoute from '@/routes/users/reviews';
+import UserRoute from '@/routes/users/user';
+import InventoryRoute from '@/routes/general/inventory';
+import LogisticsPublicRoute from '@/routes/general/logistics';
+import UserShipmentsRoute from '@/routes/users/shipments';
+import PublicGalleryRoute from './routes/general/publicGallery';
+import PublicReviewsListRoute from './routes/general/publicReviews';
+import UserInvoiceRoute from '@/routes/users/invoice';
+import { eventPublisher } from '@/events';
 
 import {
   AdminAttributeRoute,
@@ -23,24 +37,67 @@ import {
   AdminUsersRoute,
   AdminAnalyticsRoute,
   AdminCouponRoute,
+  AdminShipmentRoute,
+  AdminRolesRoute,
+  AdminCampaignRoute,
+  AdminSalesRoute,
+  AdminSubCategoryRoute,
+  AdminInventoryRoute,
+  AdminInvoicesRoute,
 } from './routes/admin';
+import FileUploadRoute from '@/routes/general/fileUpload';
+
+// Helper to capture raw body without using any
+const rawBodySaver = (req: Request & { rawBody?: Buffer }, _res: Response, buf: Buffer) => {
+  req.rawBody = buf;
+};
+
 const app: Application = express();
 // Express Middlewares
 envConfig();
 app.use(helmet());
 app.use(cors());
 app.use(express.urlencoded({ limit: '25mb', extended: true }));
-app.use(express.json());
+// capture raw body for HMAC verification (e.g., Paystack)
+app.use(
+  express.json({
+    verify: rawBodySaver as unknown as (req: Request, res: Response, buf: Buffer, encoding: string) => void,
+    limit: '25mb',
+  })
+);
 app.use(morganMiddleware);
 
+// Connect RabbitMQ publisher (non-blocking)
+(async () => {
+  try {
+    await eventPublisher.connect();
+  } catch (err) {
+    console.error('EventPublisher failed to connect:', err);
+  }
+})();
+
 // Root Route
+app.use('/files', FileUploadRoute);
 app.use('/products', ProductsRoute);
+app.use('/categories', CategoriesRoute);
+app.use('/payments', PaymentRoute);
 app.use('/reviews', ReviewRoute);
+app.use('/reviews', PublicReviewsListRoute);
 app.use('/auth', AuthRoute);
 app.use('/wishlist', WishlistRoute);
 app.use('/orders', OrderRoute);
 app.use('/carts', CartRoute);
 app.use('/banners', BannersRoute);
+app.use('/profile', ProfileRoute);
+app.use('/checkout', CheckoutRoute);
+app.use('/settings', SettingsRoute);
+app.use('/users/reviews', UserReviewsRoute);
+app.use('/users', UserRoute);
+app.use('/users', UserShipmentsRoute);
+app.use('/users', UserInvoiceRoute);
+app.use('/inventory', InventoryRoute);
+app.use('/logistics', LogisticsPublicRoute);
+app.use('/gallery', PublicGalleryRoute);
 
 //------------------
 //admin
@@ -53,6 +110,13 @@ app.use('/admin/banners', AdminBannerRoute);
 app.use('/admin/users', AdminUsersRoute);
 app.use('/admin/analytics', AdminAnalyticsRoute);
 app.use('/admin/coupon', AdminCouponRoute);
+app.use('/admin/shipment', AdminShipmentRoute);
+app.use('/admin/roles', AdminRolesRoute);
+app.use('/admin/campaigns', AdminCampaignRoute);
+app.use('/admin/sales', AdminSalesRoute);
+app.use('/admin/subcategory', AdminSubCategoryRoute);
+app.use('/admin/inventory', AdminInventoryRoute);
+app.use('/admin/invoices', AdminInvoicesRoute);
 
 //------------------
 // server Health Check
@@ -62,7 +126,7 @@ app.get('/health-check', (req: Request, res: Response) => {
 
 // Start the server
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
+const server = app.listen(port, () => {
   try {
     connectDB();
     console.log(`Server is listening on port ${port}`);
@@ -71,3 +135,16 @@ app.listen(port, () => {
     process.exit(1);
   }
 });
+
+// Graceful shutdown
+const shutdown = async () => {
+  try {
+    await eventPublisher.disconnect();
+  } catch (e) {
+    // ignore
+  } finally {
+    server.close(() => process.exit(0));
+  }
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);

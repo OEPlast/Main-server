@@ -1,5 +1,5 @@
 import Order, { OrderType } from '../../models/Order';
-import { CustomResponseType } from '../../types';
+import { CustomResponseType } from '@/types';
 import AnalyticsService from '../MainAnalyticsService';
 
 /**

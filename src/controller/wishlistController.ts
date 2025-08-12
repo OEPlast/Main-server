@@ -1,11 +1,12 @@
 import WishlistService from '@/services/wishlist';
 import { Request, Response } from 'express';
+import { AuthenticatedRequest } from '@/types';
 
 // Add an item to the wishlist
 const addToWishlist = async (req: Request, res: Response) => {
   try {
     const { product } = req.body;
-    const user = req.userId!;
+    const user = (req as AuthenticatedRequest).userId!;
     const { data, message, code } = await WishlistService.createWishlist({ product, user });
     return res.status(code).json({ message, data });
   } catch (error) {
@@ -18,7 +19,7 @@ const addToWishlist = async (req: Request, res: Response) => {
 const removeFromWishlist = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const user = req.userId!;
+    const user = (req as AuthenticatedRequest).userId!;
     const { data, message, code } = await WishlistService.deleteWishlist({ id, user });
     return res.status(code).json({ message, data });
   } catch (error) {
@@ -31,7 +32,7 @@ const removeFromWishlist = async (req: Request, res: Response) => {
 const getAllWishlists = async (req: Request, res: Response) => {
   try {
     const { page = 1, limit = 50 } = req.query;
-    const user = req.userId!;
+    const user = (req as AuthenticatedRequest).userId!;
     const { data, message, code } = await WishlistService.getAllWishlists({
       page: Number(page),
       limit: Number(limit),
@@ -47,7 +48,7 @@ const getAllWishlists = async (req: Request, res: Response) => {
 // Get total wishlist count
 const getTotalWishlistCount = async (req: Request, res: Response) => {
   try {
-    const user = req.userId!;
+    const user = (req as AuthenticatedRequest).userId!;
     const { data, message, code } = await WishlistService.getTotalWishlistCount(user);
     return res.status(code).json({ message, data });
   } catch (error) {

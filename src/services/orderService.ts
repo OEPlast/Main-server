@@ -6,6 +6,7 @@ import AnalyticsService from './MainAnalyticsService';
 import { findActiveSaleForProduct, checkSaleAvailability } from '@/helpers/salesUtils';
 import { SaleOrderProduct, updateSaleCountersOnOrder } from '@/helpers/saleOrderUtils';
 import type { SalesType } from '@/models/Sales';
+import eventPublisher from '@/events/eventPublisher';
 
 /**
  * Fetches paginated orders for user with optional filters.
@@ -59,7 +60,13 @@ const getOrderHistory = async (
  * @param orderData - The data for the new order.
  */
 
-type OrderDataInput = Omit<OrderType, 'createdAt' | 'updatedAt'>;
+// Accept user as string (will be cast by Mongoose) or ObjectId
+// Make array fields optional for input ergonomics
+type OrderDataInput = Omit<OrderType, 'createdAt' | 'updatedAt' | 'user' | 'shippingProgress' | 'flashSaleApplied'> & {
+  user: string | mongoose.Types.ObjectId;
+  shippingProgress?: OrderType['shippingProgress'];
+  flashSaleApplied?: OrderType['flashSaleApplied'];
+};
 
 const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise<CustomResponseType<OrderType>> => {
   const session = await mongoose.startSession();
@@ -110,6 +117,16 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
 
     // Perform bulk stock update
     await Product.bulkWrite(bulkUpdates, { session });
+
+    // Emit low stock events for affected products if needed
+    const updatedProducts = await Product.find({ _id: { $in: productIds } })
+      .session(session)
+      .select('name stock lowStockThreshold');
+    for (const p of updatedProducts) {
+      if (p.stock <= p.lowStockThreshold) {
+        await eventPublisher.publishInventoryLow(p._id.toString(), p.stock, p.lowStockThreshold, p.name);
+      }
+    }
 
     // Atomically update sale counters (limit, boughtCount, etc.)
     // Ensure products are typed as SaleOrderProduct[] for updateSaleCountersOnOrder

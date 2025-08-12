@@ -1,13 +1,13 @@
 import express from 'express';
-import { userLogin, userLogout, userRegister } from '../../controller/authController';
-import UserController from '../../controller/userController';
+import AuthController from '../../controller/authController';
+import UserController from '../../controller/UserController';
 import UserValidator from '../../validators/UserValidator';
 
 const router = express.Router();
 
-router.post('/login', userLogin);
-router.post('/logout', userLogout);
-router.post('/register', userRegister);
+router.post('/login', AuthController.userLogin);
+router.post('/logout', AuthController.userLogout);
+router.post('/register', AuthController.userRegister);
 
 // Update user profile
 router.put('/profile', UserValidator.validateUserProfileUpdate, UserController.updateProfile);

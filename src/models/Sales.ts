@@ -1,4 +1,4 @@
-import mongoose, { InferSchemaType } from 'mongoose';
+import mongoose, { InferSchemaType, HydratedDocument } from 'mongoose';
 
 const variantSchema = new mongoose.Schema({
   attributeName: {
@@ -9,7 +9,7 @@ const variantSchema = new mongoose.Schema({
     type: String,
     default: null,
     validate: {
-      validator: function (this: any, value: string | null) {
+      validator: function (this: { attributeName: string | null }, value: string | null) {
         const bothNull = this.attributeName === null && value === null;
         const bothString = typeof this.attributeName === 'string' && typeof value === 'string';
         return bothNull || bothString;
@@ -73,6 +73,7 @@ const salesSchema = new mongoose.Schema(
 );
 
 export type SalesType = InferSchemaType<typeof salesSchema>;
-const Sales = mongoose.model('Sales', salesSchema);
+export type SalesDocument = HydratedDocument<SalesType>;
+const Sales = mongoose.model<SalesType>('Sales', salesSchema);
 
 export default Sales;

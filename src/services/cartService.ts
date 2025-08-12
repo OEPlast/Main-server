@@ -8,10 +8,26 @@ import { findActiveSaleForProduct, checkSaleAvailability } from '@/helpers/sales
  * Returns an array of products with sale changes or invalid sales.
  */
 
-export async function validateCartSales(userId: string) {
+// Define changed entry types to avoid any
+type ChangedSaleInfo = {
+  sale?: CartType['products'][number]['sale'];
+  saleType?: CartType['products'][number]['saleType'];
+  saleDiscount?: CartType['products'][number]['saleDiscount'];
+  saleVariantIndex?: CartType['products'][number]['saleVariantIndex'];
+};
+
+type ChangedEntry = {
+  product: CartType['products'][number]['product'];
+  old: ChangedSaleInfo;
+  current: ChangedSaleInfo;
+};
+
+export async function validateCartSales(
+  userId: string
+): Promise<{ valid: boolean; message: string; changed: ChangedEntry[] }> {
   const cart = await Cart.findOne({ user: userId });
   if (!cart) return { valid: false, message: 'Cart not found', changed: [] };
-  const changed: any[] = [];
+  const changed: ChangedEntry[] = [];
   for (const item of cart.products) {
     if (!item.product) {
       continue;
@@ -19,21 +35,22 @@ export async function validateCartSales(userId: string) {
     // Get current sale for this product
     const sale = await findActiveSaleForProduct(item.product.toString());
     let currentDiscount = 0;
-    let currentSaleId = undefined;
-    let currentSaleType = undefined;
-    let currentVariantIndex = undefined;
+    let currentSaleId = undefined as ChangedSaleInfo['sale'];
+    let currentSaleType = undefined as ChangedSaleInfo['saleType'];
+    let currentVariantIndex = undefined as ChangedSaleInfo['saleVariantIndex'];
     if (sale) {
       const { available, variantIndex, discount } = checkSaleAvailability(sale, item.attributes);
       if (available) {
         currentDiscount = discount || 0;
-        currentSaleId = sale._id.toString();
-        currentSaleType = sale.type;
-        currentVariantIndex = typeof variantIndex === 'number' ? variantIndex : undefined;
+        currentSaleId = sale._id as unknown as ChangedSaleInfo['sale'];
+        currentSaleType = sale.type as ChangedSaleInfo['saleType'];
+        currentVariantIndex =
+          typeof variantIndex === 'number' ? (variantIndex as ChangedSaleInfo['saleVariantIndex']) : undefined;
       }
     }
     // Compare with cart's stored sale info
     if (
-      (item.sale && (!currentSaleId || item.sale.toString() !== currentSaleId)) ||
+      (item.sale && (!currentSaleId || item.sale.toString() !== currentSaleId.toString())) ||
       item.saleDiscount !== currentDiscount ||
       item.saleType !== currentSaleType ||
       item.saleVariantIndex !== currentVariantIndex
@@ -148,9 +165,12 @@ const addToCart = async (
         const appliedDiscount = typeof discount === 'number' ? discount : 0;
         finalPrice = product.price - (product.price * appliedDiscount) / 100;
         saleInfo = {
-          sale: sale._id,
-          saleType: sale.type,
-          saleVariantIndex: typeof variantIndex === 'number' ? variantIndex : undefined,
+          sale: sale._id as unknown as CartType['products'][number]['sale'],
+          saleType: sale.type as CartType['products'][number]['saleType'],
+          saleVariantIndex:
+            typeof variantIndex === 'number'
+              ? (variantIndex as CartType['products'][number]['saleVariantIndex'])
+              : undefined,
           saleDiscount: appliedDiscount,
         };
       }

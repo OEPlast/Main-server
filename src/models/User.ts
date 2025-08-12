@@ -25,6 +25,12 @@ const userSchema = new mongoose.Schema(
       enum: ['owner', 'user', 'manager', 'employee'],
       default: 'user',
     },
+    roles: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Role',
+      },
+    ],
     image: {
       type: String,
       default: 'https://res.cloudinary.com/dmhcnhtng/image/upload/v1664642478/992490_b0iqzq.png',

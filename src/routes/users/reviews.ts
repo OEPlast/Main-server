@@ -1,13 +1,17 @@
 import express from 'express';
 import ReviewController from '../../controller/reviewController';
+import ReviewValidator from '../../validators/ReviewValidator';
+import { isAuthenticated } from '../../middleware/auth';
 
 const router = express.Router();
 
-router.get('/all', ReviewController.getReviews);
-router.post('/new', ReviewController.createReview);
+// All review routes require authentication
+router.use(isAuthenticated);
+
 router.get('/me', ReviewController.getUserReviews);
-router.get('/one/:id', ReviewController.getUserProductReview);
-router.put('/one/:id', ReviewController.updateReview);
-router.delete('/one/:id', ReviewController.deleteReview);
+router.get('/product/:product', ReviewController.getUserProductReview);
+router.post('/', ...ReviewValidator.validateCreateReview, ReviewController.createReview);
+router.put('/:id', ...ReviewValidator.validateUpdateReview, ReviewController.updateReview);
+router.delete('/:id', ...ReviewValidator.validateReviewId, ReviewController.deleteReview);
 
 export default router;

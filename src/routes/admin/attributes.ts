@@ -1,5 +1,5 @@
 import express from 'express';
-import { isAdmin, isAuthenticated } from '@/middleware/auth';
+import { isAdmin, isAuthenticated, requirePermission } from '@/middleware/auth';
 import AttributesController from '@/controller/admin/AttributesController';
 import AttributesValidator from '@/validators/admin/AttributesValidator';
 
@@ -10,23 +10,37 @@ router.post(
   '/',
   isAuthenticated,
   isAdmin,
+  requirePermission('attributes', 'create'),
   AttributesValidator.create_And_Update_AttributeValidator,
   AttributesController.createAttribute
 );
 
 // Get all attributes
-router.get('/', isAuthenticated, isAdmin, AttributesController.getAllAttributes);
+router.get(
+  '/',
+  isAuthenticated,
+  isAdmin,
+  requirePermission('attributes', 'read'),
+  AttributesController.getAllAttributes
+);
 
 // Update attribute
 router.put(
   '/:id',
   isAuthenticated,
   isAdmin,
+  requirePermission('attributes', 'update'),
   AttributesValidator.create_And_Update_AttributeValidator,
   AttributesController.updateAttribute
 );
 
 // Delete attribute
-router.delete('/:id', isAuthenticated, isAdmin, AttributesController.deleteAttribute);
+router.delete(
+  '/:id',
+  isAuthenticated,
+  isAdmin,
+  requirePermission('attributes', 'delete'),
+  AttributesController.deleteAttribute
+);
 
 export default router;

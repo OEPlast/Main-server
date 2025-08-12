@@ -1,5 +1,5 @@
 import Gallery, { GalleryType } from '../../models/Gallery';
-import { CustomResponseType } from '../../types';
+import { CustomResponseType } from '@/types';
 
 /**
  * Adds one or more images to the gallery.

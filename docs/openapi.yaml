@@ -1,0 +1,2317 @@
+openapi: 3.1.0
+info:
+  title: OSL Old Main Server API
+  version: 1.0.0
+  description: REST API for the main e-commerce server (monolith)
+servers:
+  - url: http://localhost:4000
+    description: Local
+tags:
+  - name: Auth
+  - name: Products
+  - name: Categories
+  - name: Payments
+  - name: Orders
+  - name: Cart
+  - name: Wishlist
+  - name: Profile
+  - name: Reviews
+  - name: Settings
+  - name: Inventory
+  - name: Gallery
+  - name: Logistics
+  - name: FileUpload
+  - name: Shipments
+  # Admin groups
+  - name: Admin - Products
+  - name: Admin - Categories
+  - name: Admin - Subcategories
+  - name: Admin - Attributes
+  - name: Admin - Gallery
+  - name: Admin - Banners
+  - name: Admin - Orders
+  - name: Admin - Coupons
+  - name: Admin - Users
+  - name: Admin - Roles
+  - name: Admin - Sales
+  - name: Admin - Campaigns
+  - name: Admin - Shipments
+  - name: Admin - Inventory
+  - name: Admin - Invoices
+  - name: Admin - Analytics
+  - name: Admin - Reviews
+  - name: Misc
+x-tagGroups:
+  - name: Public
+    tags:
+      - Auth
+      - Products
+      - Categories
+      - Gallery
+      - Reviews
+      - Payments
+      - Inventory
+      - FileUpload
+      - Profile
+      - Cart
+      - Orders
+      - Wishlist
+      - Logistics
+      - Shipments
+      - Settings
+      - Misc
+  - name: Admin
+    tags:
+      - Admin - Products
+      - Admin - Categories
+      - Admin - Subcategories
+      - Admin - Attributes
+      - Admin - Gallery
+      - Admin - Banners
+      - Admin - Orders
+      - Admin - Coupons
+      - Admin - Users
+      - Admin - Roles
+      - Admin - Sales
+      - Admin - Campaigns
+      - Admin - Shipments
+      - Admin - Inventory
+      - Admin - Invoices
+      - Admin - Analytics
+      - Admin - Reviews
+paths:
+  /health-check:
+    get:
+      summary: Health
+      tags: [Misc]
+      responses:
+        '200': { description: OK }
+
+  # Auth (public)
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200': { description: Logged in }
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '201': { description: Registered }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout
+      responses:
+        '200': { description: Logged out }
+  /auth/changePassword:
+    post:
+      tags: [Auth]
+      summary: Change password
+      responses:
+        '200': { description: Changed }
+  /auth/requestResetPasswordCode:
+    post:
+      tags: [Auth]
+      summary: Request reset code
+      responses:
+        '200': { description: Sent }
+  /auth/resetPasswordByCode:
+    post:
+      tags: [Auth]
+      summary: Reset password by code
+      responses:
+        '200': { description: Reset }
+  /auth/verifyAccountOtp:
+    post:
+      tags: [Auth]
+      summary: Verify account OTP
+      responses:
+        '200': { description: Verified }
+  /auth/resendVerifyAccountOtp:
+    post:
+      tags: [Auth]
+      summary: Resend account OTP
+      responses:
+        '200': { description: Sent }
+
+  # Products (public)
+  /products:
+    get:
+      tags: [Products]
+      summary: List products
+      parameters:
+        - in: query
+          name: q
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer }
+        - in: query
+          name: limit
+          schema: { type: integer }
+      responses:
+        '200': { description: OK }
+  /products/search:
+    get:
+      tags: [Products]
+      summary: Search products
+      responses:
+        '200': { description: OK }
+  /products/week:
+    get:
+      tags: [Products]
+      summary: Weekly products
+      responses:
+        '200': { description: OK }
+  /products/top-sold:
+    get:
+      tags: [Products]
+      summary: Top sold products
+      responses:
+        '200': { description: OK }
+  /products/hot-sales:
+    get:
+      tags: [Products]
+      summary: Hot sales
+      responses:
+        '200': { description: OK }
+  /products/recommendation:
+    get:
+      tags: [Products]
+      summary: Recommendations
+      responses:
+        '200': { description: OK }
+  /products/recommendation4u:
+    get:
+      tags: [Products]
+      summary: Personalized recommendations
+      responses:
+        '200': { description: OK }
+  /products/categoryNSub/{category}/{subCat}:
+    get:
+      tags: [Products]
+      summary: Products by category and subcategory
+      parameters:
+        - in: path
+          name: category
+          required: true
+          schema: { type: string }
+        - in: path
+          name: subCat
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /products/{id}:
+    get:
+      tags: [Products]
+      summary: Get product by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  # Categories (public)
+  /categories:
+    get:
+      tags: [Categories]
+      summary: Get all categories
+      responses:
+        '200': { description: OK }
+
+  # Banners (public)
+  /banners:
+    get:
+      tags: [Gallery]
+      summary: Get banners
+      responses:
+        '200': { description: OK }
+
+  # Gallery (public)
+  /gallery:
+    get:
+      tags: [Gallery]
+      summary: List gallery images
+      responses:
+        '200': { description: OK }
+  /gallery/{id}:
+    get:
+      tags: [Gallery]
+      summary: Get gallery item
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  # Public reviews
+  /reviews/product/{productId}:
+    get:
+      tags: [Reviews]
+      summary: Get product reviews (public)
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  # General reviews (mixed)
+  /reviews/{reviewId}/likeCount:
+    get:
+      tags: [Reviews]
+      summary: Like count
+      parameters:
+        - in: path
+          name: reviewId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /reviews:
+    post:
+      tags: [Reviews]
+      summary: Create review
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Created }
+  /reviews/{reviewId}:
+    put:
+      tags: [Reviews]
+      summary: Update review
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: reviewId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Updated }
+    delete:
+      tags: [Reviews]
+      summary: Delete review
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: reviewId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+  /reviews/{reviewId}/like:
+    post:
+      tags: [Reviews]
+      summary: Like review
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: reviewId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /reviews/{reviewId}/unlike:
+    post:
+      tags: [Reviews]
+      summary: Unlike review
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: reviewId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  # Payments
+  /payments/initialize:
+    post:
+      tags: [Payments]
+      summary: Initialize payment
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [orderId, email, amount]
+              properties:
+                orderId: { type: string }
+                email: { type: string, format: email }
+                amount: { type: number }
+                currency: { type: string, default: NGN }
+                metadata: { type: object }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  code: { type: integer }
+                  data:
+                    type: object
+                    properties:
+                      paymentUrl: { type: string }
+                      reference: { type: string }
+                      payment:
+                        type: object
+                        additionalProperties: true
+  /payments/verify/{reference}:
+    get:
+      tags: [Payments]
+      summary: Verify payment
+      parameters:
+        - in: path
+          name: reference
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Payment verified successfully }
+                  code: { type: integer, example: 200 }
+                  data:
+                    type: object
+                    properties:
+                      _id: { type: string, description: Payment id }
+                      orderId: { type: string }
+                      userId: { type: string }
+                      paymentId: { type: string }
+                      paymentMethod:
+                        type: string
+                        enum: [stripe, paystack, flutterwave, bank_transfer, cash_on_delivery]
+                      paymentGateway:
+                        type: string
+                        enum: [stripe, paystack, flutterwave, manual]
+                      amount: { type: number }
+                      currency: { type: string, example: NGN }
+                      status:
+                        type: string
+                        enum: [pending, completed, failed, cancelled, refunded, partially_refunded]
+                      transactionId: { type: string, description: Gateway reference }
+                      gatewayResponse: { type: object, additionalProperties: true }
+                      fees:
+                        type: object
+                        properties:
+                          gatewayFee: { type: number }
+                          processingFee: { type: number }
+                          totalFees: { type: number }
+                      customerInfo:
+                        type: object
+                        properties:
+                          email: { type: string, format: email }
+                          name: { type: string }
+                          phone: { type: string }
+                      createdAt: { type: string, format: date-time }
+                      updatedAt: { type: string, format: date-time }
+        '400': { description: Verification failed }
+        '404': { description: Payment not found }
+        '500': { description: Server error }
+  /payments/webhook:
+    post:
+      tags: [Payments]
+      summary: Paystack webhook
+      parameters:
+        - in: header
+          name: x-paystack-signature
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [event, data]
+              properties:
+                event:
+                  type: string
+                  enum: [charge.success, charge.failed]
+                  example: charge.success
+                data:
+                  type: object
+                  properties:
+                    reference: { type: string }
+                    status: { type: string, example: success }
+                    id: { type: string, description: Paystack transaction id }
+                    amount: { type: number, description: Amount in kobo for NGN }
+                    fees: { type: number }
+                    gateway_response: { type: string }
+                    paid_at: { type: string, format: date-time }
+                    channel: { type: string }
+                    customer:
+                      type: object
+                      properties:
+                        email: { type: string, format: email }
+                    metadata: { type: object, additionalProperties: true }
+            examples:
+              success:
+                value:
+                  event: charge.success
+                  data:
+                    reference: 'ORDER_ID_STRING'
+                    status: success
+                    id: '1234567890'
+                    amount: 250000
+                    fees: 3750
+                    gateway_response: Approved
+                    paid_at: '2025-08-12T10:15:30Z'
+                    channel: card
+                    customer: { email: user@example.com }
+                    metadata: { orderId: '...', userId: '...' }
+      responses:
+        '200':
+          description: Processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string, example: Webhook processed successfully }
+                  code: { type: integer, example: 200 }
+                  data: { type: string, example: OK }
+        '401': { description: Invalid signature }
+        '500': { description: Server error }
+  # ...existing code...
+
+  # Inventory
+  /inventory/{productId}/availability:
+    get:
+      tags: [Inventory]
+      summary: Check availability
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /inventory/{productId}/stock:
+    post:
+      tags: [Inventory]
+      summary: Adjust stock (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /inventory/{productId}/reserve:
+    post:
+      tags: [Inventory]
+      summary: Reserve items for checkout
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  # File Upload
+  /files/upload/single:
+    post:
+      tags: [FileUpload]
+      summary: Upload single file
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Uploaded }
+  /files/upload/multiple:
+    post:
+      tags: [FileUpload]
+      summary: Upload multiple files
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Uploaded }
+  /files/files/category/{category}:
+    get:
+      tags: [FileUpload]
+      summary: List files by category
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: category
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /files/files/{fileId}:
+    delete:
+      tags: [FileUpload]
+      summary: Delete file
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: fileId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  # User profile
+  /profile:
+    get:
+      tags: [Profile]
+      summary: Get profile
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+    put:
+      tags: [Profile]
+      summary: Update profile
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+  /profile/password:
+    put:
+      tags: [Profile]
+      summary: Change password
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+  /profile/addresses:
+    post:
+      tags: [Profile]
+      summary: Add address
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Created }
+    get:
+      tags: [Profile]
+      summary: List addresses
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+  /profile/addresses/{addressId}:
+    put:
+      tags: [Profile]
+      summary: Update address
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: addressId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Profile]
+      summary: Delete address
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: addressId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  # Wishlist
+  /wishlist/add:
+    post:
+      tags: [Wishlist]
+      summary: Add to wishlist
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Added }
+  /wishlist/{id}:
+    delete:
+      tags: [Wishlist]
+      summary: Remove from wishlist
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Removed }
+  /wishlist/all:
+    get:
+      tags: [Wishlist]
+      summary: List wishlist items
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+  /wishlist/count:
+    get:
+      tags: [Wishlist]
+      summary: Count wishlist items
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+
+  # Cart
+  /carts:
+    get:
+      tags: [Cart]
+      summary: Get cart
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+  /carts/add:
+    post:
+      tags: [Cart]
+      summary: Add to cart
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Added }
+  /carts/clear:
+    post:
+      tags: [Cart]
+      summary: Clear cart
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: Cleared }
+  /carts/update/{id}:
+    put:
+      tags: [Cart]
+      summary: Update cart item quantity
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /carts/remove/{id}:
+    patch:
+      tags: [Cart]
+      summary: Remove cart item
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /carts/validate-sales:
+    get:
+      tags: [Cart]
+      summary: Validate sales and discounts
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+
+  # Checkout
+  /checkout:
+    post:
+      tags: [Orders]
+      summary: Checkout and place order
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201': { description: Created }
+  /checkout/paystack:
+    post:
+      tags: [Orders]
+      summary: Checkout and initialize payment
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  code: { type: integer }
+                  data:
+                    type: object
+                    properties:
+                      orderId: { type: string }
+                      paymentUrl: { type: string }
+                      reference: { type: string }
+
+  # Orders (user)
+  /orders:
+    get:
+      tags: [Orders]
+      summary: List user orders
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Orders]
+      summary: Create order
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201': { description: Created }
+  /orders/{id}:
+    get:
+      tags: [Orders]
+      summary: Get order by id
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    put:
+      tags: [Orders]
+      summary: Update order
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Orders]
+      summary: Cancel order
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Cancelled }
+  /orders/{id}/return:
+    post:
+      tags: [Orders]
+      summary: Initiate return
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /orders/returns:
+    get:
+      tags: [Orders]
+      summary: List returns
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+
+  # Shipments (user)
+  /users/orders/{orderId}/shipment:
+    get:
+      tags: [Shipments]
+      summary: Get shipment for order
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /users/shipments:
+    get:
+      tags: [Shipments]
+      summary: List user shipments
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200': { description: OK }
+
+  # Logistics (public)
+  /logistics/track/{trackingNumber}:
+    get:
+      tags: [Logistics]
+      summary: Track shipment by tracking number
+      parameters:
+        - in: path
+          name: trackingNumber
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+
+  # Invoice (user)
+  /users/orders/{orderId}/invoice:
+    get:
+      tags: [Orders]
+      summary: Get invoice data
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: orderId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  # Settings (store metadata)
+  /settings:
+    get:
+      tags: [Settings]
+      summary: Get store settings
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Settings]
+      summary: Create/Update settings
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Settings' }
+      responses:
+        '200': { description: Saved }
+  /settings/{id}:
+    put:
+      tags: [Settings]
+      summary: Update settings by id
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Settings]
+      summary: Delete settings by id
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  # User Reviews
+  /users/reviews/me:
+    get:
+      tags: [Reviews]
+      summary: Get my reviews
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+  /users/reviews/product/{product}:
+    get:
+      tags: [Reviews]
+      summary: Get my review for a product
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: product
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /users/reviews:
+    post:
+      tags: [Reviews]
+      summary: Create my review
+      security: [{ bearerAuth: [] }]
+      responses:
+        '201': { description: Created }
+  /users/reviews/{id}:
+    put:
+      tags: [Reviews]
+      summary: Update my review
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Reviews]
+      summary: Delete my review
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  # Admin endpoints (summarized key routes)
+  /admin/product:
+    get:
+      tags: [Admin - Products]
+      summary: List products (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Admin - Products]
+      summary: Create product (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, description, brand, details, category, sku, color, images, description_images, sizes]
+              properties:
+                name: { type: string }
+                description: { type: string }
+                brand: { type: string }
+                details: { type: string }
+                questions: { type: array, items: { type: string } }
+                category: { type: string }
+                subCategories: { type: array, items: { type: string } }
+                sku: { type: string }
+                color:
+                  type: object
+                  additionalProperties: true
+                images: { type: array, items: { type: string } }
+                description_images: { type: array, items: { type: string } }
+                sizes: { type: array, items: { type: object, additionalProperties: true } }
+                discount: { type: number }
+                slug: { type: string }
+                parent: { type: string }
+      responses:
+        '201': { description: Created }
+
+  /admin/product/{id}:
+    get:
+      tags: [Admin - Products]
+      summary: Get product by id (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    patch:
+      tags: [Admin - Products]
+      summary: Update product (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+                brand: { type: string }
+                details: { type: string }
+                questions: { type: array, items: { type: string } }
+                category: { type: string }
+                subCategories: { type: array, items: { type: string } }
+                slug: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Products]
+      summary: Delete product (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/product/duplicate/{id}:
+    post:
+      tags: [Admin - Products]
+      summary: Duplicate product (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '201': { description: Duplicated }
+
+  /admin/product/coverImage/update/{id}:
+    patch:
+      tags: [Admin - Products]
+      summary: Update product cover image (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [imageUrl]
+              properties:
+                imageUrl: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/category:
+    get:
+      tags: [Admin - Categories]
+      summary: List categories (admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Admin - Categories]
+      summary: Create category (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        '201': { description: Created }
+
+  /admin/category/{id}:
+    put:
+      tags: [Admin - Categories]
+      summary: Update category (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                description: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Categories]
+      summary: Delete category (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/subcategory:
+    get:
+      tags: [Admin - Subcategories]
+      summary: List subcategories (admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Admin - Subcategories]
+      summary: Create subcategory (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, categoryId]
+              properties:
+                name: { type: string }
+                categoryId: { type: string }
+      responses:
+        '201': { description: Created }
+
+  /admin/subcategory/{id}:
+    put:
+      tags: [Admin - Subcategories]
+      summary: Update subcategory (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Subcategories]
+      summary: Delete subcategory (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/attributes:
+    get:
+      tags: [Admin - Attributes]
+      summary: List attributes (admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Admin - Attributes]
+      summary: Create attribute (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                children:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      image: { type: string }
+      responses:
+        '201': { description: Created }
+
+  /admin/attributes/{id}:
+    put:
+      tags: [Admin - Attributes]
+      summary: Update attribute (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                children:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      image: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Attributes]
+      summary: Delete attribute (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/banners:
+    post:
+      tags: [Admin - Banners]
+      summary: Create banner (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, imageUrl, pageLink, category]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 100 }
+                imageUrl: { type: string, format: uri }
+                pageLink: { type: string }
+                active: { type: boolean }
+                category: { type: string, enum: [A, B, C, D, E] }
+      responses:
+        '201': { description: Created }
+
+  /admin/banners/{id}:
+    get:
+      tags: [Admin - Banners]
+      summary: Get banner by id (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    put:
+      tags: [Admin - Banners]
+      summary: Update banner (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 2, maxLength: 100 }
+                imageUrl: { type: string, format: uri }
+                pageLink: { type: string }
+                active: { type: boolean }
+                category: { type: string, enum: [A, B, C, D, E] }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Banners]
+      summary: Delete banner (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/banners/{id}/toggle-active:
+    patch:
+      tags: [Admin - Banners]
+      summary: Toggle banner active (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/gallery/all:
+    get:
+      tags: [Admin - Gallery]
+      summary: List gallery images (admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+
+  /admin/gallery/new:
+    post:
+      tags: [Admin - Gallery]
+      summary: Add gallery images (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [images]
+              properties:
+                images:
+                  type: array
+                  items:
+                    type: object
+                    required: [title, imageUrl]
+                    properties:
+                      title: { type: string }
+                      imageUrl: { type: string }
+                      description: { type: string }
+      responses:
+        '201': { description: Created }
+
+  /admin/gallery/update:
+    patch:
+      tags: [Admin - Gallery]
+      summary: Update gallery image (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [image, updates]
+              properties:
+                image: { type: string }
+                updates:
+                  type: object
+                  properties:
+                    title: { type: string }
+                    description: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/gallery/delete:
+    delete:
+      tags: [Admin - Gallery]
+      summary: Delete gallery images (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [images]
+              properties:
+                images:
+                  type: array
+                  items: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/orders:
+    get:
+      tags: [Admin - Orders]
+      summary: List orders (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: OK }
+
+  /admin/orders/returns:
+    get:
+      tags: [Admin - Orders]
+      summary: List returns (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: OK }
+
+  /admin/orders/top-ordered-products:
+    get:
+      tags: [Admin - Orders]
+      summary: Top ordered products
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: startDate
+          required: true
+          schema: { type: string, format: date-time }
+        - in: query
+          name: endDate
+          required: true
+          schema: { type: string, format: date-time }
+      responses:
+        '200': { description: OK }
+  /admin/orders/{id}:
+    get:
+      tags: [Admin - Orders]
+      summary: Get order by id (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    put:
+      tags: [Admin - Orders]
+      summary: Update order details (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                shippingProgress:
+                  {
+                    type: array,
+                    items:
+                      {
+                        type: object,
+                        properties: { location: { type: string }, date: { type: string } },
+                        required: [location, date],
+                      },
+                  }
+                deliveryStatus:
+                  { type: string, enum: ['Pending', 'Shipped', 'Out for Delivery', 'Delivered', 'Returned'] }
+                status: { type: string, enum: ['Not Processed', 'Processing', 'Dispatched', 'Cancelled', 'Completed'] }
+                shippingAddress: { type: object, additionalProperties: true }
+                products: { type: array, items: { type: object, additionalProperties: true } }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Orders]
+      summary: Reject order (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+  /admin/orders/{id}/delivery:
+    patch:
+      tags: [Admin - Orders]
+      summary: Update delivery timeline
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [timeline]
+              properties:
+                timeline: { type: string }
+      responses:
+        '200': { description: OK }
+  /admin/orders/{id}/cancel:
+    delete:
+      tags: [Admin - Orders]
+      summary: Cancel order (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/coupon:
+    get:
+      tags: [Admin - Coupons]
+      summary: List coupons (admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Admin - Coupons]
+      summary: Create coupon (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201': { description: Created }
+
+  /admin/coupon/{id}:
+    put:
+      tags: [Admin - Coupons]
+      summary: Update coupon (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Coupons]
+      summary: Delete coupon (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/users:
+    get:
+      tags: [Admin - Users]
+      summary: List users (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: search
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/users/byRole:
+    get:
+      tags: [Admin - Users]
+      summary: Users by role (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: role
+          required: true
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: OK }
+
+  /admin/users/{id}:
+    get:
+      tags: [Admin - Users]
+      summary: Get user by id (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: orderPage
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: orderLimit
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: reviewPage
+          schema: { type: integer, minimum: 1 }
+        - in: query
+          name: reviewLimit
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Users]
+      summary: Delete user (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/users/{id}/suspend:
+    put:
+      tags: [Admin - Users]
+      summary: Suspend/Unsuspend user (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [suspend]
+              properties:
+                suspend: { type: boolean }
+      responses:
+        '200': { description: OK }
+
+  /admin/users/{id}/role:
+    put:
+      tags: [Admin - Users]
+      summary: Update user role (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/roles:
+    get:
+      tags: [Admin - Roles]
+      summary: List roles
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Admin - Roles]
+      summary: Create role
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+                permissions:
+                  type: array
+                  items: { type: string }
+      responses:
+        '201': { description: Created }
+
+  /admin/roles/{roleId}:
+    get:
+      tags: [Admin - Roles]
+      summary: Get role by id
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    put:
+      tags: [Admin - Roles]
+      summary: Update role
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string }
+                permissions:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Roles]
+      summary: Delete role
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/roles/{roleId}/permissions:
+    get:
+      tags: [Admin - Roles]
+      summary: Get role permissions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Admin - Roles]
+      summary: Add permissions to role
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissions]
+              properties:
+                permissions:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/roles/{roleId}/permissions/{permission}:
+    delete:
+      tags: [Admin - Roles]
+      summary: Remove permission from role
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: roleId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: permission
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/roles/users/{userId}/roles/{roleId}:
+    post:
+      tags: [Admin - Roles]
+      summary: Assign role to user
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: roleId
+          required: true
+          schema: { type: string }
+      responses:
+        '201': { description: Created }
+    delete:
+      tags: [Admin - Roles]
+      summary: Remove role from user
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: roleId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/roles/users/{userId}/roles:
+    get:
+      tags: [Admin - Roles]
+      summary: List user roles
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/roles/users/{userId}/permissions:
+    get:
+      tags: [Admin - Roles]
+      summary: List user permissions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/roles/users/{userId}/permissions/check:
+    post:
+      tags: [Admin - Roles]
+      summary: Check user permissions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: userId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [permissions]
+              properties:
+                permissions:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/sales:
+    get:
+      tags: [Admin - Sales]
+      summary: List sales
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Admin - Sales]
+      summary: Create sale
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201': { description: Created }
+
+  /admin/sales/{id}:
+    get:
+      tags: [Admin - Sales]
+      summary: Get sale by id
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    put:
+      tags: [Admin - Sales]
+      summary: Update sale
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Sales]
+      summary: Delete sale
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/sales/type/{type}:
+    get:
+      tags: [Admin - Sales]
+      summary: Get sales by type
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: type
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/sales/{id}/variant:
+    patch:
+      tags: [Admin - Sales]
+      summary: Update sale variant
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200': { description: OK }
+
+  /admin/sales/{id}/usage:
+    get:
+      tags: [Admin - Sales]
+      summary: Get sale usage stats
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/sales/{id}/decrement:
+    post:
+      tags: [Admin - Sales]
+      summary: Decrement sale usage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/campaigns:
+    get:
+      tags: [Admin - Campaigns]
+      summary: List campaigns
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+    post:
+      tags: [Admin - Campaigns]
+      summary: Create campaign
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '201': { description: Created }
+
+  /admin/campaigns/{campaignId}:
+    get:
+      tags: [Admin - Campaigns]
+      summary: Get campaign by id
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    put:
+      tags: [Admin - Campaigns]
+      summary: Update campaign
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: true
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Campaigns]
+      summary: Delete campaign
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+  /admin/campaigns/{campaignId}/status:
+    patch:
+      tags: [Admin - Campaigns]
+      summary: Update campaign status
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/campaigns/{campaignId}/products:
+    post:
+      tags: [Admin - Campaigns]
+      summary: Add products to campaign
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productIds]
+              properties:
+                productIds:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/campaigns/{campaignId}/products/{productId}:
+    delete:
+      tags: [Admin - Campaigns]
+      summary: Remove product from campaign
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
+# ...existing code...
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, default: 1 }
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, default: 20 }
+    FromParam:
+      name: from
+      in: query
+      required: false
+      schema: { type: string, format: date-time }
+    ToParam:
+      name: to
+      in: query
+      required: false
+      schema: { type: string, format: date-time }
+  schemas:
+    Settings:
+      type: object
+      additionalProperties: true
+      properties:
+        storeName: { type: string }
+        currency: { type: string }
+        supportEmail: { type: string, format: email }
+    CreateOrderRequest:
+      type: object
+      required: [items, address]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [productId, quantity]
+            properties:
+              productId: { type: string }
+              quantity: { type: integer, minimum: 1 }
+        address:
+          type: object
+          additionalProperties: true
+        notes: { type: string }
+    ShipmentStatus:
+      type: string
+      enum: [CREATED, PROCESSING, READY, DISPATCHED, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, RETURNED, CANCELLED]
+    CreateShipmentRequest:
+      type: object
+      required: [orderId, carrier]
+      properties:
+        orderId: { type: string }
+        carrier: { type: string }
+        trackingNumber: { type: string }
+        estimatedDelivery: { type: string, format: date-time }
+    UpdateShipmentRequest:
+      type: object
+      properties:
+        status: { $ref: '#/components/schemas/ShipmentStatus' }
+        carrier: { type: string }
+        trackingNumber: { type: string }
+    UpdateShipmentStatusRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/ShipmentStatus' }
+    AddTrackingUpdateRequest:
+      type: object
+      required: [location, date]
+      properties:
+        location: { type: string }
+        description: { type: string }
+        date: { type: string, format: date-time }
+    BulkUpdateShipmentStatusRequest:
+      type: object
+      required: [shipmentIds, status]
+      properties:
+        shipmentIds:
+          type: array
+          items: { type: string }
+        status: { $ref: '#/components/schemas/ShipmentStatus' }

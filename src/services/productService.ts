@@ -1,6 +1,6 @@
 import Order from '@/models/Order';
 import Product, { ProductType } from '../models/Product';
-import { CustomResponsePromise, CustomResponseType } from '../types';
+import { CustomResponsePromise, CustomResponseType } from '@/types';
 import AnalyticsService from './MainAnalyticsService';
 
 /**
@@ -102,35 +102,64 @@ const searchProducts = async (
   filters: {
     priceRange?: { min: number; max: number };
     category?: string;
+    subCategory?: string;
+    brand?: string;
     attributes?: Record<string, string | number | boolean>;
+    tags?: string[];
+    sortBy?: 'price_asc' | 'price_desc' | 'newest' | 'bestseller';
   },
   page: number = 1,
   limit: number = 10
 ): Promise<CustomResponseType<{ products: ProductType[]; meta: { total: number; page: number; limit: number } }>> => {
   try {
-    const { priceRange, category, attributes } = filters;
-    const filterConditions: Record<string, unknown> = {
-      $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { description: { $regex: query, $options: 'i' } },
-        { brand: { $regex: query, $options: 'i' } },
-        { tags: { $regex: query, $options: 'i' } },
+    const { priceRange, category, subCategory, brand, attributes, tags, sortBy } = filters;
+
+    type AndFilter = Array<Record<string, unknown>>;
+    const filterConditions: { $and: AndFilter } = {
+      $and: [
+        {
+          $or: [
+            { name: { $regex: query, $options: 'i' } },
+            { description: { $regex: query, $options: 'i' } },
+            { brand: { $regex: query, $options: 'i' } },
+            { tags: { $elemMatch: { $regex: query, $options: 'i' } } },
+          ],
+        },
       ],
     };
 
     if (priceRange) {
-      filterConditions.price = { $gte: priceRange.min, $lte: priceRange.max };
+      filterConditions.$and.push({ price: { $gte: priceRange.min, $lte: priceRange.max } });
     }
 
     if (category) {
-      filterConditions.category = category;
+      filterConditions.$and.push({ category });
     }
 
-    if (attributes) {
-      filterConditions.attributes = { $elemMatch: attributes };
+    if (subCategory) {
+      filterConditions.$and.push({ subCategories: subCategory });
     }
+
+    if (brand) {
+      filterConditions.$and.push({ brand: { $regex: brand, $options: 'i' } });
+    }
+
+    if (attributes && Object.keys(attributes).length) {
+      filterConditions.$and.push({ attributes: { $elemMatch: attributes } });
+    }
+
+    if (tags && tags.length) {
+      filterConditions.$and.push({ tags: { $in: tags } });
+    }
+
+    const sort: Record<string, 1 | -1> = {};
+    if (sortBy === 'price_asc') sort.price = 1;
+    if (sortBy === 'price_desc') sort.price = -1;
+    if (sortBy === 'newest') sort.createdAt = -1;
+    // bestseller would require order aggregation; skipping here for performance
 
     const products = await Product.find(filterConditions)
+      .sort(sort)
       .skip((page - 1) * limit)
       .limit(limit);
 
@@ -138,23 +167,12 @@ const searchProducts = async (
 
     return {
       message: 'Products retrieved successfully',
-      data: {
-        products,
-        meta: {
-          total,
-          page,
-          limit,
-        },
-      },
+      data: { products, meta: { total, page, limit } },
       code: 200,
     };
   } catch (error) {
     console.error('Error searching products:', error);
-    return {
-      message: 'Failed to search products',
-      data: null,
-      code: 500,
-    };
+    return { message: 'Failed to search products', data: null, code: 500 };
   }
 };
 

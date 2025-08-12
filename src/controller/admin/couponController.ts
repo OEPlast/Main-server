@@ -1,10 +1,11 @@
-import Admin_CouponService from '@/services/admin/couponService';
 import { Request, Response } from 'express';
+import { AuthenticatedRequest, isAuthenticatedRequest } from '../../types';
+import CouponService from '../../services/admin/couponService';
 
 // Get all coupons
 const getCoupons = async (req: Request, res: Response) => {
   try {
-    const { message, data, code } = await Admin_CouponService.getAllCoupons();
+    const { message, data, code } = await CouponService.getAllCoupons();
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getCoupons:', error);
@@ -15,7 +16,7 @@ const getCoupons = async (req: Request, res: Response) => {
 const getCoupon = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { message, data, code } = await Admin_CouponService.getCoupon(id);
+    const { message, data, code } = await CouponService.getCoupon(id);
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getCoupons:', error);
@@ -25,9 +26,12 @@ const getCoupon = async (req: Request, res: Response) => {
 
 // Create a new coupon
 const createCoupon = async (req: Request, res: Response) => {
+  if (!isAuthenticatedRequest(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
   try {
-    const user = req.userId;
-    const { startDate, endDate, coupon, discount, active } = req.params;
+    const user = (req as AuthenticatedRequest).userId;
+    const { startDate, endDate, coupon, discount, active } = req.body;
     const mainData = { startDate, endDate, discount: Number(discount), active, creator: user, coupon } as unknown as {
       coupon: string;
       startDate: string;
@@ -36,7 +40,7 @@ const createCoupon = async (req: Request, res: Response) => {
       active: boolean;
       creator: string;
     };
-    const { message, data, code } = await Admin_CouponService.createCoupon(mainData);
+    const { message, data, code } = await CouponService.createCoupon(mainData);
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in createCoupon:', error);
@@ -48,7 +52,7 @@ const createCoupon = async (req: Request, res: Response) => {
 const updateCoupon = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { startDate, endDate, discount, active, couponType, deleted } = req.params;
+    const { startDate, endDate, discount, active, couponType, deleted } = req.body;
 
     const updateData = { startDate, endDate, discount: Number(discount), active, couponType, deleted } as unknown as {
       startDate: string;
@@ -57,7 +61,7 @@ const updateCoupon = async (req: Request, res: Response) => {
       active: boolean;
       deleted: boolean;
     };
-    const { message, data, code } = await Admin_CouponService.updateCoupon(id, updateData);
+    const { message, data, code } = await CouponService.updateCoupon(id, updateData);
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in updateCoupon:', error);
@@ -69,7 +73,7 @@ const updateCoupon = async (req: Request, res: Response) => {
 const deleteCoupon = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { message, data, code } = await Admin_CouponService.deleteCoupon(id);
+    const { message, data, code } = await CouponService.deleteCoupon(id);
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in deleteCoupon:', error);

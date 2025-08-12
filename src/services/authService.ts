@@ -1,6 +1,6 @@
 import bcrypt from 'bcrypt';
 import User, { UserType } from '../models/User';
-import { CustomResponsePromise, CustomResponseType } from '../types';
+import { CustomResponsePromise, CustomResponseType } from '@/types';
 import tokenizer from '@/lib/tokenizer';
 import OTPService from './OTP';
 

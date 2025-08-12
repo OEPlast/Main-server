@@ -1,7 +1,7 @@
 import bcrypt from 'bcrypt';
 import User, { UserType } from '../models/User';
-import { CustomResponsePromise, CustomResponseType } from '../types';
-import { AddressType } from '../types/userTypes';
+import { CustomResponsePromise, CustomResponseType } from '@/types';
+import { AddressType } from '@/types/userTypes';
 import Coupon, { CouponType } from '@/models/Coupon';
 import AnalyticsService from './MainAnalyticsService';
 
@@ -257,6 +257,240 @@ const applyCoupon = async (userId: string, couponCode: string): CustomResponsePr
   }
 };
 
+/**
+ * Get user profile (excludes sensitive data)
+ * @param userId - The ID of the user to retrieve profile for.
+ * @returns A promise that resolves to a custom response containing the user profile.
+ */
+const getUserProfile = async (userId: string): Promise<CustomResponseType<Partial<UserType>>> => {
+  try {
+    const user = await User.findById(userId).select('-password -resetCode -isVerified');
+    if (!user) {
+      return {
+        message: 'User not found',
+        data: null,
+        code: 404,
+      };
+    }
+    return {
+      message: 'User profile retrieved successfully',
+      data: user,
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Update user profile (excludes sensitive fields)
+ * @param userId - The ID of the user to update.
+ * @param updateData - The profile data to update.
+ * @returns A promise that resolves to a custom response containing the updated user profile.
+ */
+const updateUserProfile = async (
+  userId: string,
+  updateData: Partial<UserType>
+): Promise<CustomResponseType<Partial<UserType>>> => {
+  try {
+    // Remove sensitive fields that shouldn't be updated via profile
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { password, role, roles, ...safeUpdateData } = updateData;
+
+    const user = await User.findByIdAndUpdate(userId, safeUpdateData, { new: true }).select('-password');
+
+    if (!user) {
+      return {
+        message: 'User not found',
+        data: null,
+        code: 404,
+      };
+    }
+    return {
+      message: 'User profile updated successfully',
+      data: user,
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Add a new address to user
+ * @param userId - The ID of the user to add address for.
+ * @param addressData - The address data to add.
+ * @returns A promise that resolves to a custom response containing the updated addresses.
+ */
+const addAddress = async (
+  userId: string,
+  addressData: AddressType
+): Promise<CustomResponseType<UserType['address']>> => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return {
+        message: 'User not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    user.address.push(addressData);
+    await user.save();
+
+    return {
+      message: 'Address added successfully',
+      data: user.address,
+      code: 201,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Update a specific address
+ * @param userId - The ID of the user.
+ * @param addressId - The ID of the address to update.
+ * @param updateData - The address data to update.
+ * @returns A promise that resolves to a custom response containing the updated addresses.
+ */
+const updateAddress = async (
+  userId: string,
+  addressId: string,
+  updateData: Partial<AddressType>
+): Promise<CustomResponseType<UserType['address']>> => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return {
+        message: 'User not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    const addressIndex = user.address.findIndex((addr: UserType['address'][0]) => addr._id?.toString() === addressId);
+    if (addressIndex === -1) {
+      return {
+        message: 'Address not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    Object.assign(user.address[addressIndex], updateData);
+    await user.save();
+
+    return {
+      message: 'Address updated successfully',
+      data: user.address,
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Delete a specific address
+ * @param userId - The ID of the user.
+ * @param addressId - The ID of the address to delete.
+ * @returns A promise that resolves to a custom response indicating the result.
+ */
+const deleteAddress = async (userId: string, addressId: string): Promise<CustomResponseType<null>> => {
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return {
+        message: 'User not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    const originalLength = user.address.length;
+    user.address = user.address.filter(
+      (addr: UserType['address'][0]) => addr._id?.toString() !== addressId
+    ) as UserType['address'];
+
+    if (user.address.length === originalLength) {
+      return {
+        message: 'Address not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    await user.save();
+
+    return {
+      message: 'Address deleted successfully',
+      data: null,
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Get all user addresses
+ * @param userId - The ID of the user.
+ * @returns A promise that resolves to a custom response containing the user addresses.
+ */
+const getUserAddresses = async (userId: string): Promise<CustomResponseType<UserType['address']>> => {
+  try {
+    const user = await User.findById(userId).select('address');
+    if (!user) {
+      return {
+        message: 'User not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    return {
+      message: 'User addresses retrieved successfully',
+      data: user.address,
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const UserService = {
   createUser,
   getUserById,
@@ -265,5 +499,11 @@ const UserService = {
   changePassword,
   manageAddress,
   applyCoupon,
+  getUserProfile,
+  updateUserProfile,
+  addAddress,
+  updateAddress,
+  deleteAddress,
+  getUserAddresses,
 };
 export default UserService;
