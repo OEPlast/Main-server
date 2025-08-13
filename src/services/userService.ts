@@ -228,7 +228,7 @@ const applyCoupon = async (userId: string, couponCode: string): CustomResponsePr
       active: true,
       startDate: { $lte: currentDate },
       endDate: { $gte: currentDate },
-    }).select({ coupon: 1, discount: 1, couponType: 1 });
+    }).select({ coupon: 1, discount: 1, couponType: 1, allowedUser: 1, usedBy: 1, timesUsed: 1 });
     if (!coupon) {
       return {
         message: 'Coupon not found or not valid',
@@ -236,8 +236,30 @@ const applyCoupon = async (userId: string, couponCode: string): CustomResponsePr
         code: 404,
       };
     }
-    // Track coupon usage for analytics
-    // This runs independently and won't affect the response time
+
+    if (coupon.couponType === 'one-off') {
+      if (coupon.timesUsed && coupon.timesUsed > 0) {
+        return { message: 'Coupon already used', data: null, code: 400 };
+      }
+    }
+
+    if (coupon.couponType === 'one-off-user') {
+      const usedBy = (coupon.usedBy || []).map((u) => u.toString());
+      if (usedBy.includes(userId)) {
+        return { message: 'Coupon already used by this user', data: null, code: 400 };
+      }
+    }
+
+    if (coupon.couponType === 'one-off-for-one-person') {
+      if (!coupon.allowedUser || coupon.allowedUser.toString() !== userId) {
+        return { message: 'Coupon not allowed for this user', data: null, code: 403 };
+      }
+      if (coupon.timesUsed && coupon.timesUsed > 0) {
+        return { message: 'Coupon already used', data: null, code: 400 };
+      }
+    }
+
+    // Track coupon usage for analytics (async)
     AnalyticsService.trackCouponUsed(coupon._id.toString(), userId).catch((err) =>
       console.error('Failed to track coupon usage analytics:', err)
     );

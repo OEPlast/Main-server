@@ -1,6 +1,19 @@
 import mongoose, { InferSchemaType } from 'mongoose';
 const { ObjectId } = mongoose.Schema;
 
+const appliesToSchema = new mongoose.Schema(
+  {
+    scope: {
+      type: String,
+      enum: ['order', 'product', 'category'],
+      default: 'order',
+    },
+    productIds: [{ type: ObjectId, ref: 'Product' }],
+    categoryIds: [{ type: ObjectId, ref: 'Category' }],
+  },
+  { _id: false }
+);
+
 const couponSchema = new mongoose.Schema(
   {
     coupon: {
@@ -23,6 +36,25 @@ const couponSchema = new mongoose.Schema(
     discount: {
       type: Number,
       required: true,
+      min: 0,
+    },
+    discountType: {
+      type: String,
+      enum: ['percentage', 'fixed'],
+      default: 'percentage',
+    },
+    minOrderValue: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    appliesTo: {
+      type: appliesToSchema,
+      default: { scope: 'order' },
+    },
+    stackable: {
+      type: Boolean,
+      default: false,
     },
     active: {
       type: Boolean,
@@ -31,11 +63,38 @@ const couponSchema = new mongoose.Schema(
     timesUsed: {
       type: Number,
       default: 0,
+      min: 0,
+    },
+    maxUsage: {
+      type: Number,
+      default: null,
+    },
+    maxUsagePerUser: {
+      type: Number,
+      default: null,
     },
     couponType: {
       type: String,
-      enum: ['one-off', 'one-off-user', 'normal'],
+      enum: ['one-off', 'one-off-user', 'one-off-for-one-person', 'normal'],
       default: 'normal',
+    },
+    // When couponType is 'one-off-for-one-person', only this user can redeem it once
+    allowedUser: {
+      type: ObjectId,
+      ref: 'User',
+      default: null,
+    },
+    // Track users who have redeemed the coupon (used for 'one-off-user')
+    usedBy: [
+      {
+        type: ObjectId,
+        ref: 'User',
+      },
+    ],
+    notes: {
+      type: String,
+      default: undefined,
+      trim: true,
     },
     creator: {
       type: ObjectId,
@@ -51,6 +110,8 @@ const couponSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+couponSchema.index({ active: 1, startDate: 1, endDate: 1 });
 
 export type CouponType = InferSchemaType<typeof couponSchema>;
 const Coupon = mongoose.model('Coupon', couponSchema);

@@ -1673,6 +1673,93 @@ paths:
       responses:
         '200': { description: OK }
 
+  /admin/coupon-analytics/top:
+    get:
+      tags: [Admin - Analytics]
+      summary: Get top coupons by redemptions
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: query
+          name: limit
+          required: false
+          schema: { type: integer, minimum: 1, default: 10 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/TopCouponItem' }
+  /admin/coupon-analytics/{id}/summary:
+    get:
+      tags: [Admin - Analytics]
+      summary: Get coupon summary
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data: { $ref: '#/components/schemas/CouponSummary' }
+  /admin/coupon-analytics/{id}/usage-by-day:
+    get:
+      tags: [Admin - Analytics]
+      summary: Get coupon usage by day
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/CouponUsageByDayItem' }
+  /admin/coupon-analytics/{id}/users:
+    get:
+      tags: [Admin - Analytics]
+      summary: Get users who redeemed a coupon
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/CouponUserItem' }
+
   /admin/coupon:
     get:
       tags: [Admin - Coupons]
@@ -1689,8 +1776,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: '#/components/schemas/CouponCreateRequest'
       responses:
         '201': { description: Created }
 
@@ -1705,12 +1791,11 @@ paths:
           required: true
           schema: { type: string }
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
-              type: object
-              additionalProperties: true
+              $ref: '#/components/schemas/CouponUpdateRequest'
       responses:
         '200': { description: OK }
     delete:
@@ -1724,579 +1809,6 @@ paths:
           schema: { type: string }
       responses:
         '204': { description: Deleted }
-
-  /admin/users:
-    get:
-      tags: [Admin - Users]
-      summary: List users (admin)
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: query
-          name: page
-          schema: { type: integer, minimum: 1 }
-        - in: query
-          name: limit
-          schema: { type: integer, minimum: 1 }
-        - in: query
-          name: search
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/users/byRole:
-    get:
-      tags: [Admin - Users]
-      summary: Users by role (admin)
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: query
-          name: role
-          required: true
-          schema: { type: string }
-        - in: query
-          name: page
-          schema: { type: integer, minimum: 1 }
-      responses:
-        '200': { description: OK }
-
-  /admin/users/{id}:
-    get:
-      tags: [Admin - Users]
-      summary: Get user by id (admin)
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-        - in: query
-          name: orderPage
-          schema: { type: integer, minimum: 1 }
-        - in: query
-          name: orderLimit
-          schema: { type: integer, minimum: 1 }
-        - in: query
-          name: reviewPage
-          schema: { type: integer, minimum: 1 }
-        - in: query
-          name: reviewLimit
-          schema: { type: integer, minimum: 1 }
-      responses:
-        '200': { description: OK }
-    delete:
-      tags: [Admin - Users]
-      summary: Delete user (admin)
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '204': { description: Deleted }
-
-  /admin/users/{id}/suspend:
-    put:
-      tags: [Admin - Users]
-      summary: Suspend/Unsuspend user (admin)
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [suspend]
-              properties:
-                suspend: { type: boolean }
-      responses:
-        '200': { description: OK }
-
-  /admin/users/{id}/role:
-    put:
-      tags: [Admin - Users]
-      summary: Update user role (admin)
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [role]
-              properties:
-                role: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/roles:
-    get:
-      tags: [Admin - Roles]
-      summary: List roles
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200': { description: OK }
-    post:
-      tags: [Admin - Roles]
-      summary: Create role
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [name]
-              properties:
-                name: { type: string }
-                permissions:
-                  type: array
-                  items: { type: string }
-      responses:
-        '201': { description: Created }
-
-  /admin/roles/{roleId}:
-    get:
-      tags: [Admin - Roles]
-      summary: Get role by id
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: roleId
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-    put:
-      tags: [Admin - Roles]
-      summary: Update role
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: roleId
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name: { type: string }
-                permissions:
-                  type: array
-                  items: { type: string }
-      responses:
-        '200': { description: OK }
-    delete:
-      tags: [Admin - Roles]
-      summary: Delete role
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: roleId
-          required: true
-          schema: { type: string }
-      responses:
-        '204': { description: Deleted }
-
-  /admin/roles/{roleId}/permissions:
-    get:
-      tags: [Admin - Roles]
-      summary: Get role permissions
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: roleId
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-    post:
-      tags: [Admin - Roles]
-      summary: Add permissions to role
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: roleId
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [permissions]
-              properties:
-                permissions:
-                  type: array
-                  items: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/roles/{roleId}/permissions/{permission}:
-    delete:
-      tags: [Admin - Roles]
-      summary: Remove permission from role
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: roleId
-          required: true
-          schema: { type: string }
-        - in: path
-          name: permission
-          required: true
-          schema: { type: string }
-      responses:
-        '204': { description: Deleted }
-
-  /admin/roles/users/{userId}/roles/{roleId}:
-    post:
-      tags: [Admin - Roles]
-      summary: Assign role to user
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: userId
-          required: true
-          schema: { type: string }
-        - in: path
-          name: roleId
-          required: true
-          schema: { type: string }
-      responses:
-        '201': { description: Created }
-    delete:
-      tags: [Admin - Roles]
-      summary: Remove role from user
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: userId
-          required: true
-          schema: { type: string }
-        - in: path
-          name: roleId
-          required: true
-          schema: { type: string }
-      responses:
-        '204': { description: Deleted }
-
-  /admin/roles/users/{userId}/roles:
-    get:
-      tags: [Admin - Roles]
-      summary: List user roles
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: userId
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/roles/users/{userId}/permissions:
-    get:
-      tags: [Admin - Roles]
-      summary: List user permissions
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: userId
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/roles/users/{userId}/permissions/check:
-    post:
-      tags: [Admin - Roles]
-      summary: Check user permissions
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: userId
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [permissions]
-              properties:
-                permissions:
-                  type: array
-                  items: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/sales:
-    get:
-      tags: [Admin - Sales]
-      summary: List sales
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - $ref: '#/components/parameters/PageParam'
-        - $ref: '#/components/parameters/LimitParam'
-      responses:
-        '200': { description: OK }
-    post:
-      tags: [Admin - Sales]
-      summary: Create sale
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        '201': { description: Created }
-
-  /admin/sales/{id}:
-    get:
-      tags: [Admin - Sales]
-      summary: Get sale by id
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-    put:
-      tags: [Admin - Sales]
-      summary: Update sale
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        '200': { description: OK }
-    delete:
-      tags: [Admin - Sales]
-      summary: Delete sale
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '204': { description: Deleted }
-
-  /admin/sales/type/{type}:
-    get:
-      tags: [Admin - Sales]
-      summary: Get sales by type
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: type
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/sales/{id}/variant:
-    patch:
-      tags: [Admin - Sales]
-      summary: Update sale variant
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        '200': { description: OK }
-
-  /admin/sales/{id}/usage:
-    get:
-      tags: [Admin - Sales]
-      summary: Get sale usage stats
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/sales/{id}/decrement:
-    post:
-      tags: [Admin - Sales]
-      summary: Decrement sale usage
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/campaigns:
-    get:
-      tags: [Admin - Campaigns]
-      summary: List campaigns
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200': { description: OK }
-    post:
-      tags: [Admin - Campaigns]
-      summary: Create campaign
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        '201': { description: Created }
-
-  /admin/campaigns/{campaignId}:
-    get:
-      tags: [Admin - Campaigns]
-      summary: Get campaign by id
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: campaignId
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-    put:
-      tags: [Admin - Campaigns]
-      summary: Update campaign
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: campaignId
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              additionalProperties: true
-      responses:
-        '200': { description: OK }
-    delete:
-      tags: [Admin - Campaigns]
-      summary: Delete campaign
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: campaignId
-          required: true
-          schema: { type: string }
-      responses:
-        '204': { description: Deleted }
-
-  /admin/campaigns/{campaignId}/status:
-    patch:
-      tags: [Admin - Campaigns]
-      summary: Update campaign status
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: campaignId
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [status]
-              properties:
-                status: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/campaigns/{campaignId}/products:
-    post:
-      tags: [Admin - Campaigns]
-      summary: Add products to campaign
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: campaignId
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [productIds]
-              properties:
-                productIds:
-                  type: array
-                  items: { type: string }
-      responses:
-        '200': { description: OK }
-
-  /admin/campaigns/{campaignId}/products/{productId}:
-    delete:
-      tags: [Admin - Campaigns]
-      summary: Remove product from campaign
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: campaignId
-          required: true
-          schema: { type: string }
-        - in: path
-          name: productId
-          required: true
-          schema: { type: string }
-      responses:
-        '204': { description: Deleted }
-
-# ...existing code...
 
 components:
   securitySchemes:
@@ -2346,20 +1858,46 @@ components:
         supportEmail: { type: string, format: email }
     CreateOrderRequest:
       type: object
-      required: [items, address]
+      required: [products, shippingAddress, paymentMethod, shippingPrice]
       properties:
-        items:
+        products:
           type: array
           items:
             type: object
-            required: [productId, quantity]
+            required: [product, qty]
             properties:
-              productId: { type: string }
-              quantity: { type: integer, minimum: 1 }
-        address:
+              product: { type: string, description: Product ID }
+              qty: { type: integer, minimum: 1 }
+              attributes:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name: { type: string }
+                    value: { type: string }
+              sale: { type: string, description: Optional sale ID }
+        shippingAddress:
           type: object
           additionalProperties: true
-        notes: { type: string }
+        paymentMethod: { type: string }
+        paymentResult: { type: object, additionalProperties: true }
+        total: { type: number, description: Client-computed total; server recomputes }
+        totalBeforeDiscount: { type: number }
+        couponApplied: { type: string, description: Coupon code if applied }
+        shippingPrice: { type: number }
+        taxPrice: { type: number, default: 0 }
+        isPaid: { type: boolean, default: false }
+        status: { type: string }
+        deliveryStatus: { type: string }
+        shippingProgress:
+          type: array
+          items:
+            type: object
+            required: [location, date]
+            properties:
+              location: { type: string }
+              date: { type: string }
+        flashSaleApplied: { type: object, additionalProperties: true }
     ShipmentStatus:
       type: string
       enum: [CREATED, PROCESSING, READY, DISPATCHED, IN_TRANSIT, OUT_FOR_DELIVERY, DELIVERED, RETURNED, CANCELLED]
@@ -2397,3 +1935,101 @@ components:
           type: array
           items: { type: string }
         status: { $ref: '#/components/schemas/ShipmentStatus' }
+
+    AppliesTo:
+      type: object
+      properties:
+        scope:
+          type: string
+          enum: [order, product, category]
+          default: order
+        productIds:
+          type: array
+          items: { type: string }
+        categoryIds:
+          type: array
+          items: { type: string }
+
+    Coupon:
+      type: object
+      properties:
+        coupon: { type: string, minLength: 4, maxLength: 12 }
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time }
+        discount: { type: number, minimum: 0 }
+        discountType: { type: string, enum: [percentage, fixed], default: percentage }
+        minOrderValue: { type: number, minimum: 0 }
+        appliesTo: { $ref: '#/components/schemas/AppliesTo' }
+        stackable: { type: boolean, default: false }
+        active: { type: boolean, default: true }
+        timesUsed: { type: number, minimum: 0 }
+        maxUsage: { type: number, nullable: true }
+        maxUsagePerUser: { type: number, nullable: true }
+        couponType: { type: string, enum: [one-off, one-off-user, one-off-for-one-person, normal], default: normal }
+        allowedUser: { type: string, description: User ID permitted when type is one-off-for-one-person }
+        usedBy:
+          type: array
+          items: { type: string }
+        notes: { type: string }
+        creator: { type: string, description: Admin user ID }
+        deleted: { type: boolean, default: false }
+
+    CouponCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/Coupon'
+        - type: object
+          required: [coupon, startDate, endDate, discount, discountType, creator]
+          properties:
+            timesUsed: { readOnly: true }
+            deleted: { readOnly: true }
+            usedBy: { readOnly: true }
+
+    CouponUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/Coupon'
+        - type: object
+          properties:
+            coupon: { type: string }
+            startDate: { type: string, format: date-time }
+            endDate: { type: string, format: date-time }
+            discount: { type: number }
+            discountType: { type: string, enum: [percentage, fixed] }
+            minOrderValue: { type: number }
+            appliesTo: { $ref: '#/components/schemas/AppliesTo' }
+            stackable: { type: boolean }
+            active: { type: boolean }
+            maxUsage: { type: number, nullable: true }
+            maxUsagePerUser: { type: number, nullable: true }
+            couponType: { type: string, enum: [one-off, one-off-user, one-off-for-one-person, normal] }
+            allowedUser: { type: string }
+            notes: { type: string }
+            creator: { type: string }
+            timesUsed: { readOnly: true }
+            usedBy: { readOnly: true }
+            deleted: { readOnly: true }
+
+    CouponSummary:
+      type: object
+      properties:
+        totalRedemptions: { type: number }
+        totalDiscount: { type: number }
+        uniqueUsers: { type: number }
+
+    CouponUsageByDayItem:
+      type: object
+      properties:
+        date: { type: string, example: '2025-08-12' }
+        count: { type: number }
+
+    TopCouponItem:
+      type: object
+      properties:
+        couponId: { type: string }
+        redemptions: { type: number }
+        totalDiscount: { type: number }
+
+    CouponUserItem:
+      type: object
+      properties:
+        userId: { type: string }
+        times: { type: number }

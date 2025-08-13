@@ -13,6 +13,8 @@ import {
   resolveBestVariant as resolveVariant,
   applyPricingTier,
 } from '@/helpers/pricingUtils';
+import Coupon, { CouponType as CouponSchemaType } from '@/models/Coupon';
+import CouponRedemption from '@/models/CouponRedemption';
 
 function calculateUnitPrice({
   product,
@@ -47,6 +49,57 @@ function calculateUnitPrice({
   }
 
   return { unitPrice: unit, base, discountAppliedPct: salePct > 0 ? salePct : staticDiscountPct || 0 };
+}
+
+type CouponDoc = CouponSchemaType & { _id: mongoose.Types.ObjectId };
+
+type PricedItem = {
+  product: mongoose.Types.ObjectId | string;
+  qty: number;
+  price: number;
+};
+
+function computeCouponDiscount({
+  coupon,
+  items,
+  itemsSubtotal,
+}: {
+  coupon: CouponDoc;
+  items: PricedItem[];
+  itemsSubtotal: number;
+}): { discount: number } {
+  const type = (coupon.discountType || 'percentage') as 'percentage' | 'fixed';
+  const appliesTo = coupon.appliesTo || { scope: 'order' };
+
+  if (type === 'fixed') {
+    // Fixed amount on eligible scope
+    if (appliesTo.scope === 'order') {
+      return { discount: Math.min(coupon.discount || 0, itemsSubtotal) };
+    }
+    let eligibleSum = 0;
+    if (appliesTo.scope === 'product' && Array.isArray(appliesTo.productIds)) {
+      const set = new Set(appliesTo.productIds.map((id) => id.toString()));
+      for (const it of items) if (set.has(it.product.toString())) eligibleSum += it.price * it.qty;
+    }
+    if (appliesTo.scope === 'category' && Array.isArray(appliesTo.categoryIds)) {
+      // Requires item categories; fallback to whole order for now
+      eligibleSum = itemsSubtotal;
+    }
+    return { discount: Math.min(coupon.discount || 0, eligibleSum) };
+  } else {
+    // percentage
+    let base = itemsSubtotal;
+    if (appliesTo.scope === 'product' && Array.isArray(appliesTo.productIds)) {
+      base = 0;
+      const set = new Set(appliesTo.productIds.map((id) => id.toString()));
+      for (const it of items) if (set.has(it.product.toString())) base += it.price * it.qty;
+    }
+    if (appliesTo.scope === 'category' && Array.isArray(appliesTo.categoryIds)) {
+      base = itemsSubtotal; // fallback
+    }
+    const pct = (coupon.discount || 0) / 100;
+    return { discount: Math.max(0, Math.min(itemsSubtotal, base * pct)) };
+  }
 }
 
 /**
@@ -97,7 +150,7 @@ const getOrderHistory = async (
 };
 
 /**
- * Places a new order with stock validation.
+ * Places a new order with stock validation and coupon handling.
  * @param orderData - The data for the new order.
  */
 
@@ -186,6 +239,72 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
       itemsBaseSubtotal += pricing.base * qty;
     }
 
+    // Coupon handling
+    let couponDoc: CouponDoc | null = null;
+    let couponDiscount = 0;
+    let couponSnapshot: OrderType['couponSnapshot'] | undefined;
+    if (orderData.couponApplied) {
+      const now = new Date();
+      const found = await Coupon.findOne({
+        coupon: orderData.couponApplied,
+        deleted: { $ne: true },
+        active: true,
+        startDate: { $lte: now },
+        endDate: { $gte: now },
+      }).session(session);
+
+      if (!found) throw new Error('Invalid or expired coupon.');
+      couponDoc = found as unknown as CouponDoc;
+
+      // Enforce min order value
+      if (typeof couponDoc.minOrderValue === 'number' && itemsSubtotal < couponDoc.minOrderValue) {
+        throw new Error('Order total does not meet coupon minimum.');
+      }
+
+      // Enforce max usages
+      if (typeof couponDoc.maxUsage === 'number' && couponDoc.maxUsage >= 0) {
+        const totalRedemptions = await CouponRedemption.countDocuments({ coupon: couponDoc._id }).session(session);
+        if (totalRedemptions >= couponDoc.maxUsage) throw new Error('Coupon usage limit reached.');
+      }
+
+      // Enforce type and per-user limits
+      const userIdStr = orderData.user.toString();
+      if (couponDoc.couponType === 'one-off') {
+        const totalRedemptions = await CouponRedemption.countDocuments({ coupon: couponDoc._id }).session(session);
+        if (totalRedemptions >= 1) throw new Error('Coupon already used.');
+      }
+      if (couponDoc.couponType === 'one-off-user') {
+        const already = await CouponRedemption.findOne({ coupon: couponDoc._id, user: orderData.user })
+          .session(session)
+          .lean();
+        if (already) throw new Error('Coupon already used by this user.');
+      }
+      if (couponDoc.couponType === 'one-off-for-one-person') {
+        if (!couponDoc.allowedUser || couponDoc.allowedUser.toString() !== userIdStr)
+          throw new Error('Coupon not allowed for this user.');
+        const totalRedemptions = await CouponRedemption.countDocuments({ coupon: couponDoc._id }).session(session);
+        if (totalRedemptions >= 1) throw new Error('Coupon already used.');
+      }
+
+      if (typeof couponDoc.maxUsagePerUser === 'number' && couponDoc.maxUsagePerUser >= 0) {
+        const userCount = await CouponRedemption.countDocuments({ coupon: couponDoc._id, user: orderData.user }).session(
+          session
+        );
+        if (userCount >= couponDoc.maxUsagePerUser) throw new Error('Coupon user usage limit reached.');
+      }
+
+      // Compute discount
+      const { discount } = computeCouponDiscount({ coupon: couponDoc, items: products as PricedItem[], itemsSubtotal });
+      couponDiscount = Math.min(discount, itemsSubtotal);
+      if (couponDiscount > 0) {
+        couponSnapshot = {
+          discount: couponDoc.discount,
+          discountType: couponDoc.discountType || 'percentage',
+          appliesTo: couponDoc.appliesTo || { scope: 'order' },
+        } as OrderType['couponSnapshot'];
+      }
+    }
+
     // Check stock and prepare updates
     const bulkUpdates = products.map((item) => {
       const product = productDocs.find((p) => p._id.toString() === item.product!.toString());
@@ -214,22 +333,65 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
     }
 
     // Atomically update sale counters (limit, boughtCount, etc.)
-    // Ensure products are typed as SaleOrderProduct[] for updateSaleCountersOnOrder
     await updateSaleCountersOnOrder(products as SaleOrderProduct[], session);
 
     // Compute final totals
     const shipping = Number(orderData.shippingPrice || 0);
     const tax = Number(orderData.taxPrice || 0);
-    const computedTotal = itemsSubtotal + shipping + tax;
+    const subtotalAfterCoupon = Math.max(0, itemsSubtotal - couponDiscount);
 
     // Create the order with recomputed totals
     const order = new Order({
       ...orderData,
-      total: computedTotal,
+      total: subtotalAfterCoupon + shipping + tax,
       totalBeforeDiscount: itemsBaseSubtotal,
       products,
+      ...(couponDoc
+        ? {
+            coupon: couponDoc._id,
+            couponCode: couponDoc.coupon,
+            couponDiscount,
+            couponSnapshot,
+            couponApplied: couponDoc.coupon,
+          }
+        : {}),
     });
     await order.save({ session });
+
+    // Record coupon redemption
+    if (couponDoc && couponDiscount > 0) {
+      await CouponRedemption.create(
+        [
+          {
+            coupon: couponDoc._id,
+            user: orderData.user as mongoose.Types.ObjectId,
+            order: order._id as mongoose.Types.ObjectId,
+            amountDiscounted: couponDiscount,
+            couponType: couponDoc.couponType,
+          },
+        ],
+        { session }
+      );
+
+      // increment timesUsed and add usedBy for one-off-user
+      const update: mongoose.UpdateQuery<CouponSchemaType> = {
+        $inc: { timesUsed: 1 },
+        ...(couponDoc.couponType === 'one-off-user'
+          ? { $addToSet: { usedBy: orderData.user as mongoose.Types.ObjectId } }
+          : {}),
+      } as unknown as mongoose.UpdateQuery<CouponSchemaType>;
+
+      await Coupon.updateOne({ _id: couponDoc._id }, update, { session });
+
+      // Emit coupon redeemed event
+      await eventPublisher.publishCouponRedeemed({
+        couponId: couponDoc._id.toString(),
+        userId: orderData.user.toString(),
+        orderId: order._id.toString(),
+        amountDiscounted: couponDiscount,
+        code: couponDoc.coupon,
+      });
+    }
 
     await session.commitTransaction();
     session.endSession();

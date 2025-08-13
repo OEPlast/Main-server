@@ -7,6 +7,19 @@ const shippingProgressSchema = new mongoose.Schema({
   date: { type: Date, required: true },
 });
 
+const couponSnapshotSchema = new mongoose.Schema(
+  {
+    discount: { type: Number },
+    discountType: { type: String, enum: ['percentage', 'fixed'] },
+    appliesTo: {
+      scope: { type: String, enum: ['order', 'product', 'category'] },
+      productIds: [{ type: ObjectId, ref: 'Product' }],
+      categoryIds: [{ type: ObjectId, ref: 'Category' }],
+    },
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     user: {
@@ -102,6 +115,10 @@ const orderSchema = new mongoose.Schema(
     couponApplied: {
       type: String,
     },
+    coupon: { type: ObjectId, ref: 'Coupon' },
+    couponCode: { type: String },
+    couponDiscount: { type: Number, default: 0 },
+    couponSnapshot: { type: couponSnapshotSchema, default: undefined },
     shippingPrice: {
       type: Number,
       required: true,

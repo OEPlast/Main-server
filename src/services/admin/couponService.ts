@@ -1,14 +1,9 @@
+import mongoose from 'mongoose';
 import Coupon, { CouponType } from '../../models/Coupon';
 import { CustomResponsePromise, CustomResponseType } from '@/types';
 
 /**
  * Creates a new coupon.
- * @param coupon - The coupon code.
- * @param startDate - The start date of the coupon.
- * @param endDate - The end date of the coupon.
- * @param discount - The discount percentage of the coupon.
- * @param active - The active status of the coupon.
- * @returns A promise that resolves to a custom response containing the created coupon.
  */
 const createCoupon = async ({
   coupon,
@@ -17,6 +12,8 @@ const createCoupon = async ({
   discount,
   active,
   creator,
+  couponType,
+  allowedUser,
 }: {
   coupon: string;
   startDate: string;
@@ -24,9 +21,23 @@ const createCoupon = async ({
   discount: number;
   active: boolean;
   creator: string;
+  couponType?: CouponType['couponType'];
+  allowedUser?: string | null;
 }): Promise<CustomResponseType<CouponType>> => {
   try {
-    const newCoupon = new Coupon({ coupon, startDate, endDate, discount, active, creator });
+    const creatorId = new mongoose.Types.ObjectId(creator);
+    const allowedUserId = allowedUser ? new mongoose.Types.ObjectId(allowedUser) : null;
+
+    const newCoupon = new Coupon({
+      coupon,
+      startDate: new Date(startDate),
+      endDate: new Date(endDate),
+      discount,
+      active,
+      creator: creatorId,
+      ...(couponType ? { couponType } : {}),
+      ...(allowedUserId ? { allowedUser: allowedUserId } : {}),
+    });
     await newCoupon.save();
     return {
       message: 'Coupon created successfully',
@@ -53,8 +64,7 @@ const createCoupon = async ({
 };
 
 /**
- * Retrieves a couponas.
- * @returns All coupons
+ * Retrieves all coupons.
  */
 const getAllCoupons = async (): CustomResponsePromise<CouponType[]> => {
   try {
@@ -73,10 +83,9 @@ const getAllCoupons = async (): CustomResponsePromise<CouponType[]> => {
     };
   }
 };
+
 /**
  * Retrieves a coupon by ID.
- * @param id - The ID of the coupon to retrieve.
- * @returns A promise that resolves to a custom response containing the coupon.
  */
 const getCoupon = async (id: string): Promise<CustomResponseType<CouponType>> => {
   try {
@@ -105,9 +114,6 @@ const getCoupon = async (id: string): Promise<CustomResponseType<CouponType>> =>
 
 /**
  * Updates a coupon by ID.
- * @param id - The ID of the coupon to update.
- * @param updateData - The data to update the coupon with.
- * @returns A promise that resolves to a custom response containing the updated coupon.
  */
 const updateCoupon = async (
   id: string,
@@ -117,10 +123,63 @@ const updateCoupon = async (
     discount: number;
     active: boolean;
     deleted: boolean;
+    couponType: CouponType['couponType'];
+    allowedUser: string | null;
+    maxUsage: number | null;
+    maxUsagePerUser: number | null;
+    minOrderValue: number | null;
+    discountType: 'percentage' | 'fixed';
+    stackable: boolean;
+    appliesTo: { scope: 'order' | 'product' | 'category'; productIds?: string[]; categoryIds?: string[] };
+    notes: string;
   }>
 ): Promise<CustomResponseType<CouponType>> => {
   try {
-    const coupon = await Coupon.findByIdAndUpdate(id, updateData);
+    const payload: Partial<{
+      startDate: Date;
+      endDate: Date;
+      discount: number;
+      active: boolean;
+      deleted: boolean;
+      couponType: CouponType['couponType'];
+      allowedUser: mongoose.Types.ObjectId | null;
+      maxUsage: number | null;
+      maxUsagePerUser: number | null;
+      minOrderValue: number | null;
+      discountType: 'percentage' | 'fixed';
+      stackable: boolean;
+      appliesTo: { scope: 'order' | 'product' | 'category'; productIds?: mongoose.Types.ObjectId[]; categoryIds?: mongoose.Types.ObjectId[] };
+      notes: string;
+    }> = {};
+
+    if (updateData.startDate) payload.startDate = new Date(updateData.startDate);
+    if (updateData.endDate) payload.endDate = new Date(updateData.endDate);
+    if (typeof updateData.discount === 'number') payload.discount = updateData.discount;
+    if (typeof updateData.active === 'boolean') payload.active = updateData.active;
+    if (typeof updateData.deleted === 'boolean') payload.deleted = updateData.deleted;
+    if (updateData.couponType) payload.couponType = updateData.couponType;
+    if (typeof updateData.allowedUser !== 'undefined') {
+      payload.allowedUser = updateData.allowedUser ? new mongoose.Types.ObjectId(updateData.allowedUser) : null;
+    }
+    if (typeof updateData.maxUsage !== 'undefined') payload.maxUsage = updateData.maxUsage;
+    if (typeof updateData.maxUsagePerUser !== 'undefined') payload.maxUsagePerUser = updateData.maxUsagePerUser;
+    if (typeof updateData.minOrderValue !== 'undefined') payload.minOrderValue = updateData.minOrderValue;
+    if (updateData.discountType) payload.discountType = updateData.discountType;
+    if (typeof updateData.stackable !== 'undefined') payload.stackable = updateData.stackable;
+    if (updateData.appliesTo) {
+      payload.appliesTo = {
+        scope: updateData.appliesTo.scope,
+        productIds: updateData.appliesTo.productIds?.map((id) => new mongoose.Types.ObjectId(id)),
+        categoryIds: updateData.appliesTo.categoryIds?.map((id) => new mongoose.Types.ObjectId(id)),
+      };
+    }
+    if (typeof updateData.notes === 'string') payload.notes = updateData.notes;
+
+    // prevent timesUsed edits
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { timesUsed, ...safePayload } = payload as Record<string, unknown>;
+
+    const coupon = await Coupon.findByIdAndUpdate(id, safePayload, { new: true });
     if (!coupon) {
       return {
         message: 'Coupon not found',
@@ -175,12 +234,10 @@ const deleteCoupon = async (id: string): Promise<CustomResponseType<null>> => {
 
 /**
  * Checks if a coupon is valid.
- * @param couponCode - The coupon code to check.
- * @returns A promise that resolves to a custom response indicating if the coupon is valid.
  */
-const isCouponValid = async (couponCode: string): Promise<CustomResponseType<boolean>> => {
+const isCouponValid = async (couponCode: string, userId?: string): Promise<CustomResponseType<boolean>> => {
   try {
-    const coupon = await Coupon.findOne({ coupon: couponCode });
+    const coupon = await Coupon.findOne({ coupon: couponCode, deleted: { $ne: true } });
     if (!coupon) {
       return {
         message: 'Coupon not found',
@@ -191,17 +248,49 @@ const isCouponValid = async (couponCode: string): Promise<CustomResponseType<boo
     const currentDate = new Date();
     const startDate = new Date(coupon.startDate);
     const endDate = new Date(coupon.endDate);
-    if (currentDate >= startDate && currentDate <= endDate && coupon.active) {
+    if (!(currentDate >= startDate && currentDate <= endDate && coupon.active)) {
       return {
-        message: 'Coupon is valid',
-        data: true,
-        code: 200,
+        message: 'Coupon is not valid',
+        data: false,
+        code: 400,
       };
     }
+
+    // Additional validation based on couponType
+    if (coupon.couponType === 'one-off') {
+      if (coupon.timesUsed && coupon.timesUsed > 0) {
+        return { message: 'Coupon already used', data: false, code: 400 };
+      }
+    }
+
+    if (coupon.couponType === 'one-off-user') {
+      if (!userId) {
+        return { message: 'User required for this coupon type', data: false, code: 400 };
+      }
+      const usedBy = (coupon.usedBy as unknown as mongoose.Types.ObjectId[]) || [];
+      const alreadyUsed = usedBy.some((u) => u.toString() === userId);
+      if (alreadyUsed) {
+        return { message: 'Coupon already used by this user', data: false, code: 400 };
+      }
+    }
+
+    if (coupon.couponType === 'one-off-for-one-person') {
+      if (!userId || !coupon.allowedUser) {
+        return { message: 'Coupon not allowed for this user', data: false, code: 400 };
+      }
+      const allowed = coupon.allowedUser.toString() === userId;
+      if (!allowed) {
+        return { message: 'Coupon not allowed for this user', data: false, code: 403 };
+      }
+      if (coupon.timesUsed && coupon.timesUsed > 0) {
+        return { message: 'Coupon already used', data: false, code: 400 };
+      }
+    }
+
     return {
-      message: 'Coupon is not valid',
-      data: false,
-      code: 400,
+      message: 'Coupon is valid',
+      data: true,
+      code: 200,
     };
   } catch (error) {
     console.log(error);

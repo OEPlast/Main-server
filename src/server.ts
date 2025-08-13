@@ -44,6 +44,7 @@ import {
   AdminSubCategoryRoute,
   AdminInventoryRoute,
   AdminInvoicesRoute,
+  AdminCouponAnalyticsRoute,
 } from './routes/admin';
 import FileUploadRoute from '@/routes/general/fileUpload';
 
@@ -109,6 +110,7 @@ app.use('/admin/orders', AdminOrderRoute);
 app.use('/admin/banners', AdminBannerRoute);
 app.use('/admin/users', AdminUsersRoute);
 app.use('/admin/analytics', AdminAnalyticsRoute);
+app.use('/admin/coupon-analytics', AdminCouponAnalyticsRoute);
 app.use('/admin/coupon', AdminCouponRoute);
 app.use('/admin/shipment', AdminShipmentRoute);
 app.use('/admin/roles', AdminRolesRoute);

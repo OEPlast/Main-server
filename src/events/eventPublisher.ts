@@ -228,6 +228,19 @@ class EventPublisher {
   }): Promise<void> {
     await this.publishEvent(EventType.NOTIFY_EMAIL, data, data.userId);
   }
+
+  async publishCouponRedeemed(data: {
+    couponId: string;
+    userId: string;
+    orderId: string;
+    amountDiscounted: number;
+    code: string;
+  }): Promise<void> {
+    await this.publishEvent(EventType.ADMIN_ACTION as unknown as EventType, {
+      action: 'coupon.redeemed',
+      ...data,
+    });
+  }
 }
 
 const eventPublisher = new EventPublisher();

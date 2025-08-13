@@ -31,15 +31,27 @@ const createCoupon = async (req: Request, res: Response) => {
   }
   try {
     const user = (req as AuthenticatedRequest).userId;
-    const { startDate, endDate, coupon, discount, active } = req.body;
-    const mainData = { startDate, endDate, discount: Number(discount), active, creator: user, coupon } as unknown as {
+    const { startDate, endDate, coupon, discount, active, couponType, allowedUser } = req.body as {
       coupon: string;
       startDate: string;
       endDate: string;
-      discount: number;
+      discount: number | string;
       active: boolean;
-      creator: string;
+      couponType?: 'one-off' | 'one-off-user' | 'one-off-for-one-person' | 'normal';
+      allowedUser?: string | null;
     };
+
+    const mainData = {
+      startDate,
+      endDate,
+      discount: Number(discount),
+      active,
+      creator: user!,
+      coupon,
+      couponType,
+      allowedUser,
+    };
+
     const { message, data, code } = await CouponService.createCoupon(mainData);
     return res.status(code).json({ message, data });
   } catch (error) {
@@ -52,16 +64,62 @@ const createCoupon = async (req: Request, res: Response) => {
 const updateCoupon = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { startDate, endDate, discount, active, couponType, deleted } = req.body;
-
-    const updateData = { startDate, endDate, discount: Number(discount), active, couponType, deleted } as unknown as {
-      startDate: string;
-      endDate: string;
-      discount: number;
-      active: boolean;
-      deleted: boolean;
+    const { startDate, endDate, discount, active, couponType, deleted, allowedUser, maxUsage, maxUsagePerUser, minOrderValue, discountType, stackable, appliesTo, notes } = req.body as {
+      startDate?: string;
+      endDate?: string;
+      discount?: number | string;
+      active?: boolean;
+      couponType?: 'one-off' | 'one-off-user' | 'one-off-for-one-person' | 'normal';
+      deleted?: boolean;
+      allowedUser?: string | null;
+      maxUsage?: number | null;
+      maxUsagePerUser?: number | null;
+      minOrderValue?: number | null;
+      discountType?: 'percentage' | 'fixed';
+      stackable?: boolean;
+      appliesTo?: { scope: 'order' | 'product' | 'category'; productIds?: string[]; categoryIds?: string[] };
+      notes?: string;
     };
-    const { message, data, code } = await CouponService.updateCoupon(id, updateData);
+
+    const updateData = {
+      startDate,
+      endDate,
+      discount: typeof discount !== 'undefined' ? Number(discount) : undefined,
+      active,
+      couponType,
+      deleted,
+      allowedUser,
+      maxUsage,
+      maxUsagePerUser,
+      minOrderValue,
+      discountType,
+      stackable,
+      appliesTo,
+      notes,
+    };
+    // Ensure timesUsed cannot be altered
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { timesUsed, ...safeUpdate } = updateData as Record<string, unknown>;
+
+    const { message, data, code } = await CouponService.updateCoupon(
+      id,
+      safeUpdate as Partial<{
+        startDate: string;
+        endDate: string;
+        discount: number;
+        active: boolean;
+        deleted: boolean;
+        couponType: 'one-off' | 'one-off-user' | 'one-off-for-one-person' | 'normal';
+        allowedUser: string | null;
+        maxUsage: number | null;
+        maxUsagePerUser: number | null;
+        minOrderValue: number | null;
+        discountType: 'percentage' | 'fixed';
+        stackable: boolean;
+        appliesTo: { scope: 'order' | 'product' | 'category'; productIds?: string[]; categoryIds?: string[] };
+        notes: string;
+      }>
+    );
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in updateCoupon:', error);
