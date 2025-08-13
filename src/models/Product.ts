@@ -1,6 +1,17 @@
 import mongoose, { InferSchemaType } from 'mongoose';
 const { ObjectId } = mongoose.Schema;
 
+const pricingTierSchema = new mongoose.Schema(
+  {
+    minQty: { type: Number, required: true, min: 1 },
+    maxQty: { type: Number, required: true, min: 1 },
+    // Pricing strategy: fixedPrice sets unit price, percentOff/amountOff apply discounts on resolved base
+    strategy: { type: String, enum: ['fixedPrice', 'percentOff', 'amountOff'], required: true },
+    value: { type: Number, required: true, min: 0 },
+  },
+  { _id: false }
+);
+
 const attributeSchema = new mongoose.Schema({
   name: {
     type: String,
@@ -18,15 +29,21 @@ const attributeSchema = new mongoose.Schema({
       discount: {
         type: Number,
         default: 0,
+        min: 0,
       },
       stock: {
         type: Number,
         required: true,
         default: 0,
+        min: 0,
       },
       image: {
         type: String,
         required: true,
+      },
+      pricingTiers: {
+        type: [pricingTierSchema],
+        default: undefined,
       },
     },
   ],
@@ -48,6 +65,7 @@ const productSchema = new mongoose.Schema(
     price: {
       type: Number,
       required: true,
+      min: 0,
     },
     slug: {
       type: String,
@@ -94,16 +112,23 @@ const productSchema = new mongoose.Schema(
       type: Number,
       required: true,
       default: 0,
+      min: 0,
     },
     deliveryTime: {
       type: Number,
       required: true,
+      min: 0,
     },
     attributes: [attributeSchema],
+    pricingTiers: {
+      type: [pricingTierSchema],
+      default: undefined,
+    },
     stock: {
       type: Number,
       required: true,
       default: 0,
+      min: 0,
     },
     lowStockThreshold: {
       type: Number,
@@ -111,9 +136,20 @@ const productSchema = new mongoose.Schema(
       default: 5,
       min: 0,
     },
+    ratings: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+    numReviews: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
     discount: {
       type: Number,
       default: 0,
+      min: 0,
     },
     status: {
       type: String,

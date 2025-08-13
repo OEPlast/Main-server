@@ -79,6 +79,7 @@ x-tagGroups:
       - Admin - Invoices
       - Admin - Analytics
       - Admin - Reviews
+      - Misc
 paths:
   /health-check:
     get:
@@ -1022,25 +1023,55 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name, description, brand, details, category, sku, color, images, description_images, sizes]
               properties:
                 name: { type: string }
                 description: { type: string }
                 brand: { type: string }
-                details: { type: string }
-                questions: { type: array, items: { type: string } }
+                price: { type: number, minimum: 0 }
                 category: { type: string }
-                subCategories: { type: array, items: { type: string } }
-                sku: { type: string }
-                color:
-                  type: object
-                  additionalProperties: true
-                images: { type: array, items: { type: string } }
-                description_images: { type: array, items: { type: string } }
-                sizes: { type: array, items: { type: object, additionalProperties: true } }
-                discount: { type: number }
-                slug: { type: string }
-                parent: { type: string }
+                subCategories: { type: string }
+                description_images:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      url: { type: string }
+                      cover_image: { type: boolean }
+                specifications:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      key: { type: string }
+                      value: { type: string }
+                shipping: { type: number, minimum: 0 }
+                deliveryTime: { type: number, minimum: 0 }
+                attributes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      children:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name: { type: string }
+                            price: { type: number }
+                            discount: { type: number, minimum: 0 }
+                            stock: { type: number, minimum: 0 }
+                            image: { type: string }
+                            pricingTiers:
+                              type: array
+                              items: { $ref: '#/components/schemas/PricingTier' }
+                tags: { type: array, items: { type: string } }
+                stock: { type: number, minimum: 0 }
+                discount: { type: number, minimum: 0 }
+                pricingTiers:
+                  type: array
+                  description: Optional product-level wholesale tiers
+                  items: { $ref: '#/components/schemas/PricingTier' }
       responses:
         '201': { description: Created }
 
@@ -1075,11 +1106,51 @@ paths:
                 name: { type: string }
                 description: { type: string }
                 brand: { type: string }
-                details: { type: string }
-                questions: { type: array, items: { type: string } }
+                price: { type: number, minimum: 0 }
                 category: { type: string }
-                subCategories: { type: array, items: { type: string } }
-                slug: { type: string }
+                subCategories: { type: string }
+                description_images:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      url: { type: string }
+                      cover_image: { type: boolean }
+                specifications:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      key: { type: string }
+                      value: { type: string }
+                shipping: { type: number, minimum: 0 }
+                deliveryTime: { type: number, minimum: 0 }
+                attributes:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name: { type: string }
+                      children:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            name: { type: string }
+                            price: { type: number }
+                            discount: { type: number, minimum: 0 }
+                            stock: { type: number, minimum: 0 }
+                            image: { type: string }
+                            pricingTiers:
+                              type: array
+                              items: { $ref: '#/components/schemas/PricingTier' }
+                tags: { type: array, items: { type: string } }
+                stock: { type: number, minimum: 0 }
+                discount: { type: number, minimum: 0 }
+                pricingTiers:
+                  type: array
+                  description: Optional product-level wholesale tiers
+                  items: { $ref: '#/components/schemas/PricingTier' }
       responses:
         '200': { description: OK }
     delete:
@@ -2255,6 +2326,17 @@ components:
       required: false
       schema: { type: string, format: date-time }
   schemas:
+    PricingTier:
+      type: object
+      required: [minQty, maxQty, strategy, value]
+      properties:
+        minQty: { type: integer, minimum: 1 }
+        maxQty: { type: integer, minimum: 1, description: Must be >= minQty }
+        strategy:
+          type: string
+          enum: [fixedPrice, percentOff, amountOff]
+        value: { type: number, minimum: 0 }
+      description: Non-overlapping ranges. Validation enforced in server.
     Settings:
       type: object
       additionalProperties: true

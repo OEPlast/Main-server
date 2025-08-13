@@ -1,6 +1,15 @@
 import Product, { ProductType } from '../../models/Product';
 import slugify from 'slugify';
 import { CustomResponseType } from '@/types';
+import eventPublisher from '@/events/eventPublisher';
+
+// Pricing types to mirror model
+type PricingTier = {
+  minQty: number;
+  maxQty: number;
+  strategy: 'fixedPrice' | 'percentOff' | 'amountOff';
+  value: number;
+};
 
 /**
  * Creates a new product.
@@ -25,17 +34,56 @@ type CreateProductData = {
       discount?: number;
       stock: number;
       image: string;
+      pricingTiers?: PricingTier[];
     }[];
   }[];
   tags: string[];
   stock: number;
   discount?: number;
+  pricingTiers?: PricingTier[]; // optional at product level
 };
+
+function validatePricingTiers(tiers?: PricingTier[]): string | null {
+  if (!tiers || tiers.length === 0) return null;
+  // Basic checks
+  for (const t of tiers) {
+    if (t.minQty < 1) return 'minQty must be >= 1';
+    if (t.maxQty < t.minQty) return 'maxQty must be >= minQty';
+    if (!['fixedPrice', 'percentOff', 'amountOff'].includes(t.strategy)) return 'Invalid pricing strategy';
+    if (t.value < 0) return 'value must be >= 0';
+  }
+  // Sort and check overlaps
+  const sorted = [...tiers].sort((a, b) => a.minQty - b.minQty);
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1]!;
+    const curr = sorted[i]!;
+    if (curr.minQty <= prev.maxQty) {
+      return 'Pricing tier ranges must not overlap';
+    }
+  }
+  return null;
+}
 
 const createProduct = async (data: CreateProductData): Promise<CustomResponseType<ProductType>> => {
   try {
     const newData: CreateProductData & { slug?: string } = data;
     newData.slug = slugify(data.name);
+
+    // Validate pricing tiers at product level
+    const productTierErr = validatePricingTiers(newData.pricingTiers);
+    if (productTierErr) {
+      return { message: productTierErr, data: null, code: 400 };
+    }
+    // Validate variant-level tiers
+    if (Array.isArray(newData.attributes)) {
+      for (const group of newData.attributes) {
+        for (const child of group.children) {
+          const childErr = validatePricingTiers(child.pricingTiers);
+          if (childErr) return { message: `Variant "${group.name}/${child.name}": ${childErr}`, data: null, code: 400 };
+        }
+      }
+    }
+
     const newProduct = await Product.insertOne(newData);
     return {
       message: 'Product created successfully',
@@ -62,13 +110,52 @@ const updateProduct = async (
   data: Partial<CreateProductData>
 ): Promise<CustomResponseType<ProductType>> => {
   try {
-    const updatedProduct = await Product.findByIdAndUpdate(id, data);
+    const existing = await Product.findById(id);
+    if (!existing) {
+      return { message: 'Product not found', data: null, code: 404 };
+    }
+
+    // Validate pricing tiers if present
+    if (data.pricingTiers) {
+      const err = validatePricingTiers(data.pricingTiers);
+      if (err) return { message: err, data: null, code: 400 };
+    }
+    if (Array.isArray(data.attributes)) {
+      for (const group of data.attributes) {
+        if (!group?.children) continue;
+        for (const child of group.children) {
+          const e = validatePricingTiers(child.pricingTiers);
+          if (e) return { message: `Variant "${group.name}/${child.name}": ${e}`, data: null, code: 400 };
+        }
+      }
+    }
+
+    const updatedProduct = await Product.findByIdAndUpdate(id, data, { new: true });
     if (!updatedProduct) {
       return {
         message: 'Product not found',
         data: null,
         code: 404,
       };
+    }
+
+    // Emit price-change events when base price or discount changes
+    const oldPrice = Number(existing.price);
+    const newPrice = Number(data.price ?? existing.price);
+    const oldDiscount = Number(existing.discount || 0);
+    const newDiscount = Number(data.discount ?? existing.discount ?? 0);
+
+    if (oldPrice !== newPrice || oldDiscount !== newDiscount) {
+      try {
+        await eventPublisher.publishPriceChanged(
+          id,
+          oldPrice,
+          newPrice,
+          newDiscount !== oldDiscount ? newDiscount : undefined
+        );
+      } catch (e) {
+        console.warn('Failed to publish price change event:', e);
+      }
     }
     return {
       message: 'Product updated successfully',

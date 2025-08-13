@@ -9,9 +9,8 @@ export const validateCart = async (req: Request, res: Response) => {
   }
   try {
     const userId = (req as AuthenticatedRequest).userId;
-    // Assuming validateCartSales is a method on CartService
-    const result = await CartService.getCartItems(userId); // Using existing method
-    return res.status(200).json(result);
+    const result = await CartService.validateCartSales(userId);
+    return res.status(result.valid ? 200 : 409).json(result);
   } catch (error) {
     console.error('Error in validateCart:', error);
     return res.status(500).json({ error: 'Internal server error' });

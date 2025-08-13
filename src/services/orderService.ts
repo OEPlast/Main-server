@@ -7,6 +7,47 @@ import { findActiveSaleForProduct, checkSaleAvailability } from '@/helpers/sales
 import { SaleOrderProduct, updateSaleCountersOnOrder } from '@/helpers/saleOrderUtils';
 import type { SalesType } from '@/models/Sales';
 import eventPublisher from '@/events/eventPublisher';
+import {
+  ProductPricingShape,
+  VariantOption,
+  resolveBestVariant as resolveVariant,
+  applyPricingTier,
+} from '@/helpers/pricingUtils';
+
+function calculateUnitPrice({
+  product,
+  variant,
+  qty,
+  saleContext,
+}: {
+  product: ProductPricingShape;
+  variant?: VariantOption;
+  qty: number;
+  saleContext?: { discount?: number };
+}): { unitPrice: number; base: number; discountAppliedPct: number } {
+  const variantPrice = typeof variant?.price === 'number' ? variant.price : undefined;
+  let unit = typeof variantPrice === 'number' ? variantPrice : product.price;
+  const base = unit;
+
+  // Variant then product tiers
+  unit = applyPricingTier(unit, qty, variant?.pricingTiers);
+  unit = applyPricingTier(unit, qty, product.pricingTiers);
+
+  // Static discounts
+  const variantDiscountPct = typeof variant?.discount === 'number' ? variant.discount : undefined;
+  const productDiscountPct = typeof product.discount === 'number' ? product.discount : 0;
+  const staticDiscountPct = typeof variantDiscountPct === 'number' ? variantDiscountPct : productDiscountPct;
+  if (staticDiscountPct && staticDiscountPct > 0) unit = Math.max(0, unit - (unit * staticDiscountPct) / 100);
+
+  // Sale discount overrides static precedence (applied on resolved base price, not tiered?)
+  const salePct = typeof saleContext?.discount === 'number' ? saleContext.discount : 0;
+  if (salePct > 0) {
+    const baseForSale = typeof variantPrice === 'number' ? variantPrice : product.price;
+    unit = Math.max(0, baseForSale - (baseForSale * salePct) / 100);
+  }
+
+  return { unitPrice: unit, base, discountAppliedPct: salePct > 0 ? salePct : staticDiscountPct || 0 };
+}
 
 /**
  * Fetches paginated orders for user with optional filters.
@@ -101,6 +142,50 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
       }
     }
 
+    // Recompute prices and totals to prevent tampering
+    let itemsSubtotal = 0;
+    let itemsBaseSubtotal = 0;
+    for (const item of products as Array<{
+      product: mongoose.Types.ObjectId | string;
+      qty: number;
+      price?: number;
+      attributes?: { name: string; value: string }[];
+      sale?: mongoose.Types.ObjectId | string;
+    }>) {
+      const productDoc = productDocs.find((p) => p._id.toString() === item.product!.toString());
+      if (!productDoc) throw new Error('Product not found for pricing.');
+      const qty = Number(item.qty || 0);
+      if (qty < 1) throw new Error('Invalid quantity for product.');
+
+      // Resolve sale discount, if any
+      let saleDiscount: number | undefined;
+      if (item.sale) {
+        const sale = (await findActiveSaleForProduct(item.product!.toString())) as unknown as SalesType | null;
+        if (sale) {
+          const { available, discount } = checkSaleAvailability(sale, item.attributes);
+          if (available) saleDiscount = typeof discount === 'number' ? discount : 0;
+        }
+      }
+
+      const variant = resolveVariant(
+        productDoc as unknown as ProductPricingShape,
+        (item.attributes || []) as {
+          name: string;
+          value: string;
+        }[]
+      );
+      const pricing = calculateUnitPrice({
+        product: productDoc as unknown as ProductPricingShape,
+        variant,
+        qty,
+        saleContext: { discount: saleDiscount },
+      });
+      // Update item price to computed unit
+      item.price = pricing.unitPrice;
+      itemsSubtotal += pricing.unitPrice * qty;
+      itemsBaseSubtotal += pricing.base * qty;
+    }
+
     // Check stock and prepare updates
     const bulkUpdates = products.map((item) => {
       const product = productDocs.find((p) => p._id.toString() === item.product!.toString());
@@ -132,8 +217,18 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
     // Ensure products are typed as SaleOrderProduct[] for updateSaleCountersOnOrder
     await updateSaleCountersOnOrder(products as SaleOrderProduct[], session);
 
-    // Create the order
-    const order = new Order(orderData);
+    // Compute final totals
+    const shipping = Number(orderData.shippingPrice || 0);
+    const tax = Number(orderData.taxPrice || 0);
+    const computedTotal = itemsSubtotal + shipping + tax;
+
+    // Create the order with recomputed totals
+    const order = new Order({
+      ...orderData,
+      total: computedTotal,
+      totalBeforeDiscount: itemsBaseSubtotal,
+      products,
+    });
     await order.save({ session });
 
     await session.commitTransaction();
