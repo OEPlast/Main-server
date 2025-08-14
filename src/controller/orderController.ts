@@ -44,6 +44,7 @@ export const placeOrder = async (req: Request, res: Response) => {
       deliveryStatus,
       shippingProgress,
       flashSaleApplied,
+      couponDiscount,
     } = req.body as Partial<OrderType> & { user: string };
 
     const payloadBase = {
@@ -55,6 +56,7 @@ export const placeOrder = async (req: Request, res: Response) => {
       total: total!,
       totalBeforeDiscount,
       couponApplied,
+      couponDiscount: couponDiscount ?? 0,
       shippingPrice: shippingPrice!,
       taxPrice: taxPrice ?? 0,
       isPaid: isPaid ?? false,

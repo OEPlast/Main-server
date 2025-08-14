@@ -5,44 +5,15 @@ import eventPublisher from '@/events/eventPublisher';
 import { EventType } from '@/events/eventTypes';
 import { CustomResponseType } from '@/types';
 import crypto from 'crypto';
+import {
+  PaystackCreateRefundResponse,
+  PaystackInitializeData,
+  PaystackResponse,
+  PaystackVerifyTransactionResponse,
+  PaystackWebhookData,
+} from '@/types/paystack';
+import { toString } from 'express-validator/lib/utils';
 
-type PaystackWebhookData = {
-  reference: string;
-  status: string;
-  id: string;
-  amount: number;
-  fees?: number;
-  gateway_response: string;
-  channel?: string;
-  paid_at?: string;
-  customer?: { email?: string };
-  metadata?: Record<string, unknown>;
-};
-
-// Types for initialize
-interface PaystackInitializeData {
-  email: string;
-  amount: number; // kobo for NGN
-  currency?: string;
-  reference: string;
-  callback_url?: string;
-  metadata?: Record<string, unknown>;
-  channels?: string[];
-}
-
-interface PaystackResponse {
-  status: boolean;
-  message: string;
-  data: {
-    authorization_url: string;
-    access_code: string;
-    reference: string;
-  };
-}
-
-/**
- * Initialize payment with Paystack
- */
 const initializePayment = async (paymentData: {
   orderId: string;
   userId: string;
@@ -100,7 +71,7 @@ const initializePayment = async (paymentData: {
       body: JSON.stringify(paystackData),
     });
 
-    const result: PaystackResponse = await paystackResponse.json();
+    const result = (await paystackResponse.json()) as PaystackResponse;
 
     if (!result.status) {
       return {
@@ -172,7 +143,7 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<IPay
       },
     });
 
-    const result = await paystackResponse.json();
+    const result = (await paystackResponse.json()) as PaystackVerifyTransactionResponse;
 
     if (!result.status) {
       return {
@@ -196,7 +167,7 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<IPay
       payment.status = isSuccess ? 'completed' : 'failed';
       payment.gatewayResponse = {
         ...payment.gatewayResponse,
-        gatewayTransactionId: paymentData.id,
+        gatewayTransactionId: toString(paymentData.id),
         responseCode: paymentData.gateway_response,
         responseMessage: paymentData.status,
         metadata: paymentData,
@@ -425,7 +396,7 @@ const refundPayment = async (
       }),
     });
 
-    const result = await paystackResponse.json();
+    const result = (await paystackResponse.json()) as PaystackCreateRefundResponse;
 
     if (!result.status) {
       return { message: result.message || 'Refund failed', data: null, code: 400 };
@@ -438,7 +409,7 @@ const refundPayment = async (
       reason: refundData.reason,
       status: 'completed',
       refundDate: new Date(),
-      gatewayRefundId: result.data.id,
+      gatewayRefundId: toString(result.data.id),
     });
 
     const totalRefunded = payment.refunds.reduce((sum, r) => sum + r.amount, 0);
