@@ -8,16 +8,23 @@ const categorySchema = new mongoose.Schema(
       minlength: [2, 'must be atleast 2 charcters'],
       maxlength: [32, 'must be atleast 2 charcters'],
     },
+    image: {
+      type: String,
+      default: 'https://isomorphic-furyroad.s3.amazonaws.com/public/categories/bags.webp',
+    },
     slug: {
       type: String,
       unique: true,
       lowercase: true,
       index: true,
     },
-    sub_categories: [
+    description: {
+      type: String,
+    },
+    parent: [
       {
         type: mongoose.Schema.ObjectId,
-        ref: 'SubCategory',
+        ref: 'Category',
       },
     ],
   },

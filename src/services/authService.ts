@@ -1,8 +1,10 @@
-import bcrypt from 'bcrypt';
+import passwordLib from '@/lib/password';
 import User, { UserType } from '../models/User';
 import { CustomResponsePromise, CustomResponseType } from '@/types';
 import tokenizer from '@/lib/tokenizer';
 import OTPService from './OTP';
+import mongoose from 'mongoose';
+import { eventPublisher } from '@/events';
 
 /**
  * Creates a new user.
@@ -12,7 +14,13 @@ import OTPService from './OTP';
 const signup = async (userData: {
   email: string;
   password: string;
-}): CustomResponsePromise<UserType & { token: string; otpCode: number }> => {
+  firstName: string;
+  lastName: string;
+}): CustomResponsePromise<{ newUser: UserType; token: string; otpCode: number }> => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+  console.log('hit');
+
   try {
     const existingUser = await User.findOne({ email: userData.email });
     if (existingUser) {
@@ -22,33 +30,41 @@ const signup = async (userData: {
         code: 400,
       };
     }
-    const hashedPassword = await bcrypt.hash(userData.password!, 19);
+
+    const hashedPassword = await passwordLib.hashPassword(userData.password!);
     const newUser = new User({ ...userData, password: hashedPassword });
-    await newUser.save();
+    await newUser.save({ session });
 
     // Create OTP for account verification
     const createOTP = await OTPService.createOtp({ user: newUser._id.toString(), type: 'create' });
+
     if (createOTP.code !== 200 || createOTP.data === null) {
-      return {
-        message: 'Failed to create OTP',
-        data: null,
-        code: 500,
-      };
+      throw new Error('Failed to create OTP');
     }
+    await session.commitTransaction();
+    session.endSession();
 
     const token = tokenizer.SignData({ userId: newUser._id, role: newUser.role });
 
-    // Send the OTP code to the user (e.g., via email or SMS)
-    // For now, we assume the OTP code is returned in the response for testing purposes.
+    eventPublisher.publishUserSignup({
+      email: userData.email,
+      firstName: userData.firstName,
+      userId: newUser._id.toString(),
+      otp: createOTP.data,
+    });
+
     return {
       message: 'User created successfully. Please verify your account using the OTP sent to your email.',
-      data: { ...newUser, token, otpCode: createOTP.data }, // Remove `otpCode` in production
+      data: { newUser, token, otpCode: createOTP.data }, // Remove `otpCode` in production
       code: 201,
     };
   } catch (error) {
     console.log(error);
+    await session.abortTransaction();
+    session.endSession();
+
     return {
-      message: 'Something went wrong',
+      message: error instanceof Error ? error.message : 'Registration failed',
       data: null,
       code: 500,
     };
@@ -84,7 +100,7 @@ const login = async ({
         code: 400,
       };
     }
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = await passwordLib.comparePassword(user.password, password);
     if (!isMatch) {
       return {
         message: 'Invalid credentials',
@@ -138,7 +154,7 @@ const resetPassword = async (email: string, newPassword: string): Promise<Custom
         code: 404,
       };
     }
-    user.password = await bcrypt.hash(newPassword, 19);
+    user.password = await passwordLib.hashPassword(newPassword);
     await user.save();
     return {
       message: 'Password reset successful',
@@ -187,7 +203,7 @@ const changePassword = async ({
         code: 400,
       };
     }
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    const isMatch = await passwordLib.comparePassword(user.password, currentPassword);
     if (!isMatch) {
       return {
         message: 'Current password is incorrect',
@@ -195,7 +211,7 @@ const changePassword = async ({
         code: 400,
       };
     }
-    user.password = await bcrypt.hash(newPassword, 19);
+    user.password = await passwordLib.hashPassword(newPassword);
     await user.save();
     return {
       message: 'Password changed successfully',
@@ -276,7 +292,7 @@ const resetPasswordWithCode = async ({
     }
 
     // Reset the password
-    user.password = await bcrypt.hash(newPassword, 19);
+    user.password = await passwordLib.hashPassword(newPassword);
     await user.save();
 
     return {

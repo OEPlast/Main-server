@@ -148,7 +148,11 @@ const updateCoupon = async (
       minOrderValue: number | null;
       discountType: 'percentage' | 'fixed';
       stackable: boolean;
-      appliesTo: { scope: 'order' | 'product' | 'category'; productIds?: mongoose.Types.ObjectId[]; categoryIds?: mongoose.Types.ObjectId[] };
+      appliesTo: {
+        scope: 'order' | 'product' | 'category';
+        productIds?: mongoose.Types.ObjectId[];
+        categoryIds?: mongoose.Types.ObjectId[];
+      };
       notes: string;
     }> = {};
 

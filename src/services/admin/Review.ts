@@ -42,7 +42,7 @@ const getRepliesByReviewId = async (
           _id: '$replies._id',
           replyBy: {
             _id: '$replies.replyBy',
-            name: '$userDetails.firstname' + ' ' + '$userDetails.lastname',
+            name: '$userDetails.firstName' + ' ' + '$userDetails.lastName',
             image: '$userDetails.image',
           },
           reply: '$replies.reply',

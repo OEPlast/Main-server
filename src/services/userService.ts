@@ -1,4 +1,5 @@
 import bcrypt from 'bcrypt';
+import passwordLib from '@/lib/password';
 import User, { UserType } from '../models/User';
 import { CustomResponsePromise, CustomResponseType } from '@/types';
 import { AddressType } from '@/types/userTypes';
@@ -148,7 +149,7 @@ const changePassword = async (
         code: 400,
       };
     }
-    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    const isMatch = await passwordLib.comparePassword(user as any, currentPassword);
     if (!isMatch) {
       return {
         message: 'Current password is incorrect',
@@ -156,7 +157,7 @@ const changePassword = async (
         code: 400,
       };
     }
-    user.password = await bcrypt.hash(newPassword, 12);
+    user.password = await passwordLib.hashPassword(newPassword);
     await user.save();
     return {
       message: 'Password changed successfully',

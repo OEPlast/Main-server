@@ -112,8 +112,8 @@ const getAllUsersWithPaginationAndSearch = async ({
     const matchStage = search
       ? {
           $or: [
-            { firstname: { $regex: search, $options: 'i' } },
-            { lastname: { $regex: search, $options: 'i' } },
+            { firstName: { $regex: search, $options: 'i' } },
+            { lastName: { $regex: search, $options: 'i' } },
             { email: { $regex: search, $options: 'i' } },
           ],
         }
@@ -146,14 +146,14 @@ const getAllUsersWithPaginationAndSearch = async ({
           totalSpent: { $sum: '$orders.total' },
         },
       },
-      { $sort: { firstname: -1, email: -1 } },
+      { $sort: { firstName: -1, email: -1 } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
       {
         $project: {
           _id: 1,
-          firstname: 1,
-          lastname: 1,
+          firstName: 1,
+          lastName: 1,
           email: 1,
           joinedAt: '$createdAt', // Rename `createdAt` to `joinedAt`
           orderCount: 1,

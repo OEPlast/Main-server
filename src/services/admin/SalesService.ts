@@ -86,7 +86,7 @@ export const getAllSales = async (page = 1, limit = 20): CustomResponsePromise<P
           product: '$productInfo',
           createdBy: {
             _id: '$creator._id',
-            name: { $concat: ['$creator.firstname', ' ', '$creator.lastname'] },
+            name: { $concat: ['$creator.firstName', ' ', '$creator.lastName'] },
             email: '$creator.email',
           },
           variants: 1,
@@ -145,7 +145,7 @@ export const getSaleById = async (id: string): CustomResponsePromise<AggregatedS
           product: '$productInfo',
           createdBy: {
             _id: '$creator._id',
-            name: { $concat: ['$creator.firstname', ' ', '$creator.lastname'] },
+            name: { $concat: ['$creator.firstName', ' ', '$creator.lastName'] },
             email: '$creator.email',
           },
           variants: 1,
@@ -417,7 +417,7 @@ export const getAllActiveFlashSales = async (page = 1, limit = 20): CustomRespon
           product: '$productInfo',
           createdBy: {
             _id: '$creator._id',
-            name: { $concat: ['$creator.firstname', ' ', '$creator.lastname'] },
+            name: { $concat: ['$creator.firstName', ' ', '$creator.lastName'] },
             email: '$creator.email',
           },
           variants: 1,
@@ -477,7 +477,7 @@ export const getAllActiveLimitedSales = async (page = 1, limit = 20): CustomResp
           product: '$productInfo',
           createdBy: {
             _id: '$creator._id',
-            name: { $concat: ['$creator.firstname', ' ', '$creator.lastname'] },
+            name: { $concat: ['$creator.firstName', ' ', '$creator.lastName'] },
             email: '$creator.email',
           },
           variants: 1,
@@ -537,7 +537,7 @@ export const getAllActiveNormalSales = async (page = 1, limit = 20): CustomRespo
           product: '$productInfo',
           createdBy: {
             _id: '$creator._id',
-            name: { $concat: ['$creator.firstname', ' ', '$creator.lastname'] },
+            name: { $concat: ['$creator.firstName', ' ', '$creator.lastName'] },
             email: '$creator.email',
           },
           variants: 1,

@@ -2,11 +2,11 @@ import mongoose, { InferSchemaType } from 'mongoose';
 
 const userSchema = new mongoose.Schema(
   {
-    firstname: {
+    firstName: {
       type: String,
       required: 'Please enter your first name.',
     },
-    lastname: {
+    lastName: {
       type: String,
       required: 'Please enter your last name.',
     },

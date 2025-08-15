@@ -204,7 +204,7 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<IPay
         });
         await eventPublisher.publishWebsocketOrderUpdate({ orderId: payment.orderId.toString(), status: 'paid' });
       } else {
-        await eventPublisher.publishEvent(EventType.PAYMENT_FAILED, {
+        await eventPublisher.publish(EventType.PAYMENT_FAILED, {
           orderId: payment.orderId.toString(),
           userId: payment.userId.toString(),
           reference: payment.transactionId,
@@ -290,7 +290,7 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
         });
         await eventPublisher.publishWebsocketOrderUpdate({ orderId: payment.orderId.toString(), status: 'paid' });
       } else {
-        await eventPublisher.publishEvent(EventType.PAYMENT_FAILED, {
+        await eventPublisher.publish(EventType.PAYMENT_FAILED, {
           orderId: payment.orderId.toString(),
           userId: payment.userId.toString(),
           reference: payment.transactionId,

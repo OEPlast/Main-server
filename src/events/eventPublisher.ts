@@ -1,125 +1,106 @@
-import amqplib from 'amqplib';
+import amqplib, { type Channel } from 'amqplib';
 import { v4 as uuidv4 } from 'uuid';
-import { EventType, BaseEvent } from './eventTypes';
+import { EventType, type BaseEvent } from './eventTypes';
 
-interface AmqpLikeChannel {
-  assertExchange: (exchange: string, type: string, options?: Record<string, unknown>) => Promise<unknown>;
-  publish: (exchange: string, routingKey: string, content: Buffer, options?: Record<string, unknown>) => boolean;
-  close: () => Promise<void>;
-}
+// Simplified: single topic exchange. Consumers can bind a queue with patterns (e.g. order.*, payment.#, #)
+const EXCHANGE_NAME = 'app.events';
 
-interface AmqpLikeConnection {
-  createChannel: () => Promise<AmqpLikeChannel>;
-  close: () => Promise<void>;
-}
+// Use minimal structural connection type to avoid tight coupling to amqplib's internal Connection interface
+type SimpleConnection = {
+  createChannel: () => Promise<Channel>;
+  on: (event: string, cb: (...args: unknown[]) => void) => void;
+  close: () => Promise<void> | void;
+};
 
 class EventPublisher {
-  private connection: unknown = null;
-  private channel: unknown = null;
+  private connection: SimpleConnection | null = null;
+  private channel: Channel | null = null;
   private isConnected = false;
 
   async connect(): Promise<void> {
+    if (this.isConnected) return; // idempotent
+    const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
     try {
-      const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
-      const rawConnection = await amqplib.connect(rabbitmqUrl);
-      const connection = rawConnection as unknown as AmqpLikeConnection;
-      const channel = (await connection.createChannel()) as AmqpLikeChannel;
+      const connection = (await amqplib.connect(rabbitmqUrl)) as unknown as SimpleConnection;
+      const channel = await connection.createChannel();
+      await channel.assertExchange(EXCHANGE_NAME, 'topic', { durable: true });
 
       this.connection = connection;
       this.channel = channel;
-
-      await channel.assertExchange('events', 'topic', { durable: true });
-      await channel.assertExchange('notifications', 'direct', { durable: true });
-      await channel.assertExchange('realtime', 'fanout', { durable: false });
-
       this.isConnected = true;
-      console.log('EventPublisher connected to RabbitMQ');
-    } catch (error) {
-      console.error('Failed to connect EventPublisher to RabbitMQ:', error);
-      throw error;
+      console.log('[events] connected');
+
+      connection.on('close', () => {
+        this.isConnected = false;
+        console.warn('[events] connection closed');
+      });
+      connection.on('error', (err) => {
+        console.error('[events] connection error', err);
+      });
+    } catch (err) {
+      console.error('[events] failed to connect', err);
+      throw err;
     }
   }
 
   async disconnect(): Promise<void> {
     try {
-      const channel = this.channel as AmqpLikeChannel | null;
-      if (channel) {
-        await channel.close();
+      await this.channel?.close();
+      if (this.connection) {
+        try {
+          await this.connection.close();
+        } catch {
+          /* swallow */
+        }
       }
-
-      const connection = this.connection as AmqpLikeConnection | null;
-      if (connection) {
-        await connection.close();
-      }
-
+    } catch (err) {
+      console.error('[events] disconnect error', err);
+    } finally {
       this.isConnected = false;
-      console.log('EventPublisher disconnected from RabbitMQ');
-    } catch (error) {
-      console.error('Error disconnecting EventPublisher:', error);
     }
   }
 
-  async publishEvent(eventType: EventType, data: unknown, userId?: string): Promise<void> {
-    if (!this.isConnected || !this.channel) {
-      console.error('EventPublisher not connected to RabbitMQ');
-      return;
+  async publish(
+    eventType: EventType,
+    data: Record<string, unknown> = {},
+    opts?: { userId?: string; source?: string; metadata?: Record<string, unknown> }
+  ): Promise<void> {
+    if (!this.channel || !this.isConnected) {
+      console.warn('[events] publish attempted while disconnected; retrying connect…');
+      await this.connect();
+      if (!this.channel) {
+        console.error('[events] still not connected, dropping event', eventType);
+        return;
+      }
     }
-
+    const event: BaseEvent = {
+      id: uuidv4(),
+      type: eventType,
+      timestamp: new Date(),
+      source: opts?.source || 'main-server',
+      userId: opts?.userId,
+      metadata: opts?.metadata,
+      data,
+    };
     try {
-      const event: BaseEvent = {
-        id: uuidv4(),
-        type: eventType,
-        timestamp: new Date(),
-        source: 'main-server',
-        userId,
-        data: data as Record<string, unknown>,
-      };
-
-      const exchange = this.getExchange(eventType);
-      const routingKey = this.getRoutingKey(eventType);
-
-      const channel = this.channel as AmqpLikeChannel;
-      channel.publish(exchange, routingKey, Buffer.from(JSON.stringify(event)), {
+      const payload = Buffer.from(JSON.stringify(event));
+      this.channel.publish(EXCHANGE_NAME, eventType, payload, {
+        contentType: 'application/json',
         persistent: true,
         messageId: event.id,
         timestamp: event.timestamp.getTime(),
-        headers: {
-          eventType: eventType,
-          source: 'main-server',
-        },
+        type: eventType,
+        headers: { source: event.source },
       });
-
-      console.log(`Event published: ${eventType} with ID: ${event.id}`);
-    } catch (error) {
-      console.error(`Failed to publish event ${eventType}:`, error);
+      // Lightweight debug log; can swap with central logger later
+      console.log(`[events] published ${eventType} id=${event.id}`);
+    } catch (err) {
+      console.error(`[events] failed to publish ${eventType}`, err);
     }
   }
 
-  private getExchange(eventType: EventType): string {
-    if (eventType.includes('notification') || eventType.includes('email')) {
-      return 'notifications';
-    } else if (eventType.includes('realtime') || eventType.includes('live')) {
-      return 'realtime';
-    }
-    return 'events';
-  }
-
-  private getRoutingKey(eventType: EventType): string {
-    const parts = eventType.split('.');
-    return parts.join('.');
-  }
-
-  async publishUserSignup(userId: string, email: string, firstName: string, lastName?: string): Promise<void> {
-    await this.publishEvent(
-      EventType.USER_SIGNUP,
-      {
-        userId,
-        email,
-        firstName,
-        lastName,
-      },
-      userId
-    );
+  async publishUserSignup(data: { userId: string; email: string; firstName: string; otp: number }): Promise<void> {
+    await this.publish(EventType.USER_SIGNUP, data, { userId: data.userId });
   }
 
   async publishOrderCreated(orderData: {
@@ -130,7 +111,7 @@ class EventPublisher {
     items: Array<{ productId: string; quantity: number; price: number }>;
     customerInfo: { email: string; name: string; phone?: string };
   }): Promise<void> {
-    await this.publishEvent(EventType.ORDER_CREATED, orderData, orderData.userId);
+    await this.publish(EventType.ORDER_CREATED, orderData, { userId: orderData.userId });
   }
 
   async publishPaymentSuccessful(paymentData: {
@@ -142,7 +123,7 @@ class EventPublisher {
     orderNumber?: string;
     customerInfo?: { email: string; name: string };
   }): Promise<void> {
-    await this.publishEvent(EventType.PAYMENT_SUCCESSFUL, paymentData, paymentData.userId);
+    await this.publish(EventType.PAYMENT_SUCCESSFUL, paymentData, { userId: paymentData.userId });
   }
 
   async publishPriceChanged(
@@ -151,12 +132,7 @@ class EventPublisher {
     newPrice: number,
     discountPercentage?: number
   ): Promise<void> {
-    await this.publishEvent(EventType.PRICE_CHANGED, {
-      productId,
-      oldPrice,
-      newPrice,
-      discountPercentage,
-    });
+    await this.publish(EventType.PRICE_CHANGED, { productId, oldPrice, newPrice, discountPercentage });
   }
 
   async publishInventoryLow(
@@ -165,12 +141,7 @@ class EventPublisher {
     threshold: number,
     productName: string
   ): Promise<void> {
-    await this.publishEvent(EventType.INVENTORY_LOW, {
-      productId,
-      currentStock,
-      threshold,
-      productName,
-    });
+    await this.publish(EventType.INVENTORY_LOW, { productId, currentStock, threshold, productName });
   }
 
   async publishOrderShipped(shipmentData: {
@@ -181,7 +152,7 @@ class EventPublisher {
     estimatedDelivery?: Date;
     customerInfo?: { email: string; name: string };
   }): Promise<void> {
-    await this.publishEvent(EventType.ORDER_SHIPPED, shipmentData, shipmentData.userId);
+    await this.publish(EventType.ORDER_SHIPPED, shipmentData, { userId: shipmentData.userId });
   }
 
   async publishNotification(notificationData: {
@@ -192,7 +163,7 @@ class EventPublisher {
     template?: string;
     templateData?: Record<string, unknown>;
   }): Promise<void> {
-    await this.publishEvent(EventType.NOTIFICATION_SEND, notificationData, notificationData.userId);
+    await this.publish(EventType.NOTIFICATION_SEND, notificationData, { userId: notificationData.userId });
   }
 
   async publishBulkNotification(notificationData: {
@@ -203,7 +174,7 @@ class EventPublisher {
     template?: string;
     templateData?: Record<string, unknown>;
   }): Promise<void> {
-    await this.publishEvent(EventType.BULK_NOTIFICATION, notificationData);
+    await this.publish(EventType.BULK_NOTIFICATION, notificationData);
   }
 
   async publishOrderPaid(data: {
@@ -212,11 +183,11 @@ class EventPublisher {
     totalAmount: number;
     items: Array<{ productId: string; quantity: number; price: number }>;
   }): Promise<void> {
-    await this.publishEvent(EventType.ORDER_PAID, data, data.userId);
+    await this.publish(EventType.ORDER_PAID, data, { userId: data.userId });
   }
 
   async publishWebsocketOrderUpdate(data: { orderId: string; status: string; message?: string }): Promise<void> {
-    await this.publishEvent(EventType.WEBSOCKET_ORDER_UPDATE, data);
+    await this.publish(EventType.WEBSOCKET_ORDER_UPDATE, data);
   }
 
   async publishEmail(data: {
@@ -226,7 +197,7 @@ class EventPublisher {
     subject?: string;
     templateData?: Record<string, unknown>;
   }): Promise<void> {
-    await this.publishEvent(EventType.NOTIFY_EMAIL, data, data.userId);
+    await this.publish(EventType.NOTIFY_EMAIL, data, { userId: data.userId });
   }
 
   async publishCouponRedeemed(data: {
@@ -236,10 +207,7 @@ class EventPublisher {
     amountDiscounted: number;
     code: string;
   }): Promise<void> {
-    await this.publishEvent(EventType.ADMIN_ACTION as unknown as EventType, {
-      action: 'coupon.redeemed',
-      ...data,
-    });
+    await this.publish(EventType.ADMIN_ACTION, { action: 'coupon.redeemed', ...data }, { userId: data.userId });
   }
 }
 

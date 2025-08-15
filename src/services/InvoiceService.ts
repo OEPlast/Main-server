@@ -15,7 +15,7 @@ export type InvoiceItem = {
 export type InvoiceData = {
   invoiceId: string; // same as orderId for simplicity
   orderId: string;
-  user: { id: string; firstname?: string; lastname?: string; email?: string };
+  user: { id: string; firstName?: string; lastName?: string; email?: string };
   shippingAddress: OrderType['shippingAddress'];
   items: InvoiceItem[];
   subtotal: number;
@@ -62,22 +62,22 @@ const getNameIfPresent = (value: unknown): string | undefined => {
 
 const getUserInfo = (user: unknown) => {
   const id = toIdString(user);
-  let firstname: string | undefined;
-  let lastname: string | undefined;
+  let firstName: string | undefined;
+  let lastName: string | undefined;
   let email: string | undefined;
   if (user && typeof user === 'object') {
     const u = user as Record<string, unknown>;
-    firstname = typeof u.firstname === 'string' ? u.firstname : undefined;
-    lastname = typeof u.lastname === 'string' ? u.lastname : undefined;
+    firstName = typeof u.firstName === 'string' ? u.firstName : undefined;
+    lastName = typeof u.lastName === 'string' ? u.lastName : undefined;
     email = typeof u.email === 'string' ? u.email : undefined;
   }
-  return { id, firstname, lastname, email };
+  return { id, firstName, lastName, email };
 };
 
 const getInvoiceData = async (orderId: string): Promise<CustomResponseType<InvoiceData>> => {
   try {
     const order = await Order.findById(orderId)
-      .populate('user', 'firstname lastname email')
+      .populate('user', 'firstName lastName email')
       .populate('products.product', 'name');
 
     if (!order) {

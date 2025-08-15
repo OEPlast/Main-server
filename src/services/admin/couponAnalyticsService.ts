@@ -26,15 +26,17 @@ const getCouponSummary = async (
         },
       },
     ]);
-    return { message: 'Summary retrieved', data: agg || { totalRedemptions: 0, totalDiscount: 0, uniqueUsers: 0 }, code: 200 };
+    return {
+      message: 'Summary retrieved',
+      data: agg || { totalRedemptions: 0, totalDiscount: 0, uniqueUsers: 0 },
+      code: 200,
+    };
   } catch (e) {
     return { message: 'Failed to get summary', data: null, code: 500 };
   }
 };
 
-const getUsageByDay = async (
-  couponId: string
-): Promise<CustomResponseType<Array<{ date: string; count: number }>>> => {
+const getUsageByDay = async (couponId: string): Promise<CustomResponseType<Array<{ date: string; count: number }>>> => {
   try {
     const couponObjId = new mongoose.Types.ObjectId(couponId);
     const results = await CouponRedemption.aggregate([

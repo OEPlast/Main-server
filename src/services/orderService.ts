@@ -287,9 +287,10 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
       }
 
       if (typeof couponDoc.maxUsagePerUser === 'number' && couponDoc.maxUsagePerUser >= 0) {
-        const userCount = await CouponRedemption.countDocuments({ coupon: couponDoc._id, user: orderData.user }).session(
-          session
-        );
+        const userCount = await CouponRedemption.countDocuments({
+          coupon: couponDoc._id,
+          user: orderData.user,
+        }).session(session);
         if (userCount >= couponDoc.maxUsagePerUser) throw new Error('Coupon user usage limit reached.');
       }
 

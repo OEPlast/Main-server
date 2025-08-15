@@ -128,7 +128,7 @@ app.get('/health-check', (req: Request, res: Response) => {
 
 // Start the server
 const port = process.env.PORT || 4000;
-const server = app.listen(port, () => {
+app.listen(port, () => {
   try {
     connectDB();
     console.log(`Server is listening on port ${port}`);
@@ -137,16 +137,3 @@ const server = app.listen(port, () => {
     process.exit(1);
   }
 });
-
-// Graceful shutdown
-const shutdown = async () => {
-  try {
-    await eventPublisher.disconnect();
-  } catch (e) {
-    // ignore
-  } finally {
-    server.close(() => process.exit(0));
-  }
-};
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);

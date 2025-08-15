@@ -64,7 +64,22 @@ const createCoupon = async (req: Request, res: Response) => {
 const updateCoupon = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { startDate, endDate, discount, active, couponType, deleted, allowedUser, maxUsage, maxUsagePerUser, minOrderValue, discountType, stackable, appliesTo, notes } = req.body as {
+    const {
+      startDate,
+      endDate,
+      discount,
+      active,
+      couponType,
+      deleted,
+      allowedUser,
+      maxUsage,
+      maxUsagePerUser,
+      minOrderValue,
+      discountType,
+      stackable,
+      appliesTo,
+      notes,
+    } = req.body as {
       startDate?: string;
       endDate?: string;
       discount?: number | string;

@@ -29,8 +29,8 @@ const userLogout = async (req: Request, res: Response) => {
 const userRegister = async (req: Request, res: Response) => {
   try {
     // Logic for user registration
-    const { email, password } = req.body;
-    const { data, message, code } = await AuthService.signup({ email, password });
+    const { email, password, firstName, lastName } = req.body;
+    const { data, message, code } = await AuthService.signup({ email, password, firstName, lastName });
     return res.status(code).json({ data, message });
   } catch (error) {
     console.error('Error in userRegister:', error);

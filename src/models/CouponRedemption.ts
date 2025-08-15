@@ -15,7 +15,10 @@ const couponRedemptionSchema = new mongoose.Schema(
 
 couponRedemptionSchema.index({ coupon: 1, createdAt: 1 });
 // Enforce unique redemption per (user,coupon) for one-off-user coupons only
-couponRedemptionSchema.index({ user: 1, coupon: 1 }, { unique: true, partialFilterExpression: { couponType: 'one-off-user' } });
+couponRedemptionSchema.index(
+  { user: 1, coupon: 1 },
+  { unique: true, partialFilterExpression: { couponType: 'one-off-user' } }
+);
 // Enforce single redemption globally for one-off coupons only
 couponRedemptionSchema.index({ coupon: 1 }, { unique: true, partialFilterExpression: { couponType: 'one-off' } });
 

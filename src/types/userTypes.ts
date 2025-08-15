@@ -21,8 +21,8 @@ export interface WishlistType {
 
 export interface UserType {
   _id?: ObjectId;
-  firstname: string;
-  lastname: string;
+  firstName: string;
+  lastName: string;
   email: string;
   password: string;
   role?: 'owner' | 'user' | 'manager' | 'employee';

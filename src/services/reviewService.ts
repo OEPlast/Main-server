@@ -150,7 +150,7 @@ const getReviewsByProductId = async (
           _id: 1,
           reviewBy: {
             _id: '$reviewBy',
-            name: '$userDetails.firstname' + ' ' + '$userDetails.lastname',
+            name: '$userDetails.firstName' + ' ' + '$userDetails.lastName',
             image: '$userDetails.image',
           },
           review: 1,
@@ -216,7 +216,7 @@ const getRepliesByReviewId = async (
           _id: '$replies._id',
           replyBy: {
             _id: '$replies.replyBy',
-            name: '$userDetails.firstname' + ' ' + '$userDetails.lastname',
+            name: '$userDetails.firstName' + ' ' + '$userDetails.lastName',
             image: '$userDetails.image',
           },
           reply: '$replies.reply',
@@ -399,7 +399,7 @@ const allReviews = async (
           _id: 1,
           reviewBy: {
             _id: '$reviewBy',
-            name: { $concat: ['$userDetails.firstname', ' ', '$userDetails.lastname'] },
+            name: { $concat: ['$userDetails.firstName', ' ', '$userDetails.lastName'] },
             image: '$userDetails.image',
           },
           review: 1,
@@ -465,7 +465,7 @@ const userReviews = async (
           _id: 1,
           reviewBy: {
             _id: '$reviewBy',
-            name: { $concat: ['$userDetails.firstname', ' ', '$userDetails.lastname'] },
+            name: { $concat: ['$userDetails.firstName', ' ', '$userDetails.lastName'] },
             image: '$userDetails.image',
           },
           review: 1,
@@ -532,7 +532,7 @@ const userReviewPerProduct = async ({
           _id: 1,
           reviewBy: {
             _id: '$reviewBy',
-            name: { $concat: ['$userDetails.firstname', ' ', '$userDetails.lastname'] },
+            name: { $concat: ['$userDetails.firstName', ' ', '$userDetails.lastName'] },
             image: '$userDetails.image',
           },
           review: 1,
