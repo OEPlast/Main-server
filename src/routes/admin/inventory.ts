@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { validationResult } from 'express-validator';
-import { isAuthenticated, isAdmin, requirePermission } from '@/middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '@/middleware/auth';
 import AdminInventoryController from '@/controller/admin/InventoryController';
 import {
   listValidator,
@@ -23,7 +23,7 @@ const validate = (req: Request, res: Response, next: NextFunction) => {
 // List inventory requires read permission on inventory
 router.get(
   '/',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('inventory', 'read'),
   listValidator,
@@ -34,7 +34,7 @@ router.get(
 // Set low stock threshold requires update permission on inventory
 router.post(
   '/:productId/threshold',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('inventory', 'update'),
   setThresholdValidator,
@@ -45,7 +45,7 @@ router.post(
 // Set stock requires update permission on inventory
 router.post(
   '/:productId/stock',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('inventory', 'update'),
   setStockValidator,
@@ -56,7 +56,7 @@ router.post(
 // Bulk adjust requires update permission on inventory
 router.post(
   '/bulk/adjust',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('inventory', 'update'),
   bulkAdjustValidator,

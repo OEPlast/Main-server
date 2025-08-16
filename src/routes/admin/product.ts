@@ -1,6 +1,6 @@
 import express from 'express';
 import ProductValidator from '@/validators/admin/Products';
-import { isAdmin, isAuthenticated, requirePermission } from '@/middleware/auth';
+import { isAdmin, authenticateUser, requirePermission } from '@/middleware/auth';
 import Admin_ProductController from '@/controller/admin/ProductController';
 
 const router = express.Router();
@@ -8,7 +8,7 @@ const router = express.Router();
 // Get product by ID
 router.get(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('products', 'read'),
   ProductValidator.getProductByIdValidator,
@@ -18,7 +18,7 @@ router.get(
 // Create product
 router.post(
   '/',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('products', 'create'),
   ProductValidator.createProductValidator,
@@ -28,7 +28,7 @@ router.post(
 // Update product
 router.patch(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('products', 'update'),
   ProductValidator.updateProductValidator,
@@ -38,7 +38,7 @@ router.patch(
 // Update sub-product
 router.post(
   '/duplicate/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('products', 'create'),
   Admin_ProductController.duplicateProduct
@@ -47,7 +47,7 @@ router.post(
 // Delete product
 router.delete(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('products', 'delete'),
   ProductValidator.deleteProductValidator,
@@ -57,7 +57,7 @@ router.delete(
 // update cover image
 router.patch(
   '/coverImage/update/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('products', 'update'),
   ProductValidator.updateCoverImageValidator,

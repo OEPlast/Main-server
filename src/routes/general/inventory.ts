@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { validationResult } from 'express-validator';
 import { productIdParam, adjustStockValidator, reserveValidator } from '@/validators/inventoryValidator';
 import InventoryController from '@/controller/inventoryController';
-import { isAuthenticated, isAdmin } from '@/middleware/auth';
+import { authenticateUser, isAdmin } from '@/middleware/auth';
 
 const router = Router();
 
@@ -20,7 +20,7 @@ router.get('/:productId/availability', productIdParam, validate, InventoryContro
 // Admin stock adjust
 router.post(
   '/:productId/stock',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   adjustStockValidator,
   validate,
@@ -30,7 +30,7 @@ router.post(
 // Reservation validation (pre-checkout)
 router.post(
   '/:productId/reserve',
-  isAuthenticated,
+  authenticateUser,
   reserveValidator,
   validate,
   InventoryController.validateReservation

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { isAuthenticated } from '@/middleware/auth';
+import { authenticateUser } from '@/middleware/auth';
 import Shipment from '@/models/Shipment';
 import Order from '@/models/Order';
 import { AuthenticatedRequest } from '@/types';
@@ -7,7 +7,7 @@ import { AuthenticatedRequest } from '@/types';
 const router = Router();
 
 // User: Get shipment for an order
-router.get('/orders/:orderId/shipment', isAuthenticated, async (req, res) => {
+router.get('/orders/:orderId/shipment', authenticateUser, async (req, res) => {
   try {
     const { orderId } = req.params;
     const userId = (req as AuthenticatedRequest).userId;
@@ -25,7 +25,7 @@ router.get('/orders/:orderId/shipment', isAuthenticated, async (req, res) => {
 });
 
 // User: List my shipments
-router.get('/shipments', isAuthenticated, async (req, res) => {
+router.get('/shipments', authenticateUser, async (req, res) => {
   try {
     const page = Number(req.query.page || 1);
     const limit = Number(req.query.limit || 10);

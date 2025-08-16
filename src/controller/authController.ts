@@ -42,8 +42,10 @@ const userRegister = async (req: Request, res: Response) => {
 // Request reset password code
 const requestResetPasswordCode = async (req: Request, res: Response) => {
   try {
-    const { email } = req.body;
-    const { message, code } = await AuthService.requestResetCode(email);
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const { message, code } = await AuthService.requestResetCode(req.userId);
     return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in requestResetPasswordCode:', error);
@@ -66,8 +68,11 @@ const resetUserPasswordByCode = async (req: Request, res: Response) => {
 // Change password using current password
 const updateUserPassword = async (req: Request, res: Response) => {
   try {
-    const { user, currentPassword, newPassword } = req.body;
-    const { message, code } = await AuthService.changePassword({ userId: user, currentPassword, newPassword });
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const { currentPassword, newPassword } = req.body;
+    const { message, code } = await AuthService.changePassword({ userId: req.userId, currentPassword, newPassword });
     return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in changePassword:', error);

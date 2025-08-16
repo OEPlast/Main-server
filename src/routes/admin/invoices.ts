@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { isAuthenticated, isAdmin, requirePermission } from '@/middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '@/middleware/auth';
 import InvoiceController from '@/controller/InvoiceController';
 import Order from '@/models/Order';
 
 const router = Router();
 
-router.use(isAuthenticated, isAdmin);
+router.use(authenticateUser, isAdmin);
 
 router.post('/:orderId/generate', requirePermission('invoices', 'create'), InvoiceController.generateForOrder);
 

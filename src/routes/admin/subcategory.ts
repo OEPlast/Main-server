@@ -1,6 +1,6 @@
 import express from 'express';
 import SubCategoryValidator from '@/validators/admin/SubCategoryValidator';
-import { isAdmin, isAuthenticated, requirePermission } from '@/middleware/auth';
+import { isAdmin, authenticateUser, requirePermission } from '@/middleware/auth';
 import SubCategoryController from '@/controller/admin/SubCategoryController';
 
 const router = express.Router();
@@ -8,7 +8,7 @@ const router = express.Router();
 // Get all subcategories
 router.get(
   '/',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('subcategories', 'read'),
   SubCategoryController.getAllSubCategories
@@ -17,7 +17,7 @@ router.get(
 // Create subcategory
 router.post(
   '/',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('subcategories', 'create'),
   SubCategoryValidator.createSubCategoryValidator,
@@ -27,7 +27,7 @@ router.post(
 // Update subcategory
 router.put(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('subcategories', 'update'),
   SubCategoryValidator.updateSubCategoryValidator,
@@ -37,7 +37,7 @@ router.put(
 // Delete subcategory
 router.delete(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('subcategories', 'delete'),
   SubCategoryValidator.deleteSubCategoryValidator,

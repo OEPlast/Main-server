@@ -1,40 +1,34 @@
 import AuthController from '@/controller/authController';
 import express from 'express';
 import AuthValidator from '@/validators/AuthValidator';
-import { validate } from '@/middleware/validate';
-import { isAuthenticated } from '@/middleware/auth';
+import { authenticateUser } from '@/middleware/auth';
+import RateLimits from '@/middleware/rate';
 const router = express.Router();
 
 router.post('/logout', () => {});
-router.post('/login', AuthValidator.loginValidator, validate, AuthController.userLogin);
-router.post('/register', AuthValidator.registerValidator, validate, AuthController.userRegister);
-router.post('/changePassword', AuthValidator.changePasswordValidator, validate, AuthController.updateUserPassword);
+router.post('/login', AuthValidator.loginValidator, AuthController.userLogin);
+router.post('/register', AuthValidator.registerValidator, AuthController.userRegister);
+router.post(
+  '/changePassword',
+  authenticateUser,
+  AuthValidator.changePasswordValidator,
+  AuthController.updateUserPassword
+);
 router.post(
   '/requestResetPasswordCode',
-  AuthValidator.requestResetPasswordCodeValidator,
-  validate,
+  RateLimits.OTP_Limiter,
+  authenticateUser,
   AuthController.requestResetPasswordCode
 );
-router.post(
-  '/resetPasswordByCode',
-  AuthValidator.resetPasswordByCodeValidator,
-  validate,
-  AuthController.resetUserPasswordByCode
-);
+router.post('/resetPasswordByCode', AuthValidator.resetPasswordByCodeValidator, AuthController.resetUserPasswordByCode);
 
 router.post(
   '/verifyAccount',
   AuthValidator.verifyAccountOtpValidator,
-  validate,
-  isAuthenticated,
+  authenticateUser,
   AuthController.verifyAccountOtp
 );
 
-router.post(
-  '/resendVerifyAccountOtp',
-  AuthValidator.resendVerifyAccountOtpValidator,
-  validate,
-  AuthController.resendVerifyAccountOtp
-);
+router.post('/resendVerifyAccountOtp', AuthController.resendVerifyAccountOtp);
 
 export default router;

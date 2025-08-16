@@ -1,17 +1,23 @@
 import express from 'express';
 import CategoryValidator from '@/validators/admin/CategoryValidator';
-import { isAdmin, isAuthenticated, requirePermission } from '@/middleware/auth';
+import { isAdmin, authenticateUser, requirePermission } from '@/middleware/auth';
 import CategoryController from '@/controller/admin/CategoryController';
 
 const router = express.Router();
 
 // Get all categories
-router.get('/', isAuthenticated, isAdmin, requirePermission('categories', 'read'), CategoryController.getAllCategories);
+router.get(
+  '/',
+  authenticateUser,
+  isAdmin,
+  requirePermission('categories', 'read'),
+  CategoryController.getAllCategories
+);
 
 // Create category
 router.post(
   '/',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('categories', 'create'),
   CategoryValidator.createCategoryValidator,
@@ -21,7 +27,7 @@ router.post(
 // Update category
 router.put(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('categories', 'update'),
   CategoryValidator.updateCategoryValidator,
@@ -31,7 +37,7 @@ router.put(
 // Delete category
 router.delete(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('categories', 'delete'),
   CategoryController.deleteCategory

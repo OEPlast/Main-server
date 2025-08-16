@@ -1,12 +1,12 @@
 import Admin_UserController from '@/controller/admin/UserController';
 import Admin_UserValidator from '@/validators/admin/UserValidator';
-import { isAdmin, isAuthenticated, requirePermission } from '@/middleware/auth';
+import { isAdmin, authenticateUser, requirePermission } from '@/middleware/auth';
 import express from 'express';
 const router = express.Router();
 
 router.get(
   '/',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('users', 'read'),
   Admin_UserValidator.getAllUsersValidator,
@@ -14,7 +14,7 @@ router.get(
 );
 router.get(
   '/byRole',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('users', 'read'),
   Admin_UserValidator.usersByRole,
@@ -22,7 +22,7 @@ router.get(
 );
 router.get(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('users', 'read'),
   Admin_UserValidator.getUserByIdValidator,
@@ -30,7 +30,7 @@ router.get(
 );
 router.put(
   '/:id/suspend',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('users', 'update'),
   Admin_UserValidator.updateUserSuspensionValidator,
@@ -38,7 +38,7 @@ router.put(
 );
 router.delete(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('users', 'delete'),
   Admin_UserValidator.deleteUserValidator,
@@ -46,7 +46,7 @@ router.delete(
 );
 router.put(
   '/:id/role',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('users', 'update'),
   Admin_UserValidator.updateUserRoleValidator,

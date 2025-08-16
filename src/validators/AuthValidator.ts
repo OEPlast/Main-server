@@ -1,48 +1,124 @@
-import { body } from 'express-validator';
+import type { NextFunction, Request, Response } from 'express';
+import { checkExact, checkSchema, validationResult } from 'express-validator';
 
-// Shared helpers
-const emailField = body('email').isEmail().withMessage('Valid email is required');
-const passwordField = body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters');
+const loginValidator = (req: Request, res: Response, next: NextFunction) => {
+  checkSchema({
+    email: {
+      in: ['body'],
+      isEmail: true,
+      errorMessage: 'Valid email is required',
+    },
+    password: {
+      in: ['body'],
+      isString: true,
+      isLength: { options: { min: 6 } },
+      errorMessage: 'Password must be at least 6 characters',
+    },
+  });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
 
-export const loginValidator = [emailField, passwordField];
+const registerValidator = (req: Request, res: Response, next: NextFunction) => {
+  checkSchema({
+    email: {
+      in: ['body'],
+      isEmail: true,
+      errorMessage: 'Valid email is required',
+    },
+    password: {
+      in: ['body'],
+      isString: true,
+      isLength: { options: { min: 6 } },
+      errorMessage: 'Password must be at least 6 characters',
+    },
+    firstName: {
+      in: ['body'],
+      isString: true,
+      errorMessage: 'firstName must be a string',
+    },
+    lastName: {
+      in: ['body'],
+      isString: true,
+      errorMessage: 'lastName must be a string',
+    },
+  });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
 
-export const registerValidator = [
-  emailField,
-  passwordField,
-  body('firstName').isString().withMessage('firstName must be a string'),
-  body('lastName').isString().withMessage('lastName must be a string'),
-];
+const changePasswordValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      currentPassword: {
+        in: ['body'],
+        isString: true,
+        isLength: { options: { min: 6 }, errorMessage: 'currentPassword must be at least 6 characters' },
+      },
+      newPassword: {
+        in: ['body'],
+        isString: true,
+        isLength: { options: { min: 6 } },
+        errorMessage: 'newPassword must be at least 6 characters',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
 
-export const changePasswordValidator = [
-  body('user').isString().withMessage('user is required'),
-  body('currentPassword').isString().isLength({ min: 6 }).withMessage('currentPassword must be at least 6 characters'),
-  body('newPassword').isString().isLength({ min: 6 }).withMessage('newPassword must be at least 6 characters'),
-];
+const resetPasswordByCodeValidator = (req: Request, res: Response, next: NextFunction) => {
+  checkSchema({
+    code: {
+      in: ['body'],
+      isString: true,
+      notEmpty: true,
+      errorMessage: 'code is required',
+    },
+    newPassword: {
+      in: ['body'],
+      isString: true,
+      isLength: { options: { min: 6 } },
+      errorMessage: 'newPassword must be at least 6 characters',
+    },
+  });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
 
-export const requestResetPasswordCodeValidator = [emailField];
+const verifyAccountOtpValidator = (req: Request, res: Response, next: NextFunction) => {
+  checkSchema({
+    code: {
+      in: ['body'],
+      notEmpty: true,
+      errorMessage: 'code is required',
+    },
+  });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
 
-export const resetPasswordByCodeValidator = [
-  emailField,
-  body('code').isString().notEmpty().withMessage('code is required'),
-  body('newPassword').isString().isLength({ min: 6 }).withMessage('newPassword must be at least 6 characters'),
-];
-
-export const verifyAccountOtpValidator = [
-  body('user').isString().withMessage('user is required'),
-  body('code').isString().notEmpty().withMessage('code is required'),
-];
-
-export const resendVerifyAccountOtpValidator = [body('user').isString().withMessage('user is required')];
-
-// Aggregate for namespace-style usage
 const AuthValidator = {
   loginValidator,
   registerValidator,
   changePasswordValidator,
-  requestResetPasswordCodeValidator,
   resetPasswordByCodeValidator,
   verifyAccountOtpValidator,
-  resendVerifyAccountOtpValidator,
 };
 
 export default AuthValidator;

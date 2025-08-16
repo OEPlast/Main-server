@@ -1,4 +1,4 @@
-import winston, { createLogger, format, transports } from 'winston';
+import winston, { format, transports } from 'winston';
 
 const customLevels = {
   levels: {
@@ -19,25 +19,16 @@ const customLevels = {
   },
 };
 
-// Chose the aspect of your log customizing the log format.
-export const formatter = format.combine(
-  // Add the message timestamp with the preferred format
-  winston.format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
-  // Tell Winston that the logs must be colored
-  winston.format.colorize({ all: true }),
-  // Define the format of the message showing the timestamp, the level and the message
-  winston.format.printf((info) => `${info.timestamp} ${info.level}: ${info.message}`)
+winston.addColors(customLevels.colors);
+
+const formatter = format.combine(
+  format.timestamp({ format: 'YYYY-MM-DD HH:mm:ss:ms' }),
+  format.colorize({ all: true }),
+  format.printf((info) => `${info.timestamp} ${info.level}: ${info.message}`)
 );
 
-export const logger = createLogger({
+export const logger = winston.createLogger({
   levels: customLevels.levels,
-  // format: format.combine(
-  //   format.colorize({ all: true }),
-  //   format.timestamp(),
-  //   format.printf(({ timestamp, level, message }) => `${timestamp} ${level}: ${message}`)
-  // ),
   format: formatter,
-  transports: [new transports.Console(), new transports.File({ filename: 'app.log' })],
+  transports: [new transports.Console()],
 });
-
-winston.addColors(customLevels.colors);

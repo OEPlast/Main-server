@@ -1,33 +1,33 @@
 import express from 'express';
-import { isAdmin, isAuthenticated, requirePermission } from '@/middleware/auth';
+import { isAdmin, authenticateUser, requirePermission } from '@/middleware/auth';
 import Admin_CouponAnalyticsController from '@/controller/admin/couponAnalyticsController';
 
 const router = express.Router();
 
 router.get(
   '/top',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('coupons', 'read'),
   Admin_CouponAnalyticsController.getTopCoupons
 );
 router.get(
   '/:id/summary',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('coupons', 'read'),
   Admin_CouponAnalyticsController.getCouponSummary
 );
 router.get(
   '/:id/usage-by-day',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('coupons', 'read'),
   Admin_CouponAnalyticsController.getUsageByDay
 );
 router.get(
   '/:id/users',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('coupons', 'read'),
   Admin_CouponAnalyticsController.getCouponUsers

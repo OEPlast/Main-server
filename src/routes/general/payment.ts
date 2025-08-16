@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import PaymentController from '../../controller/PaymentController';
-import { isAuthenticated } from '../../middleware/auth';
+import { authenticateUser } from '../../middleware/auth';
 import { validationResult } from 'express-validator';
 import {
   initializePaymentValidator,
@@ -28,7 +28,7 @@ const validate = (req: Request, res: Response, next: NextFunction): void => {
 };
 
 // Initialize payment
-router.post('/initialize', isAuthenticated, initializePaymentValidator, validate, PaymentController.initializePayment);
+router.post('/initialize', authenticateUser, initializePaymentValidator, validate, PaymentController.initializePayment);
 
 // Verify payment
 router.get('/verify/:reference', verifyPaymentValidator, validate, PaymentController.verifyPayment);
@@ -37,21 +37,21 @@ router.get('/verify/:reference', verifyPaymentValidator, validate, PaymentContro
 router.post('/webhook', PaymentController.handleWebhook);
 
 // Get payment by ID
-router.get('/:paymentId', isAuthenticated, getPaymentByIdValidator, validate, PaymentController.getPaymentById);
+router.get('/:paymentId', authenticateUser, getPaymentByIdValidator, validate, PaymentController.getPaymentById);
 
 // Get user payments
-router.get('/user/payments', isAuthenticated, getUserPaymentsValidator, validate, PaymentController.getUserPayments);
+router.get('/user/payments', authenticateUser, getUserPaymentsValidator, validate, PaymentController.getUserPayments);
 
 // Get payment by reference
 router.get(
   '/reference/:reference',
-  isAuthenticated,
+  authenticateUser,
   getPaymentByReferenceValidator,
   validate,
   PaymentController.getPaymentByReference
 );
 
 // Refund payment (admin only)
-router.post('/:paymentId/refund', isAuthenticated, refundPaymentValidator, validate, PaymentController.refundPayment);
+router.post('/:paymentId/refund', authenticateUser, refundPaymentValidator, validate, PaymentController.refundPayment);
 
 export default router;

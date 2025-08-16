@@ -1,12 +1,12 @@
 import Admin_ReviewController from '@/controller/admin/ReviewController';
 import ReviewValidator from '@/validators/admin/ReviewValidator';
-import { isAuthenticated, isAdmin, requirePermission } from '@/middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '@/middleware/auth';
 import express from 'express';
 
 const router = express.Router();
 
 // All admin review routes require authentication and admin privileges
-router.use(isAuthenticated, isAdmin);
+router.use(authenticateUser, isAdmin);
 
 router.get(
   '/product/:id',

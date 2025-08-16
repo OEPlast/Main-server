@@ -1,13 +1,13 @@
 import { Router } from 'express';
 import { validateAnalyticsQuery } from '@/validators/admin/AnalyticsValidator';
 import Admin_AnalyticsController from '@/controller/admin/AnalyticsController';
-import { isAuthenticated, isAdmin, requirePermission } from '@/middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '@/middleware/auth';
 
 const router = Router();
 
 router.get(
   '/seller-statistics',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('analytics', 'read'),
   validateAnalyticsQuery,
@@ -15,7 +15,7 @@ router.get(
 );
 router.get(
   '/total-sales',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('analytics', 'read'),
   validateAnalyticsQuery,
@@ -23,7 +23,7 @@ router.get(
 );
 router.get(
   '/chart-data',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('analytics', 'read'),
   validateAnalyticsQuery,
@@ -31,7 +31,7 @@ router.get(
 );
 router.get(
   '/order-vs-returns',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('analytics', 'read'),
   validateAnalyticsQuery,
@@ -39,7 +39,7 @@ router.get(
 );
 router.get(
   '/range-count',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('analytics', 'read'),
   validateAnalyticsQuery,
@@ -47,7 +47,7 @@ router.get(
 );
 router.get(
   '/paginated-statistics-days',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('analytics', 'read'),
   validateAnalyticsQuery,
@@ -55,7 +55,7 @@ router.get(
 );
 router.get(
   '/paginated-statistics-weeks',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('analytics', 'read'),
   validateAnalyticsQuery,
@@ -63,7 +63,7 @@ router.get(
 );
 router.get(
   '/paginated-statistics-months',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('analytics', 'read'),
   validateAnalyticsQuery,
@@ -71,7 +71,7 @@ router.get(
 );
 router.get(
   '/paginated-statistics-years',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('analytics', 'read'),
   validateAnalyticsQuery,

@@ -1,37 +1,89 @@
-import { body } from 'express-validator';
+import type { NextFunction, Request, Response } from 'express';
+import { checkExact, checkSchema, oneOf, validationResult } from 'express-validator';
 
-// Validation rules for user-related operations
-const validateUserProfileUpdate = [
-  body('name').optional().isString().withMessage('Name must be a string'),
-  body('email').optional().isEmail().withMessage('Invalid email address'),
-  body('password').optional().isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
-];
+const validateUserProfileUpdate = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      firstName: {
+        in: ['body'],
+        optional: true,
+        isString: {
+          errorMessage: 'First name must be a string',
+        },
+      },
+      lastName: {
+        in: ['body'],
+        optional: true,
+        isString: {
+          errorMessage: 'Last name must be a string',
+        },
+      },
+    })
+  ).run(req);
 
-const validateUserSettingsUpdate = [
-  body('notifications').optional().isBoolean().withMessage('Notifications must be a boolean'),
-  body('theme').optional().isString().withMessage('Theme must be a string'),
-];
+  // Require at least one of them
+  await oneOf(
+    [
+      checkSchema({ firstName: { in: ['body'], exists: true } }),
+      checkSchema({ lastName: { in: ['body'], exists: true } }),
+    ],
+    { message: 'Supply at least one of Firstname or Lastname', errorType: 'least_errored' }
+  ).run(req);
 
-const validateStoreSettings = [
-  body('storeName').optional().isString(),
-  body('companyName').optional().isString(),
-  body('logoUrl').optional().isString(),
-  body('websiteUrl').optional().isString(),
-  body('supportEmail').optional().isEmail(),
-  body('supportPhone').optional().isString(),
-  body('currency').optional().isString(),
-  body('taxId').optional().isString(),
-  body('address').optional().isObject(),
-  body('address.line1').optional().isString(),
-  body('address.line2').optional().isString(),
-  body('address.city').optional().isString(),
-  body('address.state').optional().isString(),
-  body('address.zip').optional().isString(),
-  body('address.country').optional().isString(),
-];
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
 
-export default {
+const validateUserSettingsUpdate = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      notifications: {
+        in: ['body'],
+        optional: true,
+        isBoolean: true,
+        errorMessage: 'Notifications must be a boolean',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
+const validateStoreSettings = (req: Request, res: Response, next: NextFunction) => {
+  checkSchema({
+    storeName: { in: ['body'], optional: true, isString: true },
+    companyName: { in: ['body'], optional: true, isString: true },
+    logoUrl: { in: ['body'], optional: true, isString: true },
+    websiteUrl: { in: ['body'], optional: true, isString: true },
+    supportEmail: { in: ['body'], optional: true, isEmail: true },
+    supportPhone: { in: ['body'], optional: true, isString: true },
+    currency: { in: ['body'], optional: true, isString: true },
+    taxId: { in: ['body'], optional: true, isString: true },
+    address: { in: ['body'], optional: true, isObject: true },
+    'address.line1': { in: ['body'], optional: true, isString: true },
+    'address.line2': { in: ['body'], optional: true, isString: true },
+    'address.city': { in: ['body'], optional: true, isString: true },
+    'address.state': { in: ['body'], optional: true, isString: true },
+    'address.zip': { in: ['body'], optional: true, isString: true },
+    'address.country': { in: ['body'], optional: true, isString: true },
+  });
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
+const UserValidator = {
   validateUserProfileUpdate,
   validateUserSettingsUpdate,
   validateStoreSettings,
 };
+
+export default UserValidator;

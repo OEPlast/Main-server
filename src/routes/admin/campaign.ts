@@ -1,12 +1,12 @@
 import express from 'express';
 import CampaignController from '../../controller/admin/CampaignController';
 import CampaignValidator from '../../validators/admin/CampaignValidator';
-import { isAuthenticated, isAdmin, requirePermission } from '../../middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '../../middleware/auth';
 
 const router = express.Router();
 
 // All campaign routes require authentication and admin privileges
-router.use(isAuthenticated, isAdmin);
+router.use(authenticateUser, isAdmin);
 
 // Campaign CRUD operations
 router.post(

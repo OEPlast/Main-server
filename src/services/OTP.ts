@@ -93,6 +93,21 @@ const verifyOtp = async ({
       };
     }
 
+    // Check if OTP is expired (10 minutes)
+    const now = new Date();
+    const otpCreatedAt = new Date(otp.createdAt);
+    const tenMinutesInMs = 10.1 * 60 * 1000; // 10 minutes in milliseconds
+
+    if (now.getTime() - otpCreatedAt.getTime() > tenMinutesInMs) {
+      // Delete expired OTP
+      await OTP.deleteOne({ _id: otp._id });
+      return {
+        message: 'OTP has expired',
+        data: null,
+        code: 400,
+      };
+    }
+
     // OTP is valid, delete it after verification
     await OTP.deleteOne({ _id: otp._id });
 

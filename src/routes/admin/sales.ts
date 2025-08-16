@@ -7,12 +7,12 @@ import {
   validateSalesVariantUpdate,
 } from '@/validators/admin/SalesValidator';
 import SalesController from '@/controller/admin/SalesController';
-import { isAuthenticated, isAdmin, requirePermission } from '@/middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '@/middleware/auth';
 
 const router = Router();
 
 // All admin sales routes require authentication and admin privileges
-router.use(isAuthenticated, isAdmin);
+router.use(authenticateUser, isAdmin);
 
 // CRUD for admin
 router.post('/', requirePermission('sales', 'create'), validateSalesCreate, SalesController.createSale);

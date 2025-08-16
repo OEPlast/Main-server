@@ -5,6 +5,7 @@ import tokenizer from '@/lib/tokenizer';
 import OTPService from './OTP';
 import mongoose from 'mongoose';
 import { eventPublisher } from '@/events';
+import EmailProcessor from './EmailProcessor';
 
 /**
  * Creates a new user.
@@ -83,9 +84,9 @@ const login = async ({
 }: {
   email: string;
   password: string;
-}): Promise<CustomResponseType<UserType & { token: string }>> => {
+}): Promise<CustomResponseType<{ emailVerified: boolean; token: string }>> => {
   try {
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }, { emailVerified: true, password: true });
     if (!user) {
       return {
         message: 'User not found',
@@ -103,7 +104,7 @@ const login = async ({
     const isMatch = await passwordLib.comparePassword(user.password, password);
     if (!isMatch) {
       return {
-        message: 'Invalid credentials',
+        message: 'Incorrect password',
         data: null,
         code: 401,
       };
@@ -111,7 +112,7 @@ const login = async ({
     const token = tokenizer.SignData({ userId: user._id, role: user.role });
     return {
       message: 'Login successful',
-      data: { ...user, token },
+      data: { emailVerified: user.emailVerified, token },
       code: 200,
     };
   } catch (error) {
@@ -188,7 +189,7 @@ const changePassword = async ({
   newPassword: string;
 }): Promise<CustomResponseType<null>> => {
   try {
-    const user = await User.findById(userId);
+    const user = await User.findById(userId, { password: true });
     if (!user) {
       return {
         message: 'User not found',
@@ -197,10 +198,12 @@ const changePassword = async ({
       };
     }
     if (!user.password) {
+      user.password = await passwordLib.hashPassword(newPassword);
+      await user.save();
       return {
-        message: 'Password not set',
+        message: 'Password changed successfully',
         data: null,
-        code: 400,
+        code: 200,
       };
     }
     const isMatch = await passwordLib.comparePassword(user.password, currentPassword);
@@ -234,10 +237,10 @@ const changePassword = async ({
  * @returns A promise that resolves to a custom response.
  */
 
-const requestResetCode = async (email: string): Promise<CustomResponseType<null>> => {
+const requestResetCode = async (userId: string): Promise<CustomResponseType<null>> => {
   try {
     //check if the user exist
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ _id: userId });
     if (!user) {
       return {
         message: 'User does not exist',
@@ -247,6 +250,15 @@ const requestResetCode = async (email: string): Promise<CustomResponseType<null>
     }
     //then call the otp service
     const createOTP = await OTPService.createOtp({ user: user._id.toString(), type: 'reset password' });
+
+    if (createOTP.data) {
+      await EmailProcessor.sendPasswordResetEmail({
+        firstName: user.firstName!,
+        resetCode: createOTP.data.toString(),
+        to: user.email,
+        expiresInMinutes: 10,
+      });
+    }
     return {
       data: null,
       code: createOTP.code,

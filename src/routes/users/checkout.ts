@@ -1,12 +1,12 @@
 import express from 'express';
 import OrderController from '../../controller/orderController';
 import OrderValidator from '../../validators/OrderValidator';
-import { isAuthenticated } from '../../middleware/auth';
+import { authenticateUser } from '../../middleware/auth';
 
 const router = express.Router();
 
 // All checkout routes require authentication
-router.use(isAuthenticated);
+router.use(authenticateUser);
 
 // Checkout - create order from cart
 router.post('/', OrderValidator.validateOrderPlacement, OrderController.placeOrder);

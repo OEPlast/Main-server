@@ -8,7 +8,7 @@ export async function hashPassword(password: string): Promise<string> {
   return bcrypt.hashSync(peppered, SALT_ROUNDS);
 }
 
-export async function comparePassword(password: string, storedHash: string): Promise<boolean> {
+export async function comparePassword(storedHash: string, password: string): Promise<boolean> {
   const peppered = password + PEPPER;
   return bcrypt.compareSync(peppered, storedHash);
 }

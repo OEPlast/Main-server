@@ -1,5 +1,5 @@
 import express from 'express';
-import { isAdmin, isAuthenticated, requirePermission } from '@/middleware/auth';
+import { isAdmin, authenticateUser, requirePermission } from '@/middleware/auth';
 import AttributesController from '@/controller/admin/AttributesController';
 import AttributesValidator from '@/validators/admin/AttributesValidator';
 
@@ -8,7 +8,7 @@ const router = express.Router();
 // Create attribute
 router.post(
   '/',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('attributes', 'create'),
   AttributesValidator.create_And_Update_AttributeValidator,
@@ -18,7 +18,7 @@ router.post(
 // Get all attributes
 router.get(
   '/',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('attributes', 'read'),
   AttributesController.getAllAttributes
@@ -27,7 +27,7 @@ router.get(
 // Update attribute
 router.put(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('attributes', 'update'),
   AttributesValidator.create_And_Update_AttributeValidator,
@@ -37,7 +37,7 @@ router.put(
 // Delete attribute
 router.delete(
   '/:id',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('attributes', 'delete'),
   AttributesController.deleteAttribute

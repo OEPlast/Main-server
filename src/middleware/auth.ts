@@ -9,7 +9,7 @@ if (!JWT_SECRET) {
   throw new Error('Set JWT secret');
 }
 
-export const isAuthenticated = async (req: Request, res: Response, next: NextFunction) => {
+export const authenticateUser = async (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
     return res.status(401).json({ message: 'No token provided' });

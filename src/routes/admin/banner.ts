@@ -1,12 +1,12 @@
 import express from 'express';
 import Admin_BannerController from '../../controller/admin/BannerController';
-import { isAdmin, isAuthenticated, requirePermission } from '../../middleware/auth';
+import { isAdmin, authenticateUser, requirePermission } from '../../middleware/auth';
 import BannerValidator from '../../validators/admin/BannerValidator';
 
 const router = express.Router();
 
 // Apply admin authorization middleware to all routes
-router.use(isAuthenticated, isAdmin);
+router.use(authenticateUser, isAdmin);
 
 // Banner CRUD routes
 router.post(

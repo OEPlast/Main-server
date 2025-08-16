@@ -1,12 +1,12 @@
 import express from 'express';
 import ShipmentController from '../../controller/admin/ShipmentController';
 import ShipmentValidator from '../../validators/admin/ShipmentValidator';
-import { isAuthenticated, isAdmin, requirePermission } from '../../middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '../../middleware/auth';
 
 const router = express.Router();
 
 // All shipment routes require authentication and admin privileges
-router.use(isAuthenticated, isAdmin);
+router.use(authenticateUser, isAdmin);
 
 // Shipment CRUD operations
 router.post(

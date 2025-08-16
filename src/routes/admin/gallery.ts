@@ -1,13 +1,13 @@
 import GalleryController from '@/controller/admin/GalleryController';
-import { isAdmin, isAuthenticated, requirePermission } from '@/middleware/auth';
+import { isAdmin, authenticateUser, requirePermission } from '@/middleware/auth';
 import GalleryValidator from '@/validators/admin/GalleryValidator';
 import express from 'express';
 const router = express.Router();
 
-router.get('/all', isAuthenticated, isAdmin, requirePermission('gallery', 'read'), GalleryController.getAllImages);
+router.get('/all', authenticateUser, isAdmin, requirePermission('gallery', 'read'), GalleryController.getAllImages);
 router.post(
   '/new',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('gallery', 'create'),
   GalleryValidator.addImageValidator,
@@ -15,7 +15,7 @@ router.post(
 );
 router.patch(
   '/update',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('gallery', 'update'),
   GalleryValidator.updateImageValidator,
@@ -23,7 +23,7 @@ router.patch(
 );
 router.delete(
   '/delete',
-  isAuthenticated,
+  authenticateUser,
   isAdmin,
   requirePermission('gallery', 'delete'),
   GalleryValidator.deleteImageValidator,

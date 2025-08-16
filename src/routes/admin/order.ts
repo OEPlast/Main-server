@@ -1,12 +1,12 @@
 import express from 'express';
 import Admin_OrderController from '../../controller/admin/OrderController';
 import Admin_OrderValidator from '../../validators/admin/OrderValidator';
-import { isAuthenticated, isAdmin, requirePermission } from '../../middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '../../middleware/auth';
 
 const router = express.Router();
 
 // All admin order routes require authentication and admin privileges
-router.use(isAuthenticated, isAdmin);
+router.use(authenticateUser, isAdmin);
 
 // Route to fetch the 15 most ordered products within a time frame
 router.get(

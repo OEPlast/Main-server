@@ -1,12 +1,12 @@
 import express from 'express';
 import RoleController from '../../controller/admin/RoleController';
 import RoleValidator from '../../validators/admin/RoleValidator';
-import { isAuthenticated, isAdmin, requirePermission } from '../../middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '../../middleware/auth';
 
 const router = express.Router();
 
 // All role routes require authentication and admin privileges
-router.use(isAuthenticated, isAdmin);
+router.use(authenticateUser, isAdmin);
 
 // Role CRUD operations
 router.post('/', requirePermission('roles', 'create'), RoleValidator.createRoleValidator, RoleController.createRole);

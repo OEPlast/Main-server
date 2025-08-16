@@ -14,9 +14,7 @@ import OrderRoute from '@/routes/users/orders';
 import CartRoute from '@/routes/users/cart';
 import BannersRoute from '@/routes/general/banners';
 import WishlistRoute from '@/routes/users/wishlist';
-import ProfileRoute from '@/routes/users/profile';
 import CheckoutRoute from '@/routes/users/checkout';
-import SettingsRoute from '@/routes/users/settings';
 import UserReviewsRoute from '@/routes/users/reviews';
 import UserRoute from '@/routes/users/user';
 import InventoryRoute from '@/routes/general/inventory';
@@ -47,6 +45,7 @@ import {
   AdminCouponAnalyticsRoute,
 } from './routes/admin';
 import FileUploadRoute from '@/routes/general/fileUpload';
+import EmailProcessor from './services/EmailProcessor';
 
 // Helper to capture raw body without using any
 const rawBodySaver = (req: Request & { rawBody?: Buffer }, _res: Response, buf: Buffer) => {
@@ -85,15 +84,13 @@ app.use('/payments', PaymentRoute);
 app.use('/reviews', ReviewRoute);
 app.use('/reviews', PublicReviewsListRoute);
 app.use('/auth', AuthRoute);
+app.use('/user', UserRoute);
 app.use('/wishlist', WishlistRoute);
 app.use('/orders', OrderRoute);
 app.use('/carts', CartRoute);
 app.use('/banners', BannersRoute);
-app.use('/profile', ProfileRoute);
 app.use('/checkout', CheckoutRoute);
-app.use('/settings', SettingsRoute);
 app.use('/users/reviews', UserReviewsRoute);
-app.use('/users', UserRoute);
 app.use('/users', UserShipmentsRoute);
 app.use('/users', UserInvoiceRoute);
 app.use('/inventory', InventoryRoute);
@@ -128,9 +125,10 @@ app.get('/health-check', (req: Request, res: Response) => {
 
 // Start the server
 const port = process.env.PORT || 4000;
-app.listen(port, () => {
+app.listen(port, async () => {
   try {
-    connectDB();
+    await connectDB();
+    await EmailProcessor.initialize();
     console.log(`Server is listening on port ${port}`);
   } catch (error) {
     console.log(error);

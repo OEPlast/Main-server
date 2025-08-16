@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import { isAuthenticated } from '@/middleware/auth';
+import { authenticateUser } from '@/middleware/auth';
 import InvoiceController from '@/controller/InvoiceController';
 import Order from '@/models/Order';
 import { AuthenticatedRequest } from '@/types';
 
 const router = Router();
 
-router.get('/orders/:orderId/invoice', isAuthenticated, async (req, res) => {
+router.get('/orders/:orderId/invoice', authenticateUser, async (req, res) => {
   try {
     const { orderId } = req.params;
     const userId = (req as AuthenticatedRequest).userId;
