@@ -9,15 +9,18 @@ if (!JWT_SECRET) {
   throw new Error('Set JWT secret');
 }
 
-export const isAuthenticated = (req: Request, res: Response, next: NextFunction) => {
+export const isAuthenticated = async (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
     return res.status(401).json({ message: 'No token provided' });
   }
   try {
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: UserType['role'] };
-    (req as AuthenticatedRequest).userId = decoded.userId;
-    (req as AuthenticatedRequest).role = decoded.role;
+    const user = await User.findById(decoded.userId, { role: true });
+    if (!user) return res.status(401).json({ message: 'Invalid token' });
+
+    (req as AuthenticatedRequest).userId = user._id.toString();
+    (req as AuthenticatedRequest).role = user.role;
     next();
   } catch (error) {
     return res.status(401).json({ message: 'Invalid token' });

@@ -2,6 +2,7 @@ import AuthController from '@/controller/authController';
 import express from 'express';
 import AuthValidator from '@/validators/AuthValidator';
 import { validate } from '@/middleware/validate';
+import { isAuthenticated } from '@/middleware/auth';
 const router = express.Router();
 
 router.post('/logout', () => {});
@@ -20,7 +21,15 @@ router.post(
   validate,
   AuthController.resetUserPasswordByCode
 );
-router.post('/verifyAccountOtp', AuthValidator.verifyAccountOtpValidator, validate, AuthController.verifyAccountOtp);
+
+router.post(
+  '/verifyAccount',
+  AuthValidator.verifyAccountOtpValidator,
+  validate,
+  isAuthenticated,
+  AuthController.verifyAccountOtp
+);
+
 router.post(
   '/resendVerifyAccountOtp',
   AuthValidator.resendVerifyAccountOtpValidator,

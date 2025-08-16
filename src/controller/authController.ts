@@ -1,4 +1,5 @@
 import AuthService from '@/services/authService';
+import { isAuthenticatedRequest } from '@/types';
 import { Request, Response } from 'express';
 
 // User login
@@ -76,8 +77,12 @@ const updateUserPassword = async (req: Request, res: Response) => {
 
 const verifyAccountOtp = async (req: Request, res: Response) => {
   try {
-    const { user, code } = req.body;
-    const { message, code: statusCode } = await AuthService.verifyAccountOtp({ userId: user, code });
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const { code } = req.body;
+    const userId = req.userId;
+    const { message, code: statusCode } = await AuthService.verifyAccountOtp({ userId, code });
     return res.status(statusCode).json({ message });
   } catch (error) {
     console.error('Error in verifyAccountOtp:', error);
