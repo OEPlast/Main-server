@@ -12,15 +12,12 @@ router.get('/profile', UserController.getProfile);
 // Update user profile
 router.put('/profile', UserValidator.validateUserProfileUpdate, UserController.updateProfile);
 
-// Update user settings
-router.put('/settings', UserValidator.validateUserSettingsUpdate, UserController.updateSettings);
+router.post('/address', UserValidator.validateAddAddress, UserController.addAddress);
 
-router.post('/addresses', UserController.addAddress);
+router.get('/address/all', UserController.getAddresses);
 
-router.put('/addresses/:addressId', UserController.updateAddress);
+router.put('/address/:addressId', UserValidator.validateUpdateAddress, UserController.updateAddress);
 
-router.delete('/addresses/:addressId', UserController.deleteAddress);
-
-router.get('/addresses', UserController.getAddresses);
+router.delete('/address/:addressId', UserValidator.validateDeleteAddress, UserController.deleteAddress);
 
 export default router;

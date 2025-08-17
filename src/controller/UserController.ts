@@ -120,23 +120,6 @@ const getAddresses = async (req: Request, res: Response) => {
   }
 };
 
-// Update user settings (placeholder)
-const updateSettings = async (req: Request, res: Response) => {
-  try {
-    if (!isAuthenticatedRequest(req)) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const userId = req.userId;
-    const settings = req.body;
-    const result = await UserService.updateUserProfile(userId, settings);
-    return res.status(result.code).json({ message: result.message, data: result.data });
-  } catch (error) {
-    console.error('Error in updateSettings:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
 export default {
   getProfile,
   updateProfile,
@@ -145,5 +128,4 @@ export default {
   updateAddress,
   deleteAddress,
   getAddresses,
-  updateSettings,
 };

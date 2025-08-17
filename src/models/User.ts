@@ -1,5 +1,46 @@
 import mongoose, { InferSchemaType } from 'mongoose';
 
+const addressSchema = new mongoose.Schema({
+  firstName: {
+    type: String,
+    required: '"Please enter a address firstname.',
+  },
+  lastName: {
+    type: String,
+    required: '"Please enter a address lastname.',
+  },
+  phoneNumber: {
+    type: String,
+    required: '"Please enter a address phone number.',
+  },
+  address1: {
+    type: String,
+    required: '"Please enter a address1.',
+  },
+  address2: {
+    type: String,
+  },
+  city: {
+    type: String,
+    required: '"Please enter a address city.',
+  },
+  zipCode: {
+    type: String,
+    required: '"Please enter a address zipCode.',
+  },
+  state: {
+    type: String,
+    required: '"Please enter a address state.',
+  },
+  country: {
+    type: String,
+    required: '"Please enter a address country.',
+  },
+  active: {
+    type: Boolean,
+    default: false,
+  },
+});
 const userSchema = new mongoose.Schema(
   {
     firstName: {
@@ -15,6 +56,14 @@ const userSchema = new mongoose.Schema(
       required: [true, 'Please enter your email address.'],
       trim: true,
       unique: true,
+    },
+    dob: {
+      type: String,
+      default: '',
+    },
+    country: {
+      type: String,
+      default: '',
     },
     password: {
       type: String,
@@ -47,41 +96,7 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
-    address: [
-      {
-        firstName: {
-          type: String,
-        },
-        lastName: {
-          type: String,
-        },
-        phoneNumber: {
-          type: String,
-        },
-        address1: {
-          type: String,
-        },
-        address2: {
-          type: String,
-        },
-        city: {
-          type: String,
-        },
-        zipCode: {
-          type: String,
-        },
-        state: {
-          type: String,
-        },
-        country: {
-          type: String,
-        },
-        active: {
-          type: Boolean,
-          default: false,
-        },
-      },
-    ],
+    address: [addressSchema],
     notifications: {
       type: Boolean,
       default: true,

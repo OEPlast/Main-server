@@ -74,9 +74,15 @@ const getUserInfo = (user: unknown) => {
   return { id, firstName, lastName, email };
 };
 
-const getInvoiceData = async (orderId: string): Promise<CustomResponseType<InvoiceData>> => {
+const getInvoiceData = async ({
+  orderId,
+  userId,
+}: {
+  orderId: string;
+  userId: string;
+}): Promise<CustomResponseType<InvoiceData>> => {
   try {
-    const order = await Order.findById(orderId)
+    const order = await Order.findOne({ _id: orderId, user: userId })
       .populate('user', 'firstName lastName email')
       .populate('products.product', 'name');
 

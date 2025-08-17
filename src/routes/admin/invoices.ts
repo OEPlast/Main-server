@@ -7,7 +7,7 @@ const router = Router();
 
 router.use(authenticateUser, isAdmin);
 
-router.post('/:orderId/generate', requirePermission('invoices', 'create'), InvoiceController.generateForOrder);
+router.post('/:orderId/generate', requirePermission('invoices', 'create'), InvoiceController.generateInvoiceForOrder);
 
 router.get('/', requirePermission('invoices', 'read'), async (req, res) => {
   try {
@@ -26,6 +26,6 @@ router.get('/', requirePermission('invoices', 'read'), async (req, res) => {
   }
 });
 
-router.get('/:orderId', requirePermission('invoices', 'read'), InvoiceController.generateForOrder);
+router.get('/:orderId', requirePermission('invoices', 'read'), InvoiceController.generateInvoiceForOrder);
 
 export default router;

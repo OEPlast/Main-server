@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { AuthenticatedRequest } from '@/types';
+import { AuthenticatedRequest, isAuthenticatedRequest } from '@/types';
 import ReviewService from '@/services/reviewService';
 
 // Get all reviews
@@ -19,7 +19,10 @@ const getReviews = async (req: Request, res: Response) => {
 const createReview = async (req: Request, res: Response) => {
   try {
     const { product, rating, review, size, style, fit, images } = req.body;
-    const userId = (req as AuthenticatedRequest).userId;
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const userId = req.userId;
     const { data, code, message } = await ReviewService.createReview({
       reviewBy: userId!,
       product,
@@ -68,7 +71,10 @@ const deleteReview = async (req: Request, res: Response) => {
 const likeReview = async (req: Request, res: Response) => {
   try {
     const { reviewId } = req.params;
-    const userId = (req as AuthenticatedRequest).userId;
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const userId = req.userId;
     const { data, message, code } = await ReviewService.likeReview(reviewId, userId!);
     return res.status(code).json({ data, message });
   } catch (error) {
@@ -81,7 +87,10 @@ const likeReview = async (req: Request, res: Response) => {
 const unlikeReview = async (req: Request, res: Response) => {
   try {
     const { reviewId } = req.params;
-    const userId = (req as AuthenticatedRequest).userId;
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const userId = req.userId;
     const { data, message, code } = await ReviewService.unlikeReview(reviewId, userId!);
     return res.status(code).json({ data, message });
   } catch (error) {
@@ -94,7 +103,10 @@ const unlikeReview = async (req: Request, res: Response) => {
 const isLikedByUser = async (req: Request, res: Response) => {
   try {
     const { reviewId } = req.params;
-    const userId = (req as AuthenticatedRequest).userId;
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const userId = req.userId;
     const { data, message, code } = await ReviewService.isLikedByUser(reviewId, userId!);
     return res.status(code).json({ data, message });
   } catch (error) {
@@ -118,7 +130,10 @@ const getLikeCount = async (req: Request, res: Response) => {
 // Delete a reply from a review
 const deleteReply = async (req: Request, res: Response) => {
   try {
-    const userId = (req as AuthenticatedRequest).userId;
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const userId = req.userId;
     const { reviewId, replyId } = req.params;
     const { data, message, code } = await ReviewService.deleteReply(reviewId, replyId, userId!);
     return res.status(code).json({ data, message });
@@ -131,7 +146,10 @@ const deleteReply = async (req: Request, res: Response) => {
 // get all the review a user has made
 const getUserReviews = async (req: Request, res: Response) => {
   try {
-    const userId = (req as AuthenticatedRequest).userId;
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const userId = req.userId;
     const { page } = req.params;
     const { data, message, code } = await ReviewService.userReviews(userId!, ~~page);
     return res.status(code).json({ data, message });
@@ -144,7 +162,10 @@ const getUserReviews = async (req: Request, res: Response) => {
 // get the review a user has made for a product
 const getUserProductReview = async (req: Request, res: Response) => {
   try {
-    const userId = (req as AuthenticatedRequest).userId;
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const userId = req.userId;
     const { product } = req.params;
     const { data, message, code } = await ReviewService.userReviewPerProduct({ productId: product, userId: userId! });
     return res.status(code).json({ data, message });

@@ -22,7 +22,6 @@ import LogisticsPublicRoute from '@/routes/general/logistics';
 import UserShipmentsRoute from '@/routes/users/shipments';
 import PublicGalleryRoute from './routes/general/publicGallery';
 import PublicReviewsListRoute from './routes/general/publicReviews';
-import UserInvoiceRoute from '@/routes/users/invoice';
 import { eventPublisher } from '@/events';
 
 import {
@@ -77,28 +76,27 @@ app.use(morganMiddleware);
 })();
 
 // Root Route
+app.use('/auth', AuthRoute);
+app.use('/user', UserRoute);
 app.use('/files', FileUploadRoute);
+app.use('/user/reviews', UserReviewsRoute);
 app.use('/products', ProductsRoute);
 app.use('/categories', CategoriesRoute);
 app.use('/payments', PaymentRoute);
 app.use('/reviews', ReviewRoute);
 app.use('/reviews', PublicReviewsListRoute);
-app.use('/auth', AuthRoute);
-app.use('/user', UserRoute);
 app.use('/wishlist', WishlistRoute);
 app.use('/orders', OrderRoute);
 app.use('/carts', CartRoute);
 app.use('/banners', BannersRoute);
 app.use('/checkout', CheckoutRoute);
-app.use('/users/reviews', UserReviewsRoute);
 app.use('/users', UserShipmentsRoute);
-app.use('/users', UserInvoiceRoute);
 app.use('/inventory', InventoryRoute);
 app.use('/logistics', LogisticsPublicRoute);
-app.use('/gallery', PublicGalleryRoute);
 
 //------------------
 //admin
+app.use('/admin/gallery', PublicGalleryRoute);
 app.use('/admin/product', AdminProductRoute);
 app.use('/admin/gallery', AdminGalleryRoute);
 app.use('/admin/attributes', AdminAttributeRoute);

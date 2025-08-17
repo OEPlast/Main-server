@@ -1,10 +1,9 @@
-import bcrypt from 'bcrypt';
 import passwordLib from '@/lib/password';
 import User, { UserType } from '../models/User';
 import { CustomResponsePromise, CustomResponseType } from '@/types';
-import { AddressType } from '@/types/userTypes';
 import Coupon, { CouponType } from '@/models/Coupon';
 import AnalyticsService from './MainAnalyticsService';
+import mongoose from 'mongoose';
 
 /**
  * Creates a new user.
@@ -149,7 +148,7 @@ const changePassword = async (
         code: 400,
       };
     }
-    const isMatch = await passwordLib.comparePassword(user as any, currentPassword);
+    const isMatch = await passwordLib.comparePassword(user.password, currentPassword);
     if (!isMatch) {
       return {
         message: 'Current password is incorrect',
@@ -162,46 +161,6 @@ const changePassword = async (
     return {
       message: 'Password changed successfully',
       data: null,
-      code: 200,
-    };
-  } catch (error) {
-    console.log(error);
-    return {
-      message: 'Something went wrong',
-      data: null,
-      code: 500,
-    };
-  }
-};
-
-/**
- * Manages user addresses (add, update, delete).
- * @param userId - The ID of the user to manage addresses for.
- * @param addressData - The address data to manage.
- * @param action - The action to perform (add, update, delete).
- * @returns A promise that resolves to a custom response indicating the result.
- */
-const manageAddress = async (
-  userId: string,
-  addressData: AddressType[]
-): Promise<CustomResponseType<UserType['address']>> => {
-  try {
-    const user = await User.findOneAndUpdate(
-      { _id: userId },
-      { address: addressData },
-      { new: true } // Return the updated document
-    );
-    if (!user) {
-      return {
-        message: 'User not found',
-        data: null,
-        code: 404,
-      };
-    }
-
-    return {
-      message: 'Address managed successfully',
-      data: user.address,
       code: 200,
     };
   } catch (error) {
@@ -309,9 +268,8 @@ const getUserProfile = async (userId: string): Promise<CustomResponseType<Partia
     };
   }
 };
-
 /**
- * Update user profile (excludes sensitive fields)
+ * Update user profile (only allowed fields: notifications, image, country, dob, firstName, lastName)
  * @param userId - The ID of the user to update.
  * @param updateData - The profile data to update.
  * @returns A promise that resolves to a custom response containing the updated user profile.
@@ -321,11 +279,20 @@ const updateUserProfile = async (
   updateData: Partial<UserType>
 ): Promise<CustomResponseType<Partial<UserType>>> => {
   try {
-    // Remove sensitive fields that shouldn't be updated via profile
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { password, role, roles, ...safeUpdateData } = updateData;
+    // Only allow specific fields to be updated
+    const { notifications, image, country, dob, firstName, lastName } = updateData;
+    const allowedUpdateData: Partial<UserType> = {};
 
-    const user = await User.findByIdAndUpdate(userId, safeUpdateData, { new: true }).select('-password');
+    if (firstName !== undefined) allowedUpdateData.firstName = firstName;
+    if (lastName !== undefined) allowedUpdateData.lastName = lastName;
+    if (notifications !== undefined) allowedUpdateData.notifications = notifications;
+    if (image !== undefined) allowedUpdateData.image = image;
+    if (country !== undefined) allowedUpdateData.country = country;
+    if (dob !== undefined) allowedUpdateData.dob = dob;
+
+    const user = await User.findByIdAndUpdate(userId, allowedUpdateData, { new: true }).select(
+      '-password -resetCode -isVerified'
+    );
 
     if (!user) {
       return {
@@ -357,28 +324,30 @@ const updateUserProfile = async (
  */
 const addAddress = async (
   userId: string,
-  addressData: AddressType
-): Promise<CustomResponseType<UserType['address']>> => {
-  try {
-    const user = await User.findById(userId);
-    if (!user) {
-      return {
-        message: 'User not found',
-        data: null,
-        code: 404,
-      };
-    }
+  addressData: UserType['address'][0]
+): Promise<CustomResponseType<UserType['address'][0]>> => {
+  const session = await User.startSession();
+  session.startTransaction();
 
-    user.address.push(addressData);
-    await user.save();
+  try {
+    if (!addressData.active) {
+      await User.updateOne({ _id: userId }, { $push: { address: addressData } }, { session });
+    } else {
+      await User.updateOne({ _id: userId }, { $set: { 'address.$[].active': false } }, { session });
+      await User.updateOne({ _id: userId }, { $push: { address: addressData } }, { session });
+    }
+    await session.commitTransaction();
+    session.endSession();
 
     return {
       message: 'Address added successfully',
-      data: user.address,
+      data: addressData,
       code: 201,
     };
   } catch (error) {
-    console.log(error);
+    await session.abortTransaction();
+    session.endSession();
+
     return {
       message: 'Something went wrong',
       data: null,
@@ -394,45 +363,69 @@ const addAddress = async (
  * @param updateData - The address data to update.
  * @returns A promise that resolves to a custom response containing the updated addresses.
  */
+type UpdateAddressType = Partial<UserType['address'][0]>;
 const updateAddress = async (
   userId: string,
   addressId: string,
-  updateData: Partial<AddressType>
+  updateData: UpdateAddressType
 ): Promise<CustomResponseType<UserType['address']>> => {
   try {
-    const user = await User.findById(userId);
-    if (!user) {
-      return {
-        message: 'User not found',
-        data: null,
-        code: 404,
+    const activating = updateData.active === true;
+    if (activating) {
+      // Use aggregation pipeline to deactivate others and update the target
+      const pipelineUpdate = await User.updateOne({ _id: userId }, [
+        {
+          $set: {
+            address: {
+              $map: {
+                input: { $ifNull: ['$address', []] },
+                as: 'addr',
+                in: {
+                  $cond: [
+                    { $eq: ['$$addr._id', { $toObjectId: addressId }] },
+                    { $mergeObjects: ['$$addr', updateData] }, // no need to add active:true here
+                    { $mergeObjects: ['$$addr', { active: false }] },
+                  ],
+                },
+              },
+            },
+          },
+        },
+      ]);
+
+      if (pipelineUpdate.matchedCount === 0) {
+        return { message: 'User or address not found', data: null, code: 404 };
+      }
+    } else {
+      console.log({ userId, addressId, updateData });
+      const buildUpdateFields = (updateData: UpdateAddressType) => {
+        return Object.keys(updateData).reduce<Record<string, unknown>>((acc, key) => {
+          acc[`address.$.${key}`] = updateData[key as keyof UpdateAddressType];
+          return acc;
+        }, {});
       };
+
+      // Usage:
+      const updateFields = buildUpdateFields(updateData);
+      const result = await User.updateOne(
+        { _id: new mongoose.Types.ObjectId(userId), 'address._id': new mongoose.Types.ObjectId(addressId) },
+        { $set: updateFields }
+      );
+
+      if (result.matchedCount === 0) {
+        return { message: 'Address not found', data: null, code: 404 };
+      }
     }
 
-    const addressIndex = user.address.findIndex((addr: UserType['address'][0]) => addr._id?.toString() === addressId);
-    if (addressIndex === -1) {
-      return {
-        message: 'Address not found',
-        data: null,
-        code: 404,
-      };
-    }
-
-    Object.assign(user.address[addressIndex], updateData);
-    await user.save();
-
+    const userAfter = await User.findById(userId).select('address');
     return {
       message: 'Address updated successfully',
-      data: user.address,
+      data: userAfter as unknown as UserType['address'],
       code: 200,
     };
   } catch (error) {
     console.log(error);
-    return {
-      message: 'Something went wrong',
-      data: null,
-      code: 500,
-    };
+    return { message: 'Something went wrong', data: null, code: 500 };
   }
 };
 
@@ -443,43 +436,44 @@ const updateAddress = async (
  * @returns A promise that resolves to a custom response indicating the result.
  */
 const deleteAddress = async (userId: string, addressId: string): Promise<CustomResponseType<null>> => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    const user = await User.findById(userId);
-    if (!user) {
-      return {
-        message: 'User not found',
-        data: null,
-        code: 404,
-      };
+    // Step 1: Remove the target address
+    const result = await User.updateOne(
+      { _id: new mongoose.Types.ObjectId(userId) },
+      { $pull: { address: { _id: new mongoose.Types.ObjectId(addressId) } } },
+      { session }
+    );
+
+    if (result.matchedCount === 0 || result.modifiedCount === 0) {
+      await session.abortTransaction();
+      session.endSession();
+      return { message: 'Address not found', data: null, code: 404 };
     }
 
-    const originalLength = user.address.length;
-    user.address = user.address.filter(
-      (addr: UserType['address'][0]) => addr._id?.toString() !== addressId
-    ) as UserType['address'];
+    // Step 2: Check if any active addresses remain
+    const user = await User.findById(userId, { address: 1 }).session(session);
 
-    if (user.address.length === originalLength) {
-      return {
-        message: 'Address not found',
-        data: null,
-        code: 404,
-      };
+    if (user && user.address.length > 0) {
+      const hasActive = user.address.some((addr) => addr.active);
+
+      if (!hasActive) {
+        // Mark the first address in the array as active
+        await User.updateOne({ _id: user._id }, { $set: { 'address.0.active': true } }, { session });
+      }
     }
 
-    await user.save();
+    await session.commitTransaction();
+    session.endSession();
 
-    return {
-      message: 'Address deleted successfully',
-      data: null,
-      code: 200,
-    };
+    return { message: 'Address deleted successfully', data: null, code: 200 };
   } catch (error) {
-    console.log(error);
-    return {
-      message: 'Something went wrong',
-      data: null,
-      code: 500,
-    };
+    await session.abortTransaction();
+    session.endSession();
+    console.error(error);
+    return { message: 'Something went wrong', data: null, code: 500 };
   }
 };
 
@@ -490,7 +484,7 @@ const deleteAddress = async (userId: string, addressId: string): Promise<CustomR
  */
 const getUserAddresses = async (userId: string): Promise<CustomResponseType<UserType['address']>> => {
   try {
-    const user = await User.findById(userId).select('address');
+    const user = await User.findById(userId);
     if (!user) {
       return {
         message: 'User not found',
@@ -520,7 +514,6 @@ const UserService = {
   updateUser,
   deleteUser,
   changePassword,
-  manageAddress,
   applyCoupon,
   getUserProfile,
   updateUserProfile,
