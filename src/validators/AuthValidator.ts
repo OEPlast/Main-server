@@ -76,21 +76,49 @@ const changePasswordValidator = async (req: Request, res: Response, next: NextFu
   next();
 };
 
-const resetPasswordByCodeValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    code: {
-      in: ['body'],
-      isString: true,
-      notEmpty: true,
-      errorMessage: 'code is required',
-    },
-    newPassword: {
-      in: ['body'],
-      isString: true,
-      isLength: { options: { min: 6 } },
-      errorMessage: 'newPassword must be at least 6 characters',
-    },
-  });
+const requestResetPasswordCodeValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      email: {
+        in: ['body'],
+        isEmail: true,
+        notEmpty: true,
+        errorMessage: 'Valid email is required',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
+const resetPasswordByCodeValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      code: {
+        in: ['body'],
+        isNumeric: true,
+        exists: true,
+        notEmpty: true,
+        errorMessage: 'code is required',
+      },
+      email: {
+        in: ['body'],
+        isEmail: true,
+        exists: true,
+        errorMessage: 'Valid email is required',
+      },
+      newPassword: {
+        in: ['body'],
+        isString: true,
+        exists: true,
+        isLength: { options: { min: 6 } },
+        errorMessage: 'newPassword must be at least 6 characters',
+      },
+    })
+  ).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -117,6 +145,7 @@ const AuthValidator = {
   loginValidator,
   registerValidator,
   changePasswordValidator,
+  requestResetPasswordCodeValidator,
   resetPasswordByCodeValidator,
   verifyAccountOtpValidator,
 };

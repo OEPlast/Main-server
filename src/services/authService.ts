@@ -237,10 +237,10 @@ const changePassword = async ({
  * @returns A promise that resolves to a custom response.
  */
 
-const requestResetCode = async (userId: string): Promise<CustomResponseType<null>> => {
+const requestResetCode = async (email: string): Promise<CustomResponseType<null>> => {
   try {
     //check if the user exist
-    const user = await User.findOne({ _id: userId });
+    const user = await User.findOne({ email });
     if (!user) {
       return {
         message: 'User does not exist',
@@ -262,7 +262,7 @@ const requestResetCode = async (userId: string): Promise<CustomResponseType<null
     return {
       data: null,
       code: createOTP.code,
-      message: createOTP.message,
+      message: 'OTP sent successfully',
     };
   } catch (error) {
     return {
@@ -374,13 +374,31 @@ const verifyAccountOtp = async ({
 
 const resendAccountOtp = async ({ userId }: { userId: string }): Promise<CustomResponseType<null>> => {
   try {
+    //check if the user exist
+    const user = await User.findOne({ _id: userId });
+    if (!user) {
+      return {
+        message: 'User does not exist',
+        data: null,
+        code: 401,
+      };
+    }
     // Resend the OTP code
     const createOTP = await OTPService.createOtp({
       user: userId,
       type: 'create',
     });
+
+    if (createOTP.data) {
+      await EmailProcessor.sendSignupOtpEmail({
+        firstName: user.firstName!,
+        otpCode: createOTP.data,
+        to: user.email,
+        expiresInMinutes: 10,
+      });
+    }
     return {
-      message: createOTP.message,
+      message: 'OTP sent successfully',
       data: null,
       code: createOTP.code,
     };

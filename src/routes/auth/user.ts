@@ -17,7 +17,7 @@ router.post(
 router.post(
   '/requestResetPasswordCode',
   RateLimits.OTP_Limiter,
-  authenticateUser,
+  AuthValidator.requestResetPasswordCodeValidator,
   AuthController.requestResetPasswordCode
 );
 router.post('/resetPasswordByCode', AuthValidator.resetPasswordByCodeValidator, AuthController.resetUserPasswordByCode);
@@ -29,6 +29,6 @@ router.post(
   AuthController.verifyAccountOtp
 );
 
-router.post('/resendVerifyAccountOtp', AuthController.resendVerifyAccountOtp);
+router.post('/resendVerifyAccountOtp', RateLimits.OTP_Limiter, authenticateUser, AuthController.resendVerifyAccountOtp);
 
 export default router;

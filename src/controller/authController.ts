@@ -42,10 +42,8 @@ const userRegister = async (req: Request, res: Response) => {
 // Request reset password code
 const requestResetPasswordCode = async (req: Request, res: Response) => {
   try {
-    if (!isAuthenticatedRequest(req)) {
-      return res.status(401).json({ error: 'Unauthenticated' });
-    }
-    const { message, code } = await AuthService.requestResetCode(req.userId);
+    const { email } = req.body;
+    const { message, code } = await AuthService.requestResetCode(email);
     return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in requestResetPasswordCode:', error);
@@ -96,8 +94,10 @@ const verifyAccountOtp = async (req: Request, res: Response) => {
 };
 const resendVerifyAccountOtp = async (req: Request, res: Response) => {
   try {
-    const { user } = req.body;
-    const { message, code: statusCode } = await AuthService.resendAccountOtp({ userId: user });
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const { message, code: statusCode } = await AuthService.resendAccountOtp({ userId: req.userId });
     return res.status(statusCode).json({ message });
   } catch (error) {
     console.error('Error in verifyAccountOtp:', error);
