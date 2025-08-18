@@ -1,3 +1,4 @@
+import { PermissionAction, RolePermission, PermissionResource } from '@/types/permissions';
 import Role, { IRole } from '../../models/Role';
 import User from '../../models/User';
 import { CustomResponseType } from '@/types';
@@ -8,8 +9,7 @@ import mongoose from 'mongoose';
  */
 const createRole = async (roleData: Partial<IRole>): Promise<CustomResponseType<IRole>> => {
   try {
-    const role = new Role(roleData);
-    await role.save();
+    const role = await Role.create(roleData);
 
     return {
       message: 'Role created successfully',
@@ -17,7 +17,16 @@ const createRole = async (roleData: Partial<IRole>): Promise<CustomResponseType<
       code: 201,
     };
   } catch (error) {
+    type MongoError = { code?: number; message?: string };
+    if ((error as MongoError).code === 11000) {
+      return {
+        message: 'Role name already exist',
+        data: null,
+        code: 404,
+      };
+    }
     console.error('Error creating role:', error);
+
     return {
       message: 'Failed to create role',
       data: null,
@@ -39,8 +48,6 @@ const getAllRoles = async (
     const filter: { isActive?: boolean } = {};
     if (typeof isActive === 'boolean') {
       filter.isActive = isActive;
-    } else {
-      filter.isActive = true; // Default to active roles only
     }
 
     const roles = await Role.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 });
@@ -65,7 +72,7 @@ const getAllRoles = async (
  */
 const getRoleById = async (roleId: string): Promise<CustomResponseType<IRole>> => {
   try {
-    const role = await Role.findById(roleId);
+    const role = await Role.findById(roleId).lean();
 
     if (!role) {
       return {
@@ -75,9 +82,17 @@ const getRoleById = async (roleId: string): Promise<CustomResponseType<IRole>> =
       };
     }
 
+    const usersUsingRole = await User.find({ roles: roleId }).select('_id firstName lastName email image').lean();
+
+    const roleWithUsers = {
+      ...role,
+      users: usersUsingRole,
+      users_count: usersUsingRole.length,
+    };
+
     return {
       message: 'Role retrieved successfully',
-      data: role,
+      data: roleWithUsers as unknown as IRole,
       code: 200,
     };
   } catch (error) {
@@ -111,6 +126,14 @@ const updateRole = async (roleId: string, updateData: Partial<IRole>): Promise<C
       code: 200,
     };
   } catch (error) {
+    type MongoError = { code?: number; message?: string };
+    if ((error as MongoError).code === 11000) {
+      return {
+        message: 'Role name already exist',
+        data: null,
+        code: 404,
+      };
+    }
     console.error('Error updating role:', error);
     return {
       message: 'Failed to update role',
@@ -121,19 +144,18 @@ const updateRole = async (roleId: string, updateData: Partial<IRole>): Promise<C
 };
 
 /**
- * Delete a role (soft delete)
+ * Delete a role
  */
 const deleteRole = async (roleId: string): Promise<CustomResponseType<null>> => {
   try {
-    const role = await Role.findByIdAndUpdate(roleId, { isActive: false }, { new: true });
-
-    if (!role) {
-      return {
-        message: 'Role not found',
-        data: null,
-        code: 404,
-      };
+    const existing = await Role.findById(roleId).select('_id');
+    if (!existing) {
+      return { message: 'Role not found', data: null, code: 404 };
     }
+    await User.updateMany({ roles: roleId }, { $pull: { roles: roleId } });
+
+    // Delete the role document
+    await Role.deleteOne({ _id: roleId });
 
     return {
       message: 'Role deleted successfully',
@@ -150,86 +172,19 @@ const deleteRole = async (roleId: string): Promise<CustomResponseType<null>> => 
   }
 };
 
-/**
- * Add permission to role
- */
-const addPermissionToRole = async (roleId: string, permission: { resource: string; actions: string[] }) => {
-  try {
-    const role = await Role.findById(roleId);
-
-    if (!role) {
-      return {
-        message: 'Role not found',
-        data: null,
-        code: 404,
-      };
-    }
-
-    role.permissions.push(permission);
-    await role.save();
-
-    return {
-      message: 'Permission added to role successfully',
-      data: role,
-      code: 200,
-    };
-  } catch (error) {
-    console.error('Error adding permission to role:', error);
-    return {
-      message: 'Failed to add permission to role',
-      data: null,
-      code: 500,
-    };
-  }
-};
-
-/**
- * Remove permission from role
- */
-const removePermissionFromRole = async (roleId: string, permission: string) => {
-  try {
-    const role = await Role.findById(roleId);
-
-    if (!role) {
-      return {
-        message: 'Role not found',
-        data: null,
-        code: 404,
-      };
-    }
-
-    const permissionIndex = role.permissions.findIndex((p) => p.resource === permission);
-    if (permissionIndex > -1) {
-      role.permissions.splice(permissionIndex, 1);
-    }
-    await role.save();
-
-    return {
-      message: 'Permission removed from role successfully',
-      data: role,
-      code: 200,
-    };
-  } catch (error) {
-    console.error('Error removing permission from role:', error);
-    return {
-      message: 'Failed to remove permission from role',
-      data: null,
-      code: 500,
-    };
-  }
-};
-
 // Utilities
-type Permission = { resource: string; actions: string[] };
-const mergePermissions = (perms: Permission[]): Permission[] => {
-  const map = new Map<string, Set<string>>();
+const mergePermissions = (perms: RolePermission[]): RolePermission[] => {
+  const map = new Map<PermissionResource, Set<PermissionAction>>();
   for (const p of perms) {
     const key = p.resource;
-    if (!map.has(key)) map.set(key, new Set<string>());
+    if (!map.has(key)) map.set(key, new Set<PermissionAction>());
     const set = map.get(key)!;
     p.actions.forEach((a) => set.add(a));
   }
-  return Array.from(map.entries()).map(([resource, actionsSet]) => ({ resource, actions: Array.from(actionsSet) }));
+  return Array.from(map.entries()).map(([resource, actionsSet]) => ({
+    resource,
+    actions: Array.from(actionsSet),
+  }));
 };
 
 // Assign role to user
@@ -243,15 +198,9 @@ const assignRoleToUser = async (userId: string, roleId: string) => {
     const user = await User.findById(userId).select('roles');
     if (!user) return { message: 'User not found', data: null, code: 404 };
 
-    const hasRole = (user.roles as unknown as string[])?.some((r) => r.toString() === roleId);
-    if (!hasRole) {
-      (user.roles as unknown as string[]).push(roleId as unknown as string);
-      await user.save();
-    }
+    await User.updateOne({ _id: userId }, { $addToSet: { roles: role._id } });
 
-    const populated = await User.findById(userId).populate({ path: 'roles', select: 'name permissions isActive' });
-
-    return { message: 'Role assigned to user', data: populated, code: 200 };
+    return { message: 'Role assigned to user', data: null, code: 200 };
   } catch (error) {
     console.error('Error assigning role to user:', error);
     return { message: 'Failed to assign role to user', data: null, code: 500 };
@@ -264,17 +213,9 @@ const removeRoleFromUser = async (userId: string, roleId: string) => {
     const user = await User.findById(userId).select('roles');
     if (!user) return { message: 'User not found', data: null, code: 404 };
 
-    const roleIdStr = roleId.toString();
-    const updatedRoles = (user.roles as unknown as Array<mongoose.Types.ObjectId | string>).filter(
-      (r) => r.toString() !== roleIdStr
-    ) as Array<mongoose.Types.ObjectId | string>;
-    // @ts-expect-error widen type for assignment
-    user.roles = updatedRoles;
-    await user.save();
+    await User.updateOne({ _id: userId }, { $pull: { roles: roleId } });
 
-    const populated = await User.findById(userId).populate({ path: 'roles', select: 'name permissions isActive' });
-
-    return { message: 'Role removed from user', data: populated, code: 200 };
+    return { message: 'Role removed from user', data: null, code: 200 };
   } catch (error) {
     console.error('Error removing role from user:', error);
     return { message: 'Failed to remove role from user', data: null, code: 500 };
@@ -293,7 +234,7 @@ const getUserRoles = async (userId: string) => {
       (user.roles as unknown as Array<{
         name?: string;
         description?: string;
-        permissions?: Permission[];
+        permissions?: RolePermission[];
         isActive?: boolean;
       }>) || [];
     return { message: 'User roles retrieved', data: roles, code: 200 };
@@ -310,7 +251,7 @@ const getUserPermissions = async (userId: string) => {
       .select('roles')
       .populate({ path: 'roles', select: 'permissions isActive' });
     if (!user) return { message: 'User not found', data: [], code: 404 };
-    const roles = (user as unknown as { roles: { isActive: boolean; permissions: Permission[] }[] }).roles || [];
+    const roles = (user as unknown as { roles: { isActive: boolean; permissions: RolePermission[] }[] }).roles || [];
     const activePerms = roles.filter((r) => r.isActive).flatMap((r) => r.permissions || []);
     const merged = mergePermissions(activePerms);
     return { message: 'User permissions retrieved', data: merged, code: 200 };
@@ -321,13 +262,17 @@ const getUserPermissions = async (userId: string) => {
 };
 
 // Check if a user has a permission
-const checkUserPermission = async (userId: string, resource: string, action: string) => {
+const checkUserPermission = async (userId: string, resource: PermissionResource, action: PermissionAction) => {
   try {
     const permsRes = await getUserPermissions(userId);
     if (!Array.isArray(permsRes.data)) return { message: permsRes.message, data: false, code: permsRes.code };
-    const allowed = permsRes.data.some((p: Permission) => {
+    const allowed = permsRes.data.some((p: RolePermission) => {
       if (p.resource !== resource) return false;
-      return p.actions.includes(action) || p.actions.includes('all') || p.actions.includes('*');
+      return (
+        p.actions.includes(action) ||
+        p.actions.includes(PermissionAction.ALL) ||
+        p.actions.includes(PermissionAction.WILDCARD)
+      );
     });
     return { message: 'Permission check complete', data: allowed, code: 200 };
   } catch (error) {
@@ -337,15 +282,21 @@ const checkUserPermission = async (userId: string, resource: string, action: str
 };
 
 // Check a single role's permission
-const checkPermission = async (roleId: string, resource: string, action: string) => {
+const checkPermission = async (roleId: string, resource: PermissionResource, action: PermissionAction) => {
   try {
-    const role = await Role.findById(roleId);
+    const role = await Role.findById(roleId).select('permissions');
     if (!role) return { message: 'Role not found', data: false, code: 404 };
-    const allowed = role.permissions?.some((p) => {
-      if (p.resource !== resource) return false;
-      return p.actions.includes(action) || p.actions.includes('all') || p.actions.includes('*');
-    });
-    return { message: 'Role permission check complete', data: !!allowed, code: 200 };
+
+    // Find permission block for the single resource in question
+    const permBlock = role.permissions?.find((p) => p.resource === resource);
+    if (!permBlock) return { message: 'Role permission check complete', data: false, code: 200 };
+
+    const allowed =
+      permBlock.actions.includes(action) ||
+      permBlock.actions.includes(PermissionAction.ALL) ||
+      permBlock.actions.includes(PermissionAction.WILDCARD);
+
+    return { message: 'Role permission check complete', data: allowed, code: 200 };
   } catch (error) {
     console.error('Error checking role permission:', error);
     return { message: 'Failed to check role permission', data: false, code: 500 };
@@ -363,14 +314,37 @@ const getRolePermissions = async (roleId: string) => {
   }
 };
 
+type UserSummary = { _id: mongoose.Types.ObjectId; firstName: string; lastName: string; email: string; image?: string };
+const getUsersByRole = async (
+  roleId: string,
+  page: number = 1,
+  limit: number = 50
+): Promise<CustomResponseType<UserSummary[]>> => {
+  try {
+    const skip = (page - 1) * limit;
+
+    // Ensure role exists
+    const role = await Role.findById(roleId).select('_id');
+    if (!role) return { message: 'Role not found', data: [], code: 404 };
+
+    const users = await User.find({ roles: roleId })
+      .select('_id name image email firstName lastName')
+      .skip(skip)
+      .limit(limit);
+
+    return { message: 'Users retrieved', data: users, code: 200 };
+  } catch (error) {
+    console.error('Error getting users by role:', error);
+    return { message: 'Failed to get users by role', data: [], code: 500 };
+  }
+};
+
 const RoleService = {
   createRole,
   getAllRoles,
   getRoleById,
   updateRole,
   deleteRole,
-  addPermissionToRole,
-  removePermissionFromRole,
   assignRoleToUser,
   removeRoleFromUser,
   getUserRoles,
@@ -378,6 +352,7 @@ const RoleService = {
   checkUserPermission,
   checkPermission,
   getRolePermissions,
+  getUsersByRole,
 };
 
 export default RoleService;

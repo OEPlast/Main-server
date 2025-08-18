@@ -1,8 +1,7 @@
-import { UserType } from '@/models/User';
+import User, { UserType } from '@/models/User';
 import { Request, Response, NextFunction } from 'express';
 import { AuthenticatedRequest } from '@/types';
 import jwt from 'jsonwebtoken';
-import User from '@/models/User';
 
 const JWT_SECRET = process.env.JWT_SECRET;
 if (!JWT_SECRET) {

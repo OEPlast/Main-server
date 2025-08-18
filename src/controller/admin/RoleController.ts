@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import RoleService from '../../services/admin/RoleService';
+import { PermissionAction, PermissionResource } from '@/types/permissions';
 
 const createRole = async (req: Request, res: Response) => {
   try {
@@ -64,33 +65,12 @@ const deleteRole = async (req: Request, res: Response) => {
 const checkPermission = async (req: Request, res: Response) => {
   try {
     const { roleId, resource, action } = req.params;
-    const result = await RoleService.checkPermission(roleId, resource, action);
+    const resourceMain = resource as PermissionResource;
+    const actionMain = action as PermissionAction;
+    const result = await RoleService.checkPermission(roleId, resourceMain, actionMain);
     return res.status(result.code).json({ message: result.message, data: result.data });
   } catch (error) {
     console.error('Error in checkPermission:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-const addPermission = async (req: Request, res: Response) => {
-  try {
-    const { roleId } = req.params;
-    const { permission } = req.body;
-    const result = await RoleService.addPermissionToRole(roleId, permission);
-    return res.status(result.code).json({ message: result.message, data: result.data });
-  } catch (error) {
-    console.error('Error in addPermission:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-const removePermission = async (req: Request, res: Response) => {
-  try {
-    const { roleId, permission } = req.params;
-    const result = await RoleService.removePermissionFromRole(roleId, permission);
-    return res.status(result.code).json({ message: result.message, data: result.data });
-  } catch (error) {
-    console.error('Error in removePermission:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -108,7 +88,7 @@ const getRolePermissions = async (req: Request, res: Response) => {
 
 const assignRoleToUser = async (req: Request, res: Response) => {
   try {
-    const { userId, roleId } = req.params;
+    const { userId, roleId } = req.body;
     const result = await RoleService.assignRoleToUser(userId, roleId);
     return res.status(result.code).json({ message: result.message, data: result.data });
   } catch (error) {
@@ -119,7 +99,7 @@ const assignRoleToUser = async (req: Request, res: Response) => {
 
 const removeRoleFromUser = async (req: Request, res: Response) => {
   try {
-    const { userId, roleId } = req.params;
+    const { userId, roleId } = req.body;
     const result = await RoleService.removeRoleFromUser(userId, roleId);
     return res.status(result.code).json({ message: result.message, data: result.data });
   } catch (error) {
@@ -153,11 +133,28 @@ const getUserPermissions = async (req: Request, res: Response) => {
 const checkUserPermission = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
-    const { resource, action } = req.body;
-    const result = await RoleService.checkUserPermission(userId, resource, action);
+    const { resource, action } = req.body as { resource: PermissionResource; action: PermissionAction };
+    const result = await RoleService.checkUserPermission(
+      userId,
+      resource as PermissionResource,
+      action as PermissionAction
+    );
     return res.status(result.code).json({ message: result.message, data: result.data });
   } catch (error) {
     console.error('Error in checkUserPermission:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const getUsersByRole = async (req: Request, res: Response) => {
+  try {
+    const { roleId } = req.params;
+    const page = req.query.page ? Number(req.query.page) : 1;
+    const limit = req.query.limit ? Number(req.query.limit) : 50;
+    const result = await RoleService.getUsersByRole(roleId, page, limit);
+    return res.status(result.code).json({ message: result.message, data: result.data });
+  } catch (error) {
+    console.error('Error in getUsersByRole:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -168,8 +165,6 @@ export default {
   getRoleById,
   updateRole,
   deleteRole,
-  addPermission,
-  removePermission,
   getRolePermissions,
   assignRoleToUser,
   removeRoleFromUser,
@@ -177,4 +172,5 @@ export default {
   getUserPermissions,
   checkUserPermission,
   checkPermission,
+  getUsersByRole,
 };

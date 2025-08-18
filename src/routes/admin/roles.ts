@@ -12,6 +12,12 @@ router.use(authenticateUser, isAdmin);
 router.post('/', requirePermission('roles', 'create'), RoleValidator.createRoleValidator, RoleController.createRole);
 router.get('/', requirePermission('roles', 'read'), RoleController.getAllRoles);
 router.get('/:roleId', requirePermission('roles', 'read'), RoleValidator.roleIdValidator, RoleController.getRoleById);
+router.get(
+  '/:roleId/users',
+  requirePermission('roles', 'read'),
+  RoleValidator.roleIdValidator,
+  RoleController.getUsersByRole
+);
 router.put(
   '/:roleId',
   requirePermission('roles', 'update'),
@@ -25,19 +31,6 @@ router.delete(
   RoleController.deleteRole
 );
 
-// Permission management
-router.post(
-  '/:roleId/permissions',
-  requirePermission('roles', 'update'),
-  RoleValidator.addPermissionValidator,
-  RoleController.addPermission
-);
-router.delete(
-  '/:roleId/permissions/:permission',
-  requirePermission('roles', 'update'),
-  RoleValidator.removePermissionValidator,
-  RoleController.removePermission
-);
 router.get(
   '/:roleId/permissions',
   requirePermission('roles', 'read'),
@@ -47,13 +40,13 @@ router.get(
 
 // User role assignment
 router.post(
-  '/users/:userId/roles/:roleId',
+  '/users/assign',
   requirePermission('roles', 'update'),
   RoleValidator.assignRoleValidator,
   RoleController.assignRoleToUser
 );
-router.delete(
-  '/users/:userId/roles/:roleId',
+router.patch(
+  '/users/unassign',
   requirePermission('roles', 'update'),
   RoleValidator.assignRoleValidator,
   RoleController.removeRoleFromUser

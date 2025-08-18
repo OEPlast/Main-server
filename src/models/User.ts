@@ -46,10 +46,12 @@ const userSchema = new mongoose.Schema(
     firstName: {
       type: String,
       required: 'Please enter your first name.',
+      default: '',
     },
     lastName: {
       type: String,
       required: 'Please enter your last name.',
+      default: '',
     },
     email: {
       type: String,

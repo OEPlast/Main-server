@@ -1,4 +1,5 @@
 import { model, Schema, InferSchemaType } from 'mongoose';
+import { PermissionResource, PermissionAction } from '@/types/permissions';
 
 const roleSchema = new Schema(
   {
@@ -6,8 +7,19 @@ const roleSchema = new Schema(
     description: { type: String },
     permissions: [
       {
-        resource: { type: String, required: true }, // e.g., 'products', 'orders', 'users'
-        actions: [{ type: String, required: true }], // e.g., ['create', 'read', 'update', 'delete']
+        _id: false,
+        resource: {
+          type: String,
+          required: true,
+          enum: Object.values(PermissionResource),
+        },
+        actions: [
+          {
+            type: String,
+            required: true,
+            enum: Object.values(PermissionAction),
+          },
+        ],
       },
     ],
     isActive: { type: Boolean, default: true },
