@@ -1,13 +1,17 @@
 import { Request, Response } from 'express';
 import Admin_UserService from '@/services/admin/UserService';
+import { UserType } from '@/models/User';
 
 // Get all users with pagination and search
 const getAllUsers = async (req: Request, res: Response) => {
   try {
-    const { page, limit, search } = req.query;
+    const { role, page, limit, search, sort } = req.query;
+    const sortDir = sort === '1' ? 1 : -1; // default -1 (desc)
     const { data, code, message } = await Admin_UserService.getAllUsersWithPaginationAndSearch({
       page: Number(page) || 1,
-      search: `${search}`,
+      role: role as unknown as UserType['role'] | undefined,
+      search: search ? search.toString() : undefined,
+      sort: sortDir,
       ...(limit && { limit: ~~limit }),
     });
     return res.status(code).json({ message, data });
@@ -74,26 +78,11 @@ const deleteUser = async (req: Request, res: Response) => {
   }
 };
 
-const getUsersByRole = async (req: Request, res: Response) => {
-  try {
-    const { role, page } = req.query;
-    const { data, code, message } = await Admin_UserService.getUsersByRole({
-      role: role as string,
-      ...(page && { page: Number(page) }),
-    });
-    return res.status(code).json({ message, data });
-  } catch (error) {
-    console.error('Error in getUsersByRole:', error);
-    return res.status(500).json({ error: 'Something went wrong' });
-  }
-};
-
 const Admin_UserController = {
   getAllUsers,
   getUserById,
   updateUserSuspension,
   updateUserRole,
   deleteUser,
-  getUsersByRole,
 };
 export default Admin_UserController;

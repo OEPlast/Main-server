@@ -1,3 +1,4 @@
+import { duplicateMessage, isDuplicateKeyError } from '@/middleware/mongodb';
 import Attribute, { AttributeType } from '@/models/Attributes';
 import { CustomResponseType } from '@/types';
 
@@ -8,7 +9,7 @@ import { CustomResponseType } from '@/types';
  */
 const createAttribute = async ({
   name,
-  children,
+  children = [],
 }: {
   name: string;
   children: { name: string; image: string }[];
@@ -18,6 +19,11 @@ const createAttribute = async ({
     await attribute.save();
     return { message: 'Attribute created successfully', data: attribute, code: 201 };
   } catch (error) {
+    console.log(error);
+
+    if (isDuplicateKeyError(error)) {
+      return { message: duplicateMessage(error, 'Attribute'), data: null, code: 400 };
+    }
     console.error('Error creating attribute:', error);
     return { message: 'Failed to create attribute', data: null, code: 500 };
   }
@@ -27,13 +33,24 @@ const createAttribute = async ({
  * Retrieves all attributes.
  * @returns A promise that resolves to a custom response containing all attributes.
  */
-const allAttributes = async (): Promise<CustomResponseType<AttributeType[]>> => {
+const allAttributes = async ({ page = 1, limit = 20 }: { page?: number; limit?: number } = {}): Promise<
+  CustomResponseType<AttributeType[]> & { meta: { page: number; limit: number; total: number; pages: number } }
+> => {
   try {
-    const attributes = await Attribute.find();
-    return { message: 'Attributes retrieved successfully', data: attributes, code: 200 };
+    const skip = (page - 1) * limit;
+    const [attributes, total] = await Promise.all([
+      Attribute.find().sort({ _id: -1 }).skip(skip).limit(limit),
+      Attribute.countDocuments(),
+    ]);
+    return {
+      message: 'Attributes retrieved successfully',
+      data: attributes,
+      code: 200,
+      meta: { page, limit, total, pages: Math.ceil(total / limit) },
+    };
   } catch (error) {
     console.error('Error fetching attributes:', error);
-    return { message: 'Failed to fetch attributes', data: null, code: 500 };
+    return { message: 'Failed to fetch attributes', data: null, code: 500, meta: { page, limit, total: 0, pages: 0 } };
   }
 };
 
@@ -56,6 +73,22 @@ const oneAttribute = async (id: string): Promise<CustomResponseType<AttributeTyp
 };
 
 /**
+ * Retrieves an attribute by its name (case-insensitive).
+ */
+const oneAttributeByName = async (name: string): Promise<CustomResponseType<AttributeType>> => {
+  try {
+    const attribute = await Attribute.findOne({ name: { $regex: `^${name}$`, $options: 'i' } });
+    if (!attribute) {
+      return { message: 'Attribute not found', data: null, code: 404 };
+    }
+    return { message: 'Attribute retrieved successfully', data: attribute, code: 200 };
+  } catch (error) {
+    console.error('Error fetching attribute by name:', error);
+    return { message: 'Failed to fetch attribute', data: null, code: 500 };
+  }
+};
+
+/**
  * Updates an attribute.
  * @param id - The ID of the attribute to update.
  * @param data - The updated data for the attribute.
@@ -67,14 +100,17 @@ const updateAttribute = async ({
 }: {
   id: string;
   data: { name?: string; children?: { name: string; image: string }[] };
-}): Promise<CustomResponseType<AttributeType>> => {
+}): Promise<CustomResponseType<null>> => {
   try {
-    const attribute = await Attribute.findByIdAndUpdate(id, data);
-    if (!attribute) {
+    const attribute = await Attribute.updateOne({ _id: id }, data);
+    if (attribute.modifiedCount === 0) {
       return { message: 'Attribute not found', data: null, code: 404 };
     }
-    return { message: 'Attribute updated successfully', data: attribute, code: 200 };
+    return { message: 'Attribute updated successfully', data: null, code: 200 };
   } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      return { message: duplicateMessage(error, 'Attribute'), data: null, code: 400 };
+    }
     console.error('Error updating attribute:', error);
     return { message: 'Failed to update attribute', data: null, code: 500 };
   }
@@ -102,6 +138,7 @@ export default {
   createAttribute,
   allAttributes,
   oneAttribute,
+  oneAttributeByName,
   updateAttribute,
   deleteAttribute,
 };

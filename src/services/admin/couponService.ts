@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import Coupon, { CouponType } from '../../models/Coupon';
-import { CustomResponsePromise, CustomResponseType } from '@/types';
+import { CustomResponseType } from '@/types';
 
 /**
  * Creates a new coupon.
@@ -64,14 +64,94 @@ const createCoupon = async ({
 };
 
 /**
- * Retrieves all coupons.
+ * Retrieves coupons with pagination + advanced filtering/search/sorting.
+ * @param params.page 1-based page number
+ * @param params.limit page size (max enforced upstream)
+ * @param params.filters optional filters (active, couponType, date range)
+ * @param params.search free text search across coupon code & notes
+ * @param params.sort comma separated sort fields (e.g. '-createdAt,code')
  */
-const getAllCoupons = async (): CustomResponsePromise<CouponType[]> => {
+const getAllCoupons = async (
+  page = 1,
+  limit = 20,
+  params?: {
+    filters?: {
+      active?: boolean;
+      couponType?: CouponType['couponType'];
+      startDate?: string;
+      endDate?: string;
+    };
+    search?: string;
+    sort?: string; // comma separated fields
+  }
+): Promise<
+  CustomResponseType<{
+    items: CouponType[];
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  }>
+> => {
   try {
-    const coupon = await Coupon.find();
+    const skip = (page - 1) * limit;
+
+    const query: Record<string, unknown> = {};
+    const appliedFilters: Record<string, unknown> = {};
+
+    if (params?.filters) {
+      const { active, couponType, startDate, endDate } = params.filters;
+      if (typeof active === 'boolean') {
+        query.active = active;
+        appliedFilters.active = active;
+      }
+      if (couponType) {
+        query.couponType = couponType;
+        appliedFilters.couponType = couponType;
+      }
+      if (startDate) {
+        query.startDate = {
+          $gte: new Date(startDate),
+        };
+      }
+      if (endDate) {
+        query.endDate = {
+          $lte: new Date(endDate),
+        };
+      }
+    }
+
+    // text search (case-insensitive) across coupon code + notes
+    if (params?.search) {
+      const regex = new RegExp(params.search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      query.$or = [{ coupon: regex }, { notes: regex }];
+    }
+
+    // Sorting
+    const appliedSort: Record<string, 1 | -1> = { createdAt: -1 }; // default newest
+    if (params?.sort) {
+      if (params.sort === '1') {
+        appliedSort.createdAt = 1;
+      }
+    }
+
+    const [items, total] = await Promise.all([
+      Coupon.find(query)
+        .skip(skip)
+        .limit(limit)
+        .sort(appliedSort as Record<string, 1 | -1>),
+      Coupon.countDocuments(query),
+    ]);
+
     return {
-      message: 'Coupon retrieved successfully',
-      data: coupon,
+      message: 'Coupons retrieved successfully',
+      data: {
+        items,
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit) || 1,
+      },
       code: 200,
     };
   } catch (error) {

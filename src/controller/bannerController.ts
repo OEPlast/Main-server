@@ -7,14 +7,13 @@ const getBanners = async (req: Request, res: Response) => {
     // Only get active banners for general routes
     const searchParams = {
       name: req.query.name as string | undefined,
-      active: true, // Only return active banners for public access
-      category: req.query.category as string | undefined,
+      active: req.query.status ? req.query.status.toString() : undefined,
       page: req.query.page ? parseInt(req.query.page as string) : undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string) : undefined,
     };
 
-    const { data, code, message } = await BannerService.getBanners(searchParams);
-    return res.status(code).json({ data, message });
+    const { data, meta, code, message } = await BannerService.getBanners(searchParams);
+    return res.status(code).json({ data, meta, message });
   } catch (error) {
     console.error('Error in getBanners:', error);
     return res.status(500).json({ error: 'Something went wrong' });

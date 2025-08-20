@@ -2,10 +2,29 @@ import { Request, Response } from 'express';
 import { AuthenticatedRequest, isAuthenticatedRequest } from '../../types';
 import CouponService from '../../services/admin/couponService';
 
-// Get all coupons
+// Get all coupons (paginated + filters/search/sort)
 const getCoupons = async (req: Request, res: Response) => {
   try {
-    const { message, data, code } = await CouponService.getAllCoupons();
+    const page = req.query.page ? Number(req.query.page) : 1;
+    const limit = req.query.limit ? Number(req.query.limit) : 20;
+    const active = typeof req.query.active !== 'undefined' ? req.query.active === 'true' : undefined;
+    const couponType = typeof req.query.couponType === 'string' ? (req.query.couponType as string) : undefined;
+    const search = typeof req.query.search === 'string' ? req.query.search.trim() : undefined;
+    const sort = typeof req.query.sort === 'string' ? req.query.sort : undefined;
+    const startDate = typeof req.query.startDate === 'string' ? req.query.startDate : undefined;
+    const endDate = typeof req.query.endDate === 'string' ? req.query.endDate : undefined;
+
+    // narrow couponType to allowed values
+    const allowedTypes = ['one-off', 'one-off-user', 'one-off-for-one-person', 'normal'] as const;
+    const isCouponType = (val: string): val is (typeof allowedTypes)[number] =>
+      (allowedTypes as readonly string[]).includes(val);
+    const narrowedCouponType = couponType && isCouponType(couponType) ? couponType : undefined;
+
+    const { message, data, code } = await CouponService.getAllCoupons(page, limit, {
+      filters: { active, couponType: narrowedCouponType, startDate, endDate },
+      search,
+      sort,
+    });
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getCoupons:', error);

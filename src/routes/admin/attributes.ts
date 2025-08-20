@@ -7,7 +7,7 @@ const router = express.Router();
 
 // Create attribute
 router.post(
-  '/',
+  '/create',
   authenticateUser,
   isAdmin,
   requirePermission('attributes', 'create'),
@@ -17,11 +17,32 @@ router.post(
 
 // Get all attributes
 router.get(
-  '/',
+  '/all',
   authenticateUser,
   isAdmin,
   requirePermission('attributes', 'read'),
+  AttributesValidator.listAttributesValidator,
   AttributesController.getAllAttributes
+);
+
+// Get attribute by id
+router.get(
+  '/by-id/:id',
+  authenticateUser,
+  isAdmin,
+  requirePermission('attributes', 'read'),
+  AttributesValidator.getAttributeByIdValidator,
+  AttributesController.getAttributeById
+);
+
+// Get attribute by name (prefer explicit path to avoid conflict with :id) => /by-name/:name
+router.get(
+  '/by-name/:name',
+  authenticateUser,
+  isAdmin,
+  requirePermission('attributes', 'read'),
+  AttributesValidator.getAttributeByNameValidator,
+  AttributesController.getAttributeByName
 );
 
 // Update attribute

@@ -5,21 +5,14 @@ import express from 'express';
 const router = express.Router();
 
 router.get(
-  '/',
+  '/all',
   authenticateUser,
   isAdmin,
   requirePermission('users', 'read'),
   Admin_UserValidator.getAllUsersValidator,
   Admin_UserController.getAllUsers
 );
-router.get(
-  '/byRole',
-  authenticateUser,
-  isAdmin,
-  requirePermission('users', 'read'),
-  Admin_UserValidator.usersByRole,
-  Admin_UserController.getUsersByRole
-);
+
 router.get(
   '/:id',
   authenticateUser,
@@ -28,6 +21,7 @@ router.get(
   Admin_UserValidator.getUserByIdValidator,
   Admin_UserController.getUserById
 );
+
 router.put(
   '/:id/suspend',
   authenticateUser,
@@ -36,6 +30,8 @@ router.put(
   Admin_UserValidator.updateUserSuspensionValidator,
   Admin_UserController.updateUserSuspension
 );
+
+//think of ways to make this more secure. Or hide the data somewhere. Deleting a user's data immediately and permanently seems somehow
 router.delete(
   '/:id',
   authenticateUser,

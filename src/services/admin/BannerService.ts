@@ -1,4 +1,4 @@
-import { CustomResponseType } from '@/types';
+import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import Banner, { BannerType } from '../../models/Banner';
 
 // Banner input types
@@ -8,11 +8,12 @@ interface CreateBannerInput {
   pageLink: string;
   active?: boolean;
   category: 'A' | 'B' | 'C' | 'D' | 'E';
+  position?: number;
 }
 
 interface SearchBannerInput {
   name?: string;
-  active?: boolean;
+  active?: string;
   category?: string;
   page?: number;
   limit?: number;
@@ -154,44 +155,57 @@ const getBannerById = async (bannerId: string): Promise<CustomResponseType<Banne
  */
 const getBanners = async (
   searchParams?: SearchBannerInput
-): Promise<CustomResponseType<{ banners: BannerType[]; total: number }>> => {
+): CustomResponseTypeWithMeta<
+  { banners: BannerType[] },
+  { page: number; limit: number; total: number; pages: number }
+> => {
   try {
-    const { name, active, category, page = 1, limit = 10 } = searchParams || {};
+    const { name, active, page = 1, limit = 10 } = searchParams || {};
 
     // Build query filters
     const filter: Record<string, unknown> = {};
 
     if (name) {
-      filter.$text = { $search: name };
+      // Escape regex special chars to avoid ReDoS / unintended patterns
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      filter.name = { $regex: escaped, $options: 'i' };
     }
 
     if (active !== undefined) {
-      filter.active = active;
-    }
-
-    if (category) {
-      filter.category = category;
+      if (active === 'active') {
+        filter.active = true;
+      } else {
+        filter.active = false;
+      }
     }
 
     // Calculate pagination
     const skip = (page - 1) * limit;
 
     // Execute query
-    const banners = await Banner.find(filter).skip(skip).limit(limit).sort({ createdAt: -1 });
-
-    const total = await Banner.countDocuments(filter);
+    const [banners, total] = await Promise.all([
+      Banner.find(filter).skip(skip).limit(limit).sort({ position: 1, createdAt: -1 }),
+      Banner.countDocuments(filter),
+    ]);
 
     return {
       message: 'Banners fetched successfully',
-      data: { banners, total },
+      data: { banners },
       code: 200,
+      meta: {
+        page,
+        limit,
+        total,
+        pages: Math.ceil(total / limit) || 1,
+      },
     };
   } catch (error) {
     console.log('Error fetching banners:', error);
     return {
       message: error instanceof Error ? error.message : 'Failed to fetch banners',
-      data: { banners: [], total: 0 },
+      data: { banners: [] },
       code: 500,
+      meta: { page: 1, limit: 0, total: 0, pages: 0 },
     };
   }
 };

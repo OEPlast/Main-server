@@ -21,3 +21,10 @@ export interface CustomResponseType<T = undefined> {
 
 // Promise wrapper for custom response type
 export type CustomResponsePromise<T = undefined> = Promise<CustomResponseType<T>>;
+
+export type CustomResponseTypeWithMeta<T, M = undefined> = Promise<{
+  message: string;
+  data: T | null;
+  code: number;
+  meta?: M;
+}>;

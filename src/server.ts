@@ -20,15 +20,12 @@ import UserRoute from '@/routes/users/user';
 import InventoryRoute from '@/routes/general/inventory';
 import LogisticsPublicRoute from '@/routes/general/logistics';
 import UserShipmentsRoute from '@/routes/users/shipments';
-import PublicGalleryRoute from './routes/general/publicGallery';
-import PublicReviewsListRoute from './routes/general/publicReviews';
 import { eventPublisher } from '@/events';
 
 import {
   AdminAttributeRoute,
   AdminBannerRoute,
   AdminCategoryRoute,
-  AdminGalleryRoute,
   AdminOrderRoute,
   AdminProductRoute,
   AdminUsersRoute,
@@ -38,7 +35,6 @@ import {
   AdminRolesRoute,
   AdminCampaignRoute,
   AdminSalesRoute,
-  AdminSubCategoryRoute,
   AdminInventoryRoute,
   AdminInvoicesRoute,
   AdminCouponAnalyticsRoute,
@@ -78,19 +74,18 @@ app.use(morganMiddleware);
 // Root Route
 app.use('/auth', AuthRoute);
 app.use('/user', UserRoute);
-
 app.use('/files', FileUploadRoute);
+app.use('/categories', CategoriesRoute);
+app.use('/banners', BannersRoute);
+
+app.use('/products', ProductsRoute);
 
 app.use('/user/reviews', UserReviewsRoute);
-app.use('/products', ProductsRoute);
-app.use('/categories', CategoriesRoute);
 app.use('/payments', PaymentRoute);
 app.use('/reviews', ReviewRoute);
-app.use('/reviews', PublicReviewsListRoute);
 app.use('/wishlist', WishlistRoute);
 app.use('/orders', OrderRoute);
 app.use('/carts', CartRoute);
-app.use('/banners', BannersRoute);
 app.use('/checkout', CheckoutRoute);
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);
@@ -99,25 +94,22 @@ app.use('/logistics', LogisticsPublicRoute);
 //------------------
 //admin
 app.use('/admin/roles', AdminRolesRoute);
-
-app.use('/admin/gallery', PublicGalleryRoute);
-app.use('/admin/gallery', AdminGalleryRoute);
-
-app.use('/admin/product', AdminProductRoute);
+app.use('/admin/coupon', AdminCouponRoute);
 app.use('/admin/attributes', AdminAttributeRoute);
 app.use('/admin/category', AdminCategoryRoute);
-app.use('/admin/orders', AdminOrderRoute);
-app.use('/admin/banners', AdminBannerRoute);
 app.use('/admin/users', AdminUsersRoute);
-app.use('/admin/analytics', AdminAnalyticsRoute);
+app.use('/admin/banners', AdminBannerRoute);
+
+app.use('/admin/product', AdminProductRoute);
+
+app.use('/admin/orders', AdminOrderRoute);
 app.use('/admin/coupon-analytics', AdminCouponAnalyticsRoute);
-app.use('/admin/coupon', AdminCouponRoute);
 app.use('/admin/shipment', AdminShipmentRoute);
 app.use('/admin/campaigns', AdminCampaignRoute);
 app.use('/admin/sales', AdminSalesRoute);
-app.use('/admin/subcategory', AdminSubCategoryRoute);
 app.use('/admin/inventory', AdminInventoryRoute);
 app.use('/admin/invoices', AdminInvoicesRoute);
+app.use('/admin/analytics', AdminAnalyticsRoute);
 
 //------------------
 // server Health Check

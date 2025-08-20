@@ -88,6 +88,160 @@ paths:
       responses:
         '200': { description: OK }
 
+  # File Upload (Bunny Storage)
+  /file/upload/single:
+    post:
+      tags: [FileUpload]
+      summary: Upload a single image file to Bunny storage
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Image file (max 10MB)
+                category:
+                  type: string
+                  description: Optional category bucket (sanitized & validated)
+                  enum: [product, gallery, campaign, user, banner, general]
+      responses:
+        '201':
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    type: object
+                    properties:
+                      path: { type: string, description: Relative storage path inside zone }
+                      url: { type: string, description: Public URL if configured }
+                      size: { type: integer }
+                      mimetype: { type: string }
+                      originalName: { type: string }
+        '400': { description: Validation error }
+        '401': { description: Unauthorized }
+        '500': { description: Server error }
+
+  /file/upload/multiple:
+    post:
+      tags: [FileUpload]
+      summary: Upload multiple image files to Bunny storage
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [files]
+              properties:
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Up to 10 image files (each max 10MB)
+                category:
+                  type: string
+                  description: Optional category bucket (sanitized & validated)
+                  enum: [product, gallery, campaign, user, banner, general]
+      responses:
+        '201':
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        path: { type: string }
+                        url: { type: string }
+                        size: { type: integer }
+                        mimetype: { type: string }
+                        originalName: { type: string }
+        '400': { description: Validation error }
+        '401': { description: Unauthorized }
+        '500': { description: Server error }
+
+  /file/files/category/{category}:
+    get:
+      tags: [FileUpload]
+      summary: List files in a category (Bunny storage)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: category
+          required: true
+          schema:
+            type: string
+            enum: [product, gallery, campaign, user, banner, general]
+          description: Category directory to list
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, default: 20 }
+      responses:
+        '200':
+          description: List retrieved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    type: object
+                    properties:
+                      files:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            path: { type: string }
+                            url: { type: string }
+                            size: { type: integer }
+                            mimetype: { type: string }
+                            originalName: { type: string }
+                      total: { type: integer }
+                      page: { type: integer }
+                      limit: { type: integer }
+        '400': { description: Validation error }
+        '401': { description: Unauthorized }
+        '500': { description: Server error }
+
+  /file/files/{fileId}:
+    delete:
+      tags: [FileUpload]
+      summary: Delete a file by relative path from Bunny storage
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: fileId
+          required: true
+          schema: { type: string }
+          description: Relative path (e.g. product/file-123.png)
+      responses:
+        '200': { description: Deleted }
+        '404': { description: Not found }
+        '401': { description: Unauthorized }
+        '500': { description: Server error }
+
   # Auth (public)
   /auth/login:
     post:
@@ -251,6 +405,17 @@ paths:
     get:
       tags: [Gallery]
       summary: Get banners
+      responses:
+        '200': { description: OK }
+  /banners/{id}:
+    get:
+      tags: [Gallery]
+      summary: Get banner by id
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
       responses:
         '200': { description: OK }
 
@@ -511,6 +676,53 @@ paths:
                   data: { type: string, example: OK }
         '401': { description: Invalid signature }
         '500': { description: Server error }
+  /payments/{paymentId}:
+    get:
+      tags: [Payments]
+      summary: Get payment by id
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: paymentId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+  /payments/user/payments:
+    get:
+      tags: [Payments]
+      summary: Get user payments
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+  /payments/reference/{reference}:
+    get:
+      tags: [Payments]
+      summary: Get payment by reference (auth)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: reference
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+  /payments/{paymentId}/refund:
+    post:
+      tags: [Payments]
+      summary: Refund payment (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: paymentId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+        '400': { description: Cannot refund }
+
   # ...existing code...
 
   # Inventory
@@ -550,7 +762,7 @@ paths:
       responses:
         '200': { description: OK }
 
-  # File Upload
+  # File Upload (current)
   /files/upload/single:
     post:
       tags: [FileUpload]
@@ -565,7 +777,7 @@ paths:
       security: [{ bearerAuth: [] }]
       responses:
         '201': { description: Uploaded }
-  /files/files/category/{category}:
+  /files/category/{category}:
     get:
       tags: [FileUpload]
       summary: List files by category
@@ -577,57 +789,46 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: OK }
-  /files/files/{fileId}:
-    delete:
-      tags: [FileUpload]
-      summary: Delete file
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: fileId
-          required: true
-          schema: { type: string }
-      responses:
-        '204': { description: Deleted }
+  # (Delete endpoint currently disabled in code)
 
-  # User profile
+  # User profile (original base paths retained until route refactor)
   /profile:
     get:
       tags: [Profile]
-      summary: Get profile
+      summary: Get profile (deprecated - replaced by /user/profile in code)
       security: [{ bearerAuth: [] }]
       responses:
         '200': { description: OK }
     put:
       tags: [Profile]
-      summary: Update profile
+      summary: Update profile (deprecated)
       security: [{ bearerAuth: [] }]
       responses:
         '200': { description: OK }
   /profile/password:
     put:
       tags: [Profile]
-      summary: Change password
+      summary: Change password (deprecated)
       security: [{ bearerAuth: [] }]
       responses:
         '200': { description: OK }
   /profile/addresses:
     post:
       tags: [Profile]
-      summary: Add address
+      summary: Add address (deprecated)
       security: [{ bearerAuth: [] }]
       responses:
         '201': { description: Created }
     get:
       tags: [Profile]
-      summary: List addresses
+      summary: List addresses (deprecated)
       security: [{ bearerAuth: [] }]
       responses:
         '200': { description: OK }
   /profile/addresses/{addressId}:
     put:
       tags: [Profile]
-      summary: Update address
+      summary: Update address (deprecated)
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -638,7 +839,7 @@ paths:
         '200': { description: OK }
     delete:
       tags: [Profile]
-      summary: Delete address
+      summary: Delete address (deprecated)
       security: [{ bearerAuth: [] }]
       parameters:
         - in: path
@@ -780,78 +981,7 @@ paths:
                       reference: { type: string }
 
   # Orders (user)
-  /orders:
-    get:
-      tags: [Orders]
-      summary: List user orders
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200': { description: OK }
-    post:
-      tags: [Orders]
-      summary: Create order
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/CreateOrderRequest'
-      responses:
-        '201': { description: Created }
-  /orders/{id}:
-    get:
-      tags: [Orders]
-      summary: Get order by id
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-    put:
-      tags: [Orders]
-      summary: Update order
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-    delete:
-      tags: [Orders]
-      summary: Cancel order
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '204': { description: Cancelled }
-  /orders/{id}/return:
-    post:
-      tags: [Orders]
-      summary: Initiate return
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema: { type: string }
-      responses:
-        '200': { description: OK }
-  /orders/returns:
-    get:
-      tags: [Orders]
-      summary: List returns
-      security: [{ bearerAuth: [] }]
-      responses:
-        '200': { description: OK }
+  # (User order endpoints omitted - already documented above)
 
   # Shipments (user)
   /users/orders/{orderId}/shipment:
@@ -1537,6 +1667,125 @@ paths:
       responses:
         '204': { description: Deleted }
 
+  # Admin Campaigns
+  /admin/campaigns:
+    post:
+      tags: [Admin - Campaigns]
+      summary: Create campaign (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampaignCreateRequest'
+      responses:
+        '201': { description: Created }
+    get:
+      tags: [Admin - Campaigns]
+      summary: List campaigns (admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+  /admin/campaigns/{campaignId}:
+    get:
+      tags: [Admin - Campaigns]
+      summary: Get campaign by id (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+    put:
+      tags: [Admin - Campaigns]
+      summary: Update campaign (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampaignUpdateRequest'
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Campaigns]
+      summary: Delete campaign (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+  /admin/campaigns/{campaignId}/status:
+    patch:
+      tags: [Admin - Campaigns]
+      summary: Toggle campaign status (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [active]
+              properties:
+                active: { type: boolean }
+      responses:
+        '200': { description: OK }
+  /admin/campaigns/{campaignId}/products:
+    post:
+      tags: [Admin - Campaigns]
+      summary: Add product to campaign (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [productId]
+              properties:
+                productId: { type: string }
+      responses:
+        '200': { description: OK }
+  /admin/campaigns/{campaignId}/products/{productId}:
+    delete:
+      tags: [Admin - Campaigns]
+      summary: Remove product from campaign (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: campaignId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      responses:
+        '204': { description: Deleted }
+
   /admin/orders:
     get:
       tags: [Admin - Orders]
@@ -1765,8 +2014,75 @@ paths:
       tags: [Admin - Coupons]
       summary: List coupons (admin)
       security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - in: query
+          name: active
+          required: false
+          schema: { type: boolean }
+          description: Filter by active status
+        - in: query
+          name: couponType
+          required: false
+          schema: { type: string, enum: [one-off, one-off-user, one-off-for-one-person, normal] }
+          description: Filter by couponType
+        - in: query
+          name: startDateFrom
+          required: false
+          schema: { type: string, format: date-time }
+          description: Filter coupons starting on/after this date
+        - in: query
+          name: startDateTo
+          required: false
+          schema: { type: string, format: date-time }
+          description: Filter coupons starting on/before this date
+        - in: query
+          name: endDateFrom
+          required: false
+          schema: { type: string, format: date-time }
+          description: Filter coupons ending on/after this date
+        - in: query
+          name: endDateTo
+          required: false
+          schema: { type: string, format: date-time }
+          description: Filter coupons ending on/before this date
+        - in: query
+          name: search
+          required: false
+          schema: { type: string }
+          description: Case-insensitive text search across coupon code & notes
+        - in: query
+          name: sort
+          required: false
+          schema: { type: string }
+          description: "Comma separated sort fields. Prefix with '-' for desc. Allowed: createdAt,startDate,endDate,discount,timesUsed,coupon. Example: -createdAt,discount"
       responses:
-        '200': { description: OK }
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items: { $ref: '#/components/schemas/Coupon' }
+                      page: { type: integer }
+                      limit: { type: integer }
+                      total: { type: integer }
+                      totalPages: { type: integer }
+                      appliedSort:
+                        type: object
+                        additionalProperties:
+                          type: integer
+                          enum: [1, -1]
+                      appliedFilters: { type: object, additionalProperties: true }
+                      search: { type: string, nullable: true }
     post:
       tags: [Admin - Coupons]
       summary: Create coupon (admin)
@@ -2033,3 +2349,22 @@ components:
       properties:
         userId: { type: string }
         times: { type: number }
+    Campaign:
+      type: object
+      properties:
+        name: { type: string }
+        description: { type: string }
+        startDate: { type: string, format: date-time }
+        endDate: { type: string, format: date-time }
+        active: { type: boolean }
+        products:
+          type: array
+          items: { type: string }
+    CampaignCreateRequest:
+      allOf:
+        - $ref: '#/components/schemas/Campaign'
+        - type: object
+          required: [name, startDate, endDate]
+    CampaignUpdateRequest:
+      allOf:
+        - $ref: '#/components/schemas/Campaign'

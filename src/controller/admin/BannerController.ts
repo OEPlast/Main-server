@@ -7,8 +7,7 @@ const getBanners = async (req: Request, res: Response) => {
     // Get query parameters
     const searchParams = {
       name: req.query.name as string | undefined,
-      active: req.query.active !== undefined ? req.query.active === 'true' : undefined,
-      category: req.query.category as string | undefined,
+      active: req.query.status ? req.query.status.toString() : undefined,
       page: req.query.page ? parseInt(req.query.page as string) : undefined,
       limit: req.query.limit ? parseInt(req.query.limit as string) : undefined,
     };

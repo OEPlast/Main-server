@@ -1,6 +1,15 @@
 import mongoose, { InferSchemaType } from 'mongoose';
 const { ObjectId } = mongoose.Schema;
 
+/*
+It allows a coupon to be targeted to a specific order, a set of products, or a set of categories.
+{ scope: 'product', productIds: [ObjectId('...'), ObjectId('...')] }
+→ Coupon only applies if the cart contains those products.
+{ scope: 'category', categoryIds: [ObjectId('...')] }
+→ Coupon only applies to products in that category.
+{ scope: 'order' }
+→ Coupon applies to the whole order, regardless of products/categories.
+*/
 const appliesToSchema = new mongoose.Schema(
   {
     scope: {
@@ -53,6 +62,7 @@ const couponSchema = new mongoose.Schema(
       default: { scope: 'order' },
     },
     stackable: {
+      //allow if coupon can be used with other coupons or not
       type: Boolean,
       default: false,
     },

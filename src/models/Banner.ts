@@ -25,6 +25,11 @@ const bannerSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    position: {
+      type: Number,
+      default: 100,
+    },
+
     category: {
       type: String,
       required: true,
@@ -36,8 +41,7 @@ const bannerSchema = new mongoose.Schema(
   }
 );
 
-// Index for efficient searching by name
-bannerSchema.index({ name: 'text' });
+bannerSchema.index({ category: 1, name: 'text' });
 
 export type BannerType = InferSchemaType<typeof bannerSchema>;
 const Banner = mongoose.model('Banner', bannerSchema);

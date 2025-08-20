@@ -1,8 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { checkSchema, validationResult } from 'express-validator';
+import { checkExact, checkSchema, validationResult } from 'express-validator';
 
-const validateBannerQuery = [
-  checkSchema({
+const validateBannerQuery = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
     page: {
       in: ['query'],
       isInt: {
@@ -21,14 +21,6 @@ const validateBannerQuery = [
       toInt: true,
       errorMessage: 'Limit must be between 1 and 100',
     },
-    type: {
-      in: ['query'],
-      optional: true,
-      isIn: {
-        options: [['hero', 'promotion', 'category', 'product']],
-      },
-      errorMessage: 'Type must be one of: hero, promotion, category, product',
-    },
     status: {
       in: ['query'],
       optional: true,
@@ -37,34 +29,35 @@ const validateBannerQuery = [
       },
       errorMessage: 'Status must be either active or inactive',
     },
-  }),
-  (req: Request, res: Response, next: NextFunction) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-    next();
-  },
-];
+  }).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
 
-const validateBannerId = [
-  checkSchema({
-    bannerId: {
-      in: ['params'],
-      isMongoId: true,
-      errorMessage: 'Invalid banner ID',
-    },
-  }),
-  (req: Request, res: Response, next: NextFunction) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-    next();
-  },
-];
+const validateBannerId = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      id: {
+        in: ['params'],
+        isMongoId: true,
+        errorMessage: 'Invalid banner ID',
+      },
+    })
+  ).run(req);
 
-export default {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
+const BannerValidator = {
   validateBannerQuery,
   validateBannerId,
 };
+
+export default BannerValidator;

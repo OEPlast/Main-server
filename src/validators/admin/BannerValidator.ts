@@ -55,6 +55,11 @@ const createBannerValidator = (req: Request, res: Response, next: NextFunction) 
       },
       errorMessage: 'Category is required and must be one of: A, B, C, D, or E',
     },
+    position: {
+      in: ['body'],
+      optional: true,
+      isInt: { options: { min: 1 }, errorMessage: 'Position must be an integer >= 1' },
+    },
   });
 
   const errors = validationResult(req);
@@ -116,6 +121,11 @@ const updateBannerValidator = (req: Request, res: Response, next: NextFunction) 
           return true;
         },
       },
+    },
+    position: {
+      in: ['body'],
+      optional: true,
+      isInt: { options: { min: 1 }, errorMessage: 'Position must be an integer >= 1' },
     },
   });
 

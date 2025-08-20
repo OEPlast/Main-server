@@ -1,13 +1,7 @@
 //this is a service for category
-import SubCategory from '@/models/SubCategory';
+import { CustomResponsePromise, CustomResponseTypeWithMeta } from '@/types';
 import Category, { CategoryType } from '../../models/Category';
-
-// Define the response type
-interface CustomResponseType<T> {
-  message: string;
-  data: T | null;
-  code: number;
-}
+import mongoose, { PipelineStage } from 'mongoose';
 
 /**
  * Creates a new category.
@@ -17,13 +11,18 @@ interface CustomResponseType<T> {
  */
 const createCategory = async ({
   name,
-  slug,
+  banner,
+  description,
+  parent,
 }: {
   name: string;
-  slug: string;
-}): Promise<CustomResponseType<CategoryType>> => {
+  banner?: string;
+  parent: string[];
+  description?: string;
+}): CustomResponseTypeWithMeta<CategoryType> => {
   try {
-    const category = new Category({ name, slug });
+    const slug = name.trim().replace(/\s+/g, '_');
+    const category = new Category({ name, slug, banner, description, parent });
     await category.save();
     return {
       message: 'Category created successfully',
@@ -31,7 +30,17 @@ const createCategory = async ({
       code: 200,
     };
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes('11000')) {
+        return {
+          message: 'Category name already exist',
+          data: null,
+          code: 400,
+        };
+      }
+    }
     console.log(error);
+
     return {
       message: 'Something went wrong',
       data: null,
@@ -44,13 +53,79 @@ const createCategory = async ({
  * Retrieves all categories.
  * @returns A promise that resolves to a custom response containing an array of categories.
  */
-const getAllCategories = async (): Promise<CustomResponseType<CategoryType[]>> => {
+type CategoryListItem = Pick<CategoryType, 'name' | 'image' | 'banner' | 'slug' | 'description' | 'parent'> & {
+  _id: mongoose.Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+  subcategoryCount: number;
+};
+
+const getAllCategories = async ({
+  page = 1,
+  limit = 20,
+}: {
+  page?: number;
+  limit?: number;
+} = {}): Promise<
+  CustomResponseTypeWithMeta<CategoryListItem[], { page: number; limit: number; total: number; pages: number }>
+> => {
   try {
-    const categories = await Category.find().populate({ path: 'sub_categories', select: 'image name slug' });
+    const skip = (page - 1) * limit;
+
+    const pipeline: PipelineStage[] = [
+      { $sort: { createdAt: -1 } },
+      {
+        $facet: {
+          data: [
+            { $skip: skip },
+            { $limit: limit },
+            {
+              $lookup: {
+                from: 'categories',
+                let: { catId: '$_id' },
+                pipeline: [{ $match: { $expr: { $in: ['$$catId', '$parent'] } } }, { $count: 'count' }],
+                as: 'sub_counts',
+              },
+            },
+            {
+              $addFields: {
+                subcategoryCount: { $ifNull: [{ $arrayElemAt: ['$sub_counts.count', 0] }, 0] },
+              },
+            },
+            {
+              $project: {
+                name: 1,
+                banner: 1,
+                image: 1,
+                slug: 1,
+                description: 1,
+                parent: 1,
+                createdAt: 1,
+                updatedAt: 1,
+                subcategoryCount: 1,
+              },
+            },
+          ],
+          total: [{ $count: 'count' }],
+        },
+      },
+      {
+        $project: {
+          data: 1,
+          total: { $ifNull: [{ $arrayElemAt: ['$total.count', 0] }, 0] },
+        },
+      },
+    ];
+
+    const aggResult: Array<{ data: CategoryListItem[]; total: number }> = await Category.aggregate(pipeline);
+    const categories = (aggResult[0]?.data as CategoryListItem[]) || [];
+    const total = (aggResult[0]?.total as number) || 0;
+
     return {
       message: 'Categories retrieved successfully',
       data: categories,
       code: 200,
+      meta: { page, limit, total, pages: Math.ceil(total / limit) },
     };
   } catch (error) {
     console.log(error);
@@ -59,6 +134,82 @@ const getAllCategories = async (): Promise<CustomResponseType<CategoryType[]>> =
       data: null,
       code: 500,
     };
+  }
+};
+
+/**
+ * Retrieves a single category with its populated subcategories.
+ */
+
+type CategoryWithSubs = CategoryType & {
+  sub_categories: Array<{
+    _id: mongoose.Types.ObjectId;
+    name: string;
+    image: string;
+    slug?: string;
+  }>;
+};
+
+const getCategoryById = async (categoryId: string): CustomResponseTypeWithMeta<CategoryWithSubs> => {
+  try {
+    if (!mongoose.Types.ObjectId.isValid(categoryId)) {
+      return { message: 'Invalid category id', data: null, code: 400 };
+    }
+
+    const pipeline: PipelineStage[] = [
+      { $match: { _id: new mongoose.Types.ObjectId(categoryId) } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: '_id',
+          foreignField: 'parent',
+          as: 'sub_categories',
+        },
+      },
+      {
+        $addFields: {
+          sub_categories: {
+            $map: {
+              input: '$sub_categories',
+              as: 'sc',
+              in: {
+                _id: '$$sc._id',
+                name: '$$sc.name',
+                image: '$$sc.image',
+                slug: '$$sc.slug',
+                banner: '$$sc.banner',
+                description: '$$sc.description',
+              },
+            },
+          },
+          subcategoryCount: { $size: '$sub_categories' },
+        },
+      },
+      {
+        $project: {
+          name: 1,
+          banner: 1,
+          image: 1,
+          slug: 1,
+          description: 1,
+          parent: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          sub_categories: 1,
+          subcategoryCount: 1,
+        },
+      },
+    ];
+
+    const aggResult: CategoryWithSubs[] = await Category.aggregate(pipeline);
+    const category = aggResult[0] || null;
+    if (!category) {
+      return { message: 'Category not found', data: null, code: 404 };
+    }
+    return { message: 'Category retrieved successfully', data: category, code: 200 };
+  } catch (error) {
+    console.log(error);
+    return { message: 'Something went wrong', data: null, code: 500 };
   }
 };
 
@@ -72,12 +223,16 @@ const getAllCategories = async (): Promise<CustomResponseType<CategoryType[]>> =
 const updateCategory = async ({
   categoryId,
   name,
-  slug,
+  banner,
+  parent,
+  description,
 }: {
   categoryId: string;
-  name: string;
-  slug: string;
-}): Promise<CustomResponseType<CategoryType>> => {
+  name?: string;
+  banner?: string;
+  description?: string;
+  parent: mongoose.Types.ObjectId[];
+}): CustomResponseTypeWithMeta<CategoryType> => {
   try {
     if (!categoryId) {
       return {
@@ -86,13 +241,35 @@ const updateCategory = async ({
         code: 404,
       };
     }
-    const category = await Category.findByIdAndUpdate(categoryId, { name, slug }, { new: true });
+    const updatePayload: Partial<CategoryType> & { slug?: string; banner?: string } = {};
+    if (name) {
+      updatePayload.name = name;
+      const slug = name.trim().replace(/\s+/g, '_');
+      updatePayload.slug = slug;
+    }
+    if (banner) updatePayload.banner = banner;
+    if (description) updatePayload.description = description;
+    if (parent) {
+      updatePayload.description = description;
+      updatePayload.parent = parent;
+    }
+
+    const category = await Category.findByIdAndUpdate(categoryId, updatePayload, { new: true });
     return {
       message: 'Category updated successfully',
       data: category,
       code: 200,
     };
   } catch (error) {
+    if (error instanceof Error) {
+      if (error.message.includes('11000')) {
+        return {
+          message: 'Category name already exist',
+          data: null,
+          code: 400,
+        };
+      }
+    }
     console.log(error);
     return {
       message: 'Something went wrong',
@@ -107,23 +284,32 @@ const updateCategory = async ({
  * @param categoryId - The ID of the category to delete.
  * @returns A promise that resolves to a custom response indicating the deletion status.
  */
-const deleteCategory = async (categoryId: string): Promise<CustomResponseType<null>> => {
+const deleteCategory = async (categoryId: string): CustomResponsePromise<null> => {
   try {
-    if (!categoryId) {
+    const deleteCategoryFun = await Category.deleteOne({ _id: categoryId });
+
+    if (deleteCategoryFun.deletedCount > 0) {
+      //there was something to delete
+      await Category.updateMany(
+        {
+          parent: categoryId,
+        },
+        {
+          $pull: { parent: categoryId },
+        }
+      );
       return {
-        message: 'categoryId must be provided',
+        message: 'Category deleted successfully',
         data: null,
-        code: 404,
+        code: 200,
+      };
+    } else {
+      return {
+        message: 'Category not found',
+        data: null,
+        code: 400,
       };
     }
-
-    await Promise.all([(Category.findByIdAndDelete(categoryId), SubCategory.deleteMany({ parent: categoryId }))]);
-
-    return {
-      message: 'Category deleted successfully',
-      data: null,
-      code: 200,
-    };
   } catch (error) {
     console.log(error);
     return {
@@ -137,6 +323,7 @@ const deleteCategory = async (categoryId: string): Promise<CustomResponseType<nu
 export const Admin_CategoryService = {
   createCategory,
   getAllCategories,
+  getCategoryById,
   updateCategory,
   deleteCategory,
 };

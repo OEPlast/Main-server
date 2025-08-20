@@ -12,6 +12,10 @@ const categorySchema = new mongoose.Schema(
       type: String,
       default: 'https://isomorphic-furyroad.s3.amazonaws.com/public/categories/bags.webp',
     },
+    banner: {
+      type: String,
+      default: '',
+    },
     slug: {
       type: String,
       unique: true,

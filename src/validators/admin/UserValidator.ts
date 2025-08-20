@@ -1,27 +1,40 @@
 import type { NextFunction, Request, Response } from 'express';
-import { checkSchema, validationResult } from 'express-validator';
+import { checkExact, checkSchema, validationResult } from 'express-validator';
 
-const getAllUsersValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    page: {
-      in: ['query'],
-      optional: true,
-      isInt: { options: { min: 1 } },
-      errorMessage: 'Page must be a positive integer',
-    },
-    limit: {
-      in: ['query'],
-      optional: true,
-      isInt: { options: { min: 1 } },
-      errorMessage: 'Limit must be a positive integer',
-    },
-    search: {
-      in: ['query'],
-      optional: true,
-      isString: true,
-      errorMessage: 'Search must be a string',
-    },
-  });
+const getAllUsersValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      page: {
+        in: ['query'],
+        optional: true,
+        isInt: { options: { min: 1 } },
+        errorMessage: 'Page must be a positive integer',
+      },
+      role: {
+        in: ['query'],
+        optional: true,
+        isIn: { options: [['owner', 'user', 'manager', 'employee']] },
+        errorMessage: 'role must be a either of owner,user,manager or employee',
+      },
+      limit: {
+        in: ['query'],
+        optional: true,
+        isInt: { options: { min: 1 } },
+        errorMessage: 'Limit must be a positive integer',
+      },
+      search: {
+        in: ['query'],
+        optional: true,
+        isString: true,
+        errorMessage: 'Search must be a string',
+      },
+      sort: {
+        in: ['query'],
+        optional: true,
+        isIn: { options: [['1', '-1']], errorMessage: "Sort must be '1' (asc) or '-1' (desc)" },
+      },
+    })
+  ).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -69,15 +82,21 @@ const getUserByIdValidator = (req: Request, res: Response, next: NextFunction) =
   next();
 };
 
-const updateUserRoleValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    role: {
-      in: ['body'],
-      isString: true,
-      notEmpty: true,
-      errorMessage: 'Role is required and should be a string',
-    },
-  });
+const updateUserRoleValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      role: {
+        in: ['body'],
+        isString: true,
+        notEmpty: true,
+        isIn: {
+          options: [['owner', 'user', 'manager', 'employee']],
+          errorMessage: 'role must be a either of owner,user,manager or employee',
+        },
+        errorMessage: 'Role is required and should be a string',
+      },
+    })
+  ).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });

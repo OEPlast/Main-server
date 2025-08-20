@@ -31,7 +31,9 @@ const uploadSingle = async (req: Request, res: Response) => {
       return res.status(401).json({ message: 'User not authenticated' });
     }
 
-    const { category = 'general' } = req.body;
+    // Category already sanitized by validator (if provided) - read from body or query with fallback to 'general'
+    type BodyWithCategory = { category?: string };
+    const category = (req.body as BodyWithCategory).category ?? (req.query?.category as unknown as string) ?? 'general';
     const uploadedBy = (req as AuthenticatedRequest).userId;
 
     const result = await FileUploadService.uploadFile(req.file, category, uploadedBy);
@@ -51,8 +53,9 @@ const uploadMultiple = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'No files uploaded' });
     }
 
-    const { category = 'general' } = req.body;
-    const uploadedBy = (req as AuthenticatedRequest).userId;
+    type BodyWithCategory = { category?: string };
+    const category = (req.body as BodyWithCategory).category ?? (req.query?.category as unknown as string) ?? 'general';
+    const uploadedBy = req.userId;
 
     const result = await FileUploadService.uploadMultipleFiles(req.files, category, uploadedBy);
     return res.status(result.code).json({ message: result.message, data: result.data });
@@ -77,8 +80,7 @@ const getFilesByCategory = async (req: Request, res: Response) => {
 
 const deleteFile = async (req: Request, res: Response) => {
   try {
-    const { fileId } = req.params;
-
+    const { fileId } = req.params; // now treated as relative path segment or full relative path
     const result = await FileUploadService.deleteFile(fileId);
     return res.status(result.code).json({ message: result.message });
   } catch (error) {
@@ -92,5 +94,5 @@ export default {
   uploadMultiple,
   getFilesByCategory,
   deleteFile,
-  upload, // Export multer instance for route usage
+  upload,
 };

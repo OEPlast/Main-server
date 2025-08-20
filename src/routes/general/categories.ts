@@ -1,10 +1,9 @@
 import express from 'express';
-import CategoryController from '../../controller/categoryController';
-import CategoryValidator from '../../validators/CategoryValidator';
+import CategoryController from '@/controller/categoryController';
 
 const router = express.Router();
 
-// Public route to get all categories
-router.get('/', ...CategoryValidator.validateCategoryQuery, CategoryController.getAllCategories);
+router.get('/', CategoryController.getAllCategories);
 
+router.get('/:id', CategoryController.getOneCategoryById);
 export default router;

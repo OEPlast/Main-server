@@ -7,16 +7,26 @@ const router = express.Router();
 
 // Get all categories
 router.get(
-  '/',
+  '/all',
   authenticateUser,
   isAdmin,
   requirePermission('categories', 'read'),
+  CategoryValidator.listCategoriesValidator,
   CategoryController.getAllCategories
+);
+
+// Get single category (populated subcategories)
+router.get(
+  '/:id',
+  authenticateUser,
+  isAdmin,
+  requirePermission('categories', 'read'),
+  CategoryController.getCategoryById
 );
 
 // Create category
 router.post(
-  '/',
+  '/create',
   authenticateUser,
   isAdmin,
   requirePermission('categories', 'create'),

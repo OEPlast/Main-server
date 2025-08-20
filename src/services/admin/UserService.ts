@@ -1,7 +1,7 @@
-import mongoose from 'mongoose';
+import mongoose, { PipelineStage } from 'mongoose';
 import User, { UserType } from '@/models/User';
 import { CustomResponsePromise } from '@/types';
-import { OrderType } from '@/models/Order';
+import Order, { OrderType } from '@/models/Order';
 import Review, { ReviewType } from '@/models/Review';
 import Wishlist from '@/models/wishlist';
 
@@ -103,24 +103,36 @@ const getAllUsersWithPaginationAndSearch = async ({
   page = 1,
   limit = 50,
   search,
+  sort = -1,
+  role,
 }: {
   page: number;
   limit?: number;
-  search: string;
+  search?: string;
+  sort?: 1 | -1;
+  role?: UserType['role'];
 }): CustomResponsePromise<UserType[]> => {
   try {
-    const matchStage = search
-      ? {
-          $or: [
-            { firstName: { $regex: search, $options: 'i' } },
-            { lastName: { $regex: search, $options: 'i' } },
-            { email: { $regex: search, $options: 'i' } },
-          ],
-        }
-      : {};
+    const match: Record<string, unknown> = {};
 
-    const users = await User.aggregate([
-      { $match: matchStage },
+    if (search) {
+      match.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    if (role) {
+      match.role = role;
+    }
+
+    const pipeline: PipelineStage[] = [];
+    if (Object.keys(match).length) {
+      pipeline.push({ $match: match });
+    }
+
+    pipeline.push(
       {
         $lookup: {
           from: 'orders',
@@ -130,8 +142,8 @@ const getAllUsersWithPaginationAndSearch = async ({
               $match: {
                 $expr: {
                   $and: [
-                    { $eq: ['$user', '$$userId'] }, //match user id
-                    { $ne: ['$status', 'Cancelled'] }, //exclude cancelled orders
+                    { $eq: ['$user', '$$userId'] }, // match user id
+                    { $ne: ['$status', 'Cancelled'] }, // exclude cancelled orders
                   ],
                 },
               },
@@ -146,7 +158,7 @@ const getAllUsersWithPaginationAndSearch = async ({
           totalSpent: { $sum: '$orders.total' },
         },
       },
-      { $sort: { firstName: -1, email: -1 } },
+      { $sort: { firstName: sort, email: sort } },
       { $skip: (page - 1) * limit },
       { $limit: limit },
       {
@@ -162,8 +174,10 @@ const getAllUsersWithPaginationAndSearch = async ({
           image: 1,
           role: 1,
         },
-      },
-    ]);
+      }
+    );
+
+    const users = await User.aggregate(pipeline);
     return { message: 'Users fetched successfully', data: users, code: 200 };
   } catch (error) {
     console.error('Error fetching users:', error);
@@ -204,44 +218,38 @@ const getUserAndAllTheirBasicInfo = async ({
   averageReviewRating: number;
 }> => {
   try {
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).select({
+      firstName: true,
+      lastName: true,
+      suspended: true,
+      role: true,
+      emailVerified: true,
+      country: true,
+      dob: true,
+      email: true,
+      createdAt: true,
+    });
     if (!user) {
       return { message: 'User not found', data: null, code: 404 };
     }
 
-    const [ordersData, wishlistCount, reviewsData] = await Promise.all([
-      // Fetch paginated orders and calculate totals
-      User.aggregate([
-        { $match: { _id: new mongoose.Types.ObjectId(userId) } },
+    const [ordersPage, ordersTotalsAgg, wishlistCount, reviewsAgg] = await Promise.all([
+      Order.find({ user: userId })
+        .sort({ createdAt: -1 })
+        .skip((orderPage - 1) * orderLimit)
+        .limit(orderLimit),
+      Order.aggregate([
+        { $match: { user: new mongoose.Types.ObjectId(userId) } },
         {
-          $lookup: {
-            from: 'orders',
-            let: { userId: '$_id' },
-            pipeline: [
-              { $match: { $expr: { $eq: ['$user', '$$userId'] } } },
-              {
-                $facet: {
-                  paginatedOrders: [{ $skip: (orderPage - 1) * orderLimit }, { $limit: orderLimit }],
-                  totals: [
-                    {
-                      $group: {
-                        _id: null,
-                        totalOrders: { $sum: 1 },
-                        totalSpent: { $sum: '$total' },
-                        totalReturns: { $sum: { $cond: [{ $eq: ['$status', 'returned'] }, 1, 0] } },
-                      },
-                    },
-                  ],
-                },
-              },
-            ],
-            as: 'ordersData',
+          $group: {
+            _id: null,
+            totalOrders: { $sum: 1 },
+            totalSpent: { $sum: '$total' },
+            totalReturns: { $sum: { $cond: [{ $eq: ['$status', 'Returned'] }, 1, 0] } },
           },
         },
       ]),
-      // Wishlist count
       Wishlist.countDocuments({ user: userId }),
-      // Fetch paginated reviews and calculate totals
       Review.aggregate([
         { $match: { user: new mongoose.Types.ObjectId(userId) } },
         {
@@ -261,22 +269,20 @@ const getUserAndAllTheirBasicInfo = async ({
       ]),
     ]);
 
-    // Extract data from aggregation results
-    const orders = ordersData[0]?.ordersData[0]?.paginatedOrders || [];
-    const orderTotals = ordersData[0]?.ordersData[0]?.totals[0];
-    const reviews = reviewsData[0]?.paginatedReviews || [];
-    const reviewTotals = reviewsData[0]?.totals[0];
+    const orderTotals = ordersTotalsAgg[0] || { totalOrders: 0, totalSpent: 0, totalReturns: 0 };
+    const reviews = reviewsAgg[0]?.paginatedReviews || [];
+    const reviewTotals = reviewsAgg[0]?.totals[0] || { totalReviewCount: 0, averageReviewRating: 0 };
 
     return {
       message: 'User data fetched successfully',
       data: {
         user,
-        orders,
+        orders: ordersPage as unknown as OrderType[],
         wishlistCount,
         totalOrders: orderTotals.totalOrders || 0,
         totalSpent: orderTotals.totalSpent || 0,
         totalReturns: orderTotals.totalReturns || 0,
-        reviews,
+        reviews: reviews as unknown as ReviewType[],
         totalReviewCount: reviewTotals.totalReviewCount || 0,
         averageReviewRating: reviewTotals.averageReviewRating || 0,
       },
