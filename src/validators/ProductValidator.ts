@@ -3,7 +3,7 @@ import { checkSchema, validationResult } from 'express-validator';
 
 const validateProductId = [
   checkSchema({
-    productId: {
+    id: {
       in: ['params'],
       isMongoId: true,
       errorMessage: 'Invalid product ID',
@@ -133,8 +133,43 @@ const validateSearchQuery = [
   },
 ];
 
+const validateCategorySlug = [
+  checkSchema({
+    slug: { in: ['params'], isString: true, trim: true, errorMessage: 'Invalid category slug' },
+    page: { in: ['query'], optional: true, isInt: { options: { min: 1 } }, toInt: true },
+    limit: { in: ['query'], optional: true, isInt: { options: { min: 1, max: 100 } }, toInt: true },
+    sort: {
+      in: ['query'],
+      optional: true,
+      isIn: { options: [['newest', 'price_asc', 'price_desc', 'popular']] },
+    },
+  }),
+  (req: Request, res: Response, next: NextFunction) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    next();
+  },
+];
+
 export default {
   validateProductId,
   validateProductQuery,
   validateSearchQuery,
+  validateCategorySlug,
 };
+
+// Additional validator for product slug
+export const validateProductSlug = [
+  checkSchema({
+    slug: { in: ['params'], isString: true, trim: true, isLength: { options: { min: 1 } } },
+  }),
+  (req: Request, res: Response, next: NextFunction) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    next();
+  },
+];

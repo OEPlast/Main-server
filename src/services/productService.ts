@@ -1,6 +1,8 @@
 import Order from '@/models/Order';
 import Product, { ProductType } from '../models/Product';
-import { CustomResponsePromise, CustomResponseType } from '@/types';
+import Category from '@/models/Category';
+import mongoose, { PipelineStage } from 'mongoose';
+import { CustomResponsePromise, CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import AnalyticsService from './MainAnalyticsService';
 
 /**
@@ -425,9 +427,11 @@ const recommendBasedOnCurrentProduct = async (productId: string): CustomResponse
 const ProductService = {
   getAllProducts,
   getProductById,
+  getProductBySlug,
   getProductStock,
   searchProducts,
   getProductsByCategoryAndSubCategory,
+  getByCategorySlug,
   getWeekProducts,
   getTopSoldProducts,
   getHotSalesProducts,
@@ -436,3 +440,104 @@ const ProductService = {
 };
 
 export default ProductService;
+
+// New: products by category slug (includes descendants)
+async function getByCategorySlug(
+  slug: string,
+  page = 1,
+  limit = 20,
+  sort: 'newest' | 'price_asc' | 'price_desc' | 'popular' = 'newest'
+): CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; slug: string }> {
+  try {
+    const base = await Category.findOne({ slug }).lean().exec();
+    if (!base) return { message: 'Category not found', data: null, code: 404 };
+
+    const sortStage: Record<string, 1 | -1> = {};
+    if (sort === 'newest') sortStage.createdAt = -1;
+    if (sort === 'price_asc') sortStage.price = 1;
+    if (sort === 'price_desc') sortStage.price = -1;
+
+    const pipeline: PipelineStage[] = [
+      // match all categories where base._id is in parent list or itself
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'cat',
+        },
+      },
+      { $unwind: '$cat' },
+      {
+        $match: {
+          $or: [
+            { 'cat._id': base._id },
+            { 'cat.parent': { $elemMatch: { $eq: new mongoose.Types.ObjectId(base._id) } } },
+          ],
+          status: 'active',
+        },
+      },
+    ];
+
+    if (sort === 'popular') {
+      pipeline.push(
+        {
+          $lookup: {
+            from: 'orders',
+            localField: '_id',
+            foreignField: 'products.product',
+            as: 'ord',
+          },
+        },
+        { $addFields: { salesCount: { $size: '$ord' } } },
+        { $sort: { salesCount: -1, createdAt: -1 } },
+        { $project: { ord: 0 } }
+      );
+    } else if (Object.keys(sortStage).length) {
+      pipeline.push({ $sort: sortStage });
+    }
+
+    pipeline.push(
+      {
+        $facet: {
+          data: [{ $skip: (page - 1) * limit }, { $limit: limit }],
+          total: [{ $count: 'count' }],
+        },
+      },
+      {
+        $project: {
+          data: 1,
+          total: { $ifNull: [{ $arrayElemAt: ['$total.count', 0] }, 0] },
+        },
+      }
+    );
+
+    const agg = await Product.aggregate(pipeline).exec();
+    const data = (agg[0]?.data as ProductType[]) || [];
+    const total = (agg[0]?.total as number) || 0;
+    return { message: 'Products retrieved successfully', data, code: 200, meta: { total, page, limit, slug } };
+  } catch (e) {
+    console.error('getByCategorySlug error:', e);
+    return { message: 'Something went wrong', data: null, code: 500 };
+  }
+}
+
+// New: get single product by slug
+async function getProductBySlug(slug: string): Promise<CustomResponseType<ProductType>> {
+  try {
+    const product = await Product.findOne({ slug });
+    if (!product) {
+      return { message: 'Product not found', data: null, code: 404 };
+    }
+
+    // Track product view for analytics (non-blocking)
+    AnalyticsService.trackProductView(String(product._id)).catch((err) =>
+      console.error('Failed to track product view analytics:', err)
+    );
+
+    return { message: 'Product retrieved successfully', data: product, code: 200 };
+  } catch (error) {
+    console.error('Error fetching product by slug:', error);
+    return { message: 'Failed to fetch product', data: null, code: 500 };
+  }
+}

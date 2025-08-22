@@ -5,6 +5,16 @@ import Admin_ProductController from '@/controller/admin/ProductController';
 
 const router = express.Router();
 
+// Create product
+router.post(
+  '/create',
+  authenticateUser,
+  isAdmin,
+  requirePermission('products', 'create'),
+  ProductValidator.createProductValidator,
+  Admin_ProductController.createProduct
+);
+
 // Get product by ID
 router.get(
   '/:id',
@@ -13,16 +23,6 @@ router.get(
   requirePermission('products', 'read'),
   ProductValidator.getProductByIdValidator,
   Admin_ProductController.getProductById
-);
-
-// Create product
-router.post(
-  '/',
-  authenticateUser,
-  isAdmin,
-  requirePermission('products', 'create'),
-  ProductValidator.createProductValidator,
-  Admin_ProductController.createProduct
 );
 
 // Update product
@@ -65,3 +65,39 @@ router.patch(
 );
 
 export default router;
+// Array edit endpoints
+router.post(
+  '/:productId/tags',
+  authenticateUser,
+  isAdmin,
+  requirePermission('products', 'update'),
+  ProductValidator.addTagsValidator,
+  Admin_ProductController.addTags
+);
+
+router.delete(
+  '/:productId/tags/:tag',
+  authenticateUser,
+  isAdmin,
+  requirePermission('products', 'update'),
+  ProductValidator.removeTagValidator,
+  Admin_ProductController.removeTag
+);
+
+router.post(
+  '/:productId/specifications',
+  authenticateUser,
+  isAdmin,
+  requirePermission('products', 'update'),
+  ProductValidator.addSpecificationsValidator,
+  Admin_ProductController.addSpecifications
+);
+
+router.delete(
+  '/:productId/specifications',
+  authenticateUser,
+  isAdmin,
+  requirePermission('products', 'update'),
+  ProductValidator.removeSpecificationValidator,
+  Admin_ProductController.removeSpecification
+);

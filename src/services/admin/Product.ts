@@ -1,12 +1,13 @@
 import Product, { ProductType } from '../../models/Product';
 import slugify from 'slugify';
 import { CustomResponseType } from '@/types';
+import mongoose from 'mongoose';
 import eventPublisher from '@/events/eventPublisher';
 
 // Pricing types to mirror model
 type PricingTier = {
   minQty: number;
-  maxQty: number;
+  maxQty?: number;
   strategy: 'fixedPrice' | 'percentOff' | 'amountOff';
   value: number;
 };
@@ -16,16 +17,18 @@ type PricingTier = {
  * @param data - The data for the new product.
  */
 type CreateProductData = {
+  sku: number;
   name: string;
   description: string;
-  brand: string;
   price: number;
-  category: string;
-  subCategories?: string;
-  description_images: { url: string; cover_image?: boolean }[];
-  specifications: { key: string; value: string }[];
-  shipping: number;
-  deliveryTime: number;
+  slug?: string;
+  brand?: string;
+  category: string; // Category id
+  tags?: string[];
+  description_images?: { url: string; cover_image?: boolean }[];
+  specifications?: { key: string; value: string }[];
+  dimension?: { key: 'length' | 'breadth' | 'height' | 'volume' | 'width' | 'weight'; value: string }[];
+  shipping?: { addedCost?: number; increaseCostBy?: number; addedDays?: number };
   attributes?: {
     name: string;
     children: {
@@ -37,10 +40,11 @@ type CreateProductData = {
       pricingTiers?: PricingTier[];
     }[];
   }[];
-  tags: string[];
+  pricingTiers?: PricingTier[];
   stock: number;
+  lowStockThreshold?: number;
   discount?: number;
-  pricingTiers?: PricingTier[]; // optional at product level
+  status?: 'active' | 'inactive' | 'archived';
 };
 
 function validatePricingTiers(tiers?: PricingTier[]): string | null {
@@ -48,7 +52,7 @@ function validatePricingTiers(tiers?: PricingTier[]): string | null {
   // Basic checks
   for (const t of tiers) {
     if (t.minQty < 1) return 'minQty must be >= 1';
-    if (t.maxQty < t.minQty) return 'maxQty must be >= minQty';
+    if (t.maxQty != null && t.maxQty < t.minQty) return 'maxQty must be >= minQty';
     if (!['fixedPrice', 'percentOff', 'amountOff'].includes(t.strategy)) return 'Invalid pricing strategy';
     if (t.value < 0) return 'value must be >= 0';
   }
@@ -57,23 +61,39 @@ function validatePricingTiers(tiers?: PricingTier[]): string | null {
   for (let i = 1; i < sorted.length; i++) {
     const prev = sorted[i - 1]!;
     const curr = sorted[i]!;
-    if (curr.minQty <= prev.maxQty) {
-      return 'Pricing tier ranges must not overlap';
-    }
+    // Non-overlap: current.min must be greater than previous.max (or previous open-ended means invalid)
+    if (prev.maxQty == null) return 'Open-ended tier must be the last tier';
+    if (curr.minQty <= prev.maxQty) return 'Pricing tier ranges must not overlap';
   }
+  // only last can be open-ended
+  const openEndedCount = sorted.filter((t) => t.maxQty == null).length;
+  if (openEndedCount > 1) return 'Only one open-ended tier (without maxQty) is allowed';
+  if (openEndedCount === 1 && sorted[sorted.length - 1]?.maxQty != null) return 'Open-ended tier must be the last tier';
   return null;
 }
 
 const createProduct = async (data: CreateProductData): Promise<CustomResponseType<ProductType>> => {
   try {
-    const newData: CreateProductData & { slug?: string } = data;
-    newData.slug = slugify(data.name);
+    // Basic SKU validation to align with model (required number)
+    if (data == null || typeof data.sku !== 'number' || Number.isNaN(data.sku)) {
+      return { message: 'sku is required and must be a number', data: null, code: 400 };
+    }
+    const newData: CreateProductData & { slug?: string } = { ...data };
+    newData.slug = slugify(data.name, { lower: true, strict: true });
+
+    // ensure unique slug by suffixing when needed
+    const baseSlug = newData.slug;
+    let suffix = 1;
+    while (await Product.exists({ slug: newData.slug })) {
+      newData.slug = `${baseSlug}-${suffix++}`;
+    }
 
     // Validate pricing tiers at product level
-    const productTierErr = validatePricingTiers(newData.pricingTiers);
-    if (productTierErr) {
-      return { message: productTierErr, data: null, code: 400 };
+    const isThereProductTierError = validatePricingTiers(newData.pricingTiers);
+    if (isThereProductTierError) {
+      return { message: isThereProductTierError, data: null, code: 400 };
     }
+
     // Validate variant-level tiers
     if (Array.isArray(newData.attributes)) {
       for (const group of newData.attributes) {
@@ -84,10 +104,10 @@ const createProduct = async (data: CreateProductData): Promise<CustomResponseTyp
       }
     }
 
-    const newProduct = await Product.insertOne(newData);
+    const newProduct = await Product.create(newData);
     return {
       message: 'Product created successfully',
-      data: newProduct,
+      data: newProduct as unknown as ProductType,
       code: 201,
     };
   } catch (error) {
@@ -115,6 +135,13 @@ const updateProduct = async (
       return { message: 'Product not found', data: null, code: 404 };
     }
 
+    // Validate sku if present
+    if (Object.prototype.hasOwnProperty.call(data, 'sku')) {
+      if (typeof data.sku !== 'number' || Number.isNaN(data.sku)) {
+        return { message: 'sku must be a number when provided', data: null, code: 400 };
+      }
+    }
+
     // Validate pricing tiers if present
     if (data.pricingTiers) {
       const err = validatePricingTiers(data.pricingTiers);
@@ -127,6 +154,19 @@ const updateProduct = async (
           const e = validatePricingTiers(child.pricingTiers);
           if (e) return { message: `Variant "${group.name}/${child.name}": ${e}`, data: null, code: 400 };
         }
+      }
+    }
+
+    // Slugify name if provided
+    if (data.name) {
+      const newSlug = slugify(data.name, { lower: true, strict: true });
+      if (newSlug && newSlug !== existing.slug) {
+        let candidate = newSlug;
+        let k = 1;
+        while (await Product.exists({ slug: candidate, _id: { $ne: existing._id } })) {
+          candidate = `${newSlug}-${k++}`;
+        }
+        (data as Partial<ProductType>).slug = candidate as unknown as ProductType['slug'];
       }
     }
 
@@ -275,27 +315,33 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
 // Add a function to update the cover image of a product
 const updateCoverImage = async (productId: string, imageUrl: string): Promise<CustomResponseType<ProductType>> => {
   try {
-    const product = await Product.findById(productId);
-    if (!product) {
-      return {
-        message: 'Product not found',
-        data: null,
-        code: 404,
-      };
-    }
-
-    // Update the cover image
-    product.description_images.forEach((image) => {
-      image.cover_image = image.url === imageUrl;
+    const session = await mongoose.startSession();
+    let resultDoc: ProductType | null = null;
+    await session.withTransaction(async () => {
+      const exists = await Product.exists({ _id: productId }).session(session);
+      if (!exists) {
+        throw new Error('NOT_FOUND');
+      }
+      await Product.updateOne(
+        { _id: productId },
+        { $set: { 'description_images.$[].cover_image': false } },
+        { session }
+      ).exec();
+      const u = await Product.findOneAndUpdate(
+        { _id: productId },
+        { $set: { 'description_images.$[elem].cover_image': true } },
+        { arrayFilters: [{ 'elem.url': imageUrl }], new: true, session }
+      )
+        .lean<ProductType>()
+        .exec();
+      resultDoc = u as ProductType | null;
     });
+    await session.endSession();
 
-    await product.save();
-
-    return {
-      message: 'Cover image updated successfully',
-      data: product,
-      code: 200,
-    };
+    if (!resultDoc) {
+      return { message: 'Product not found or image not matched', data: null, code: 404 };
+    }
+    return { message: 'Cover image updated successfully', data: resultDoc, code: 200 };
   } catch (error) {
     console.error('Error updating cover image:', error);
     return {
@@ -306,6 +352,74 @@ const updateCoverImage = async (productId: string, imageUrl: string): Promise<Cu
   }
 };
 
+// Array editors
+const addTags = async (productId: string, tags: string[]): Promise<CustomResponseType<ProductType>> => {
+  try {
+    const doc = await Product.findOneAndUpdate(
+      { _id: productId },
+      { $addToSet: { tags: { $each: tags } } },
+      { new: true }
+    )
+      .lean<ProductType>()
+      .exec();
+    if (!doc) return { message: 'Product not found', data: null, code: 404 };
+    return { message: 'Tags added', data: doc, code: 200 };
+  } catch (e) {
+    console.error(e);
+    return { message: 'Failed to add tags', data: null, code: 500 };
+  }
+};
+
+const removeTag = async (productId: string, tag: string): Promise<CustomResponseType<ProductType>> => {
+  try {
+    const doc = await Product.findOneAndUpdate({ _id: productId }, { $pull: { tags: tag } }, { new: true })
+      .lean<ProductType>()
+      .exec();
+    if (!doc) return { message: 'Product not found', data: null, code: 404 };
+    return { message: 'Tag removed', data: doc, code: 200 };
+  } catch (e) {
+    console.error(e);
+    return { message: 'Failed to remove tag', data: null, code: 500 };
+  }
+};
+
+const addSpecifications = async (
+  productId: string,
+  specs: Array<{ key: string; value: string }>
+): Promise<CustomResponseType<ProductType>> => {
+  try {
+    const doc = await Product.findOneAndUpdate(
+      { _id: productId },
+      { $push: { specifications: { $each: specs } } },
+      { new: true }
+    )
+      .lean<ProductType>()
+      .exec();
+    if (!doc) return { message: 'Product not found', data: null, code: 404 };
+    return { message: 'Specifications added', data: doc, code: 200 };
+  } catch (e) {
+    console.error(e);
+    return { message: 'Failed to add specifications', data: null, code: 500 };
+  }
+};
+
+const removeSpecification = async (productId: string, key: string): Promise<CustomResponseType<ProductType>> => {
+  try {
+    const doc = await Product.findOneAndUpdate(
+      { _id: productId },
+      { $pull: { specifications: { key } } },
+      { new: true }
+    )
+      .lean<ProductType>()
+      .exec();
+    if (!doc) return { message: 'Product not found', data: null, code: 404 };
+    return { message: 'Specification removed', data: doc, code: 200 };
+  } catch (e) {
+    console.error(e);
+    return { message: 'Failed to remove specification', data: null, code: 500 };
+  }
+};
+
 const Admin_ProductService = {
   createProduct,
   updateProduct,
@@ -313,6 +427,10 @@ const Admin_ProductService = {
   getProductById,
   duplicateProduct,
   updateCoverImage,
+  addTags,
+  removeTag,
+  addSpecifications,
+  removeSpecification,
 };
 
 export default Admin_ProductService;

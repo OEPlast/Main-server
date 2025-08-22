@@ -1,0 +1,11 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "typecheck: old-main-server",
+			"type": "shell",
+			"command": "npm run build",
+			"group": "build"
+		}
+	]
+}

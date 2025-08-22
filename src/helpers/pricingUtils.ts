@@ -2,7 +2,7 @@
 
 export interface PricingTier {
   minQty: number;
-  maxQty: number;
+  maxQty?: number;
   strategy: 'fixedPrice' | 'percentOff' | 'amountOff';
   value: number;
 }
@@ -59,8 +59,10 @@ export function resolveBestVariant(
 
 export function applyPricingTier(base: number, qty: number, tiers?: PricingTier[]): number {
   if (!tiers || tiers.length === 0) return base;
-  const tier = tiers.find((t) => qty >= t.minQty && qty <= t.maxQty);
-  if (!tier) return base;
+  // Find all matching tiers and pick the most specific (highest minQty)
+  const applicable = tiers.filter((t) => qty >= t.minQty && (t.maxQty == null || qty <= t.maxQty));
+  if (applicable.length === 0) return base;
+  const tier = applicable.sort((a, b) => b.minQty - a.minQty)[0]!;
   switch (tier.strategy) {
     case 'fixedPrice':
       return tier.value;

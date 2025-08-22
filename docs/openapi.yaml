@@ -380,6 +380,49 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: OK }
+  /products/category/{slug}:
+    get:
+      tags: [Products]
+      summary: Products by category slug (with descendants)
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [newest, price_asc, price_desc, popular]
+            default: newest
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  code: { type: integer, example: 200 }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  meta:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      page: { type: integer }
+                      limit: { type: integer }
+                      slug: { type: string }
   /products/{id}:
     get:
       tags: [Products]
@@ -391,6 +434,29 @@ paths:
           schema: { type: string }
       responses:
         '200': { description: OK }
+
+  /products/slug/{slug}:
+    get:
+      tags: [Products]
+      summary: Get product by slug
+      parameters:
+        - in: path
+          name: slug
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  code: { type: integer }
+                  data:
+                    type: object
+                    additionalProperties: true
 
   # Categories (public)
   /categories:
@@ -1021,6 +1087,93 @@ paths:
         '200':
           description: OK
 
+  /logistics/countries:
+    get:
+      tags: [Logistics]
+      summary: List supported logistics countries
+      responses:
+        '200': { description: OK }
+
+  /logistics/locations-tree:
+    get:
+      tags: [Logistics]
+      summary: Countries with nested states, LGAs and cities (no price)
+      description: Returns a lightweight tree of locations suitable for dropdowns. No prices or ETA values are included.
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  code: { type: integer, example: 200 }
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        countryCode: { type: string }
+                        countryName: { type: string }
+                        states:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              name: { type: string }
+                              code: { type: string }
+                              cities:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    name: { type: string }
+                                    code: { type: string }
+                              lgas:
+                                type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    name: { type: string }
+                                    code: { type: string }
+
+  /logistics/config/{countryCode}:
+    get:
+      tags: [Logistics]
+      summary: Get logistics config by country
+      parameters:
+        - in: path
+          name: countryCode
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
+
+  /logistics/quote:
+    post:
+      tags: [Logistics]
+      summary: Get shipping quote for a product and destination
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LogisticsQuoteRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: '#/components/schemas/LogisticsQuoteResponse' }
+        '400': { description: Validation error }
+        '404': { description: Not found }
+        '500': { description: Server error }
+
   # Invoice (user)
   /users/orders/{orderId}/invoice:
     get:
@@ -1129,6 +1282,38 @@ paths:
         '204': { description: Deleted }
 
   # Admin endpoints (summarized key routes)
+  /admin/logistics/countries:
+    get:
+      tags: [Admin - Analytics]
+      summary: List countries with logistics config (admin)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200': { description: OK }
+  /admin/logistics:
+    put:
+      tags: [Admin - Analytics]
+      summary: Upsert logistics configuration (admin)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LogisticsConfig' }
+      responses:
+        '200': { description: Saved }
+  /admin/logistics/{countryCode}:
+    get:
+      tags: [Admin - Analytics]
+      summary: Get logistics config by country (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: countryCode
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+        '404': { description: Not found }
   /admin/product:
     get:
       tags: [Admin - Products]
@@ -1158,8 +1343,8 @@ paths:
                 description: { type: string }
                 brand: { type: string }
                 price: { type: number, minimum: 0 }
-                category: { type: string }
-                subCategories: { type: string }
+                category: { type: string, description: Category id }
+                tags: { type: array, items: { type: string } }
                 description_images:
                   type: array
                   items:
@@ -1174,8 +1359,19 @@ paths:
                     properties:
                       key: { type: string }
                       value: { type: string }
-                shipping: { type: number, minimum: 0 }
-                deliveryTime: { type: number, minimum: 0 }
+                dimension:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      key: { type: string, enum: [length, breadth, height, volume, width, weight] }
+                      value: { type: string }
+                shipping:
+                  type: object
+                  properties:
+                    addedCost: { type: number, minimum: 0 }
+                    increaseCostBy: { type: number, minimum: 0 }
+                    addedDays: { type: number, minimum: 0 }
                 attributes:
                   type: array
                   items:
@@ -1195,13 +1391,13 @@ paths:
                             pricingTiers:
                               type: array
                               items: { $ref: '#/components/schemas/PricingTier' }
-                tags: { type: array, items: { type: string } }
-                stock: { type: number, minimum: 0 }
-                discount: { type: number, minimum: 0 }
                 pricingTiers:
                   type: array
                   description: Optional product-level wholesale tiers
                   items: { $ref: '#/components/schemas/PricingTier' }
+                stock: { type: number, minimum: 0 }
+                lowStockThreshold: { type: number, minimum: 0 }
+                discount: { type: number, minimum: 0 }
       responses:
         '201': { description: Created }
 
@@ -1238,7 +1434,6 @@ paths:
                 brand: { type: string }
                 price: { type: number, minimum: 0 }
                 category: { type: string }
-                subCategories: { type: string }
                 description_images:
                   type: array
                   items:
@@ -1253,8 +1448,19 @@ paths:
                     properties:
                       key: { type: string }
                       value: { type: string }
-                shipping: { type: number, minimum: 0 }
-                deliveryTime: { type: number, minimum: 0 }
+                dimension:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      key: { type: string, enum: [length, breadth, height, volume, width, weight] }
+                      value: { type: string }
+                shipping:
+                  type: object
+                  properties:
+                    addedCost: { type: number, minimum: 0 }
+                    increaseCostBy: { type: number, minimum: 0 }
+                    addedDays: { type: number, minimum: 0 }
                 attributes:
                   type: array
                   items:
@@ -1276,6 +1482,7 @@ paths:
                               items: { $ref: '#/components/schemas/PricingTier' }
                 tags: { type: array, items: { type: string } }
                 stock: { type: number, minimum: 0 }
+                lowStockThreshold: { type: number, minimum: 0 }
                 discount: { type: number, minimum: 0 }
                 pricingTiers:
                   type: array
@@ -1327,6 +1534,94 @@ paths:
               required: [imageUrl]
               properties:
                 imageUrl: { type: string }
+      responses:
+        '200': { description: OK }
+
+  /admin/product/{productId}/tags:
+    post:
+      tags: [Admin - Products]
+      summary: Add tags to product (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tags]
+              properties:
+                tags:
+                  type: array
+                  items: { type: string }
+      responses:
+        '200': { description: OK }
+  /admin/product/{productId}/tags/{tag}:
+    delete:
+      tags: [Admin - Products]
+      summary: Remove a tag from product (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: tag
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: OK }
+  /admin/product/{productId}/specifications:
+    post:
+      tags: [Admin - Products]
+      summary: Add specifications to product (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [specifications]
+              properties:
+                specifications:
+                  type: array
+                  items:
+                    type: object
+                    required: [key, value]
+                    properties:
+                      key: { type: string }
+                      value: { type: string }
+      responses:
+        '200': { description: OK }
+    delete:
+      tags: [Admin - Products]
+      summary: Remove specification by key (admin)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: productId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [key]
+              properties:
+                key: { type: string }
       responses:
         '200': { description: OK }
 
@@ -2154,6 +2449,73 @@ components:
       required: false
       schema: { type: string, format: date-time }
   schemas:
+    LogisticsCity:
+      type: object
+      properties:
+        name: { type: string }
+        code: { type: string }
+        price: { type: number, minimum: 0 }
+        etaDays: { type: integer, minimum: 0 }
+    LogisticsLGA:
+      type: object
+      properties:
+        name: { type: string }
+        code: { type: string }
+        price: { type: number, minimum: 0 }
+        etaDays: { type: integer, minimum: 0 }
+    LogisticsState:
+      type: object
+      required: [name, code]
+      properties:
+        name: { type: string }
+        code: { type: string }
+        fallbackPrice: { type: number, minimum: 0 }
+        fallbackEtaDays: { type: integer, minimum: 0 }
+        cities:
+          type: array
+          items: { $ref: '#/components/schemas/LogisticsCity' }
+        lgas:
+          type: array
+          items: { $ref: '#/components/schemas/LogisticsLGA' }
+    LogisticsConfig:
+      type: object
+      required: [countryCode, countryName, states]
+      properties:
+        countryCode: { type: string }
+        countryName: { type: string }
+        states:
+          type: array
+          items: { $ref: '#/components/schemas/LogisticsState' }
+    LogisticsQuoteRequest:
+      type: object
+      required: [productId, destination]
+      properties:
+        productId: { type: string }
+        quantity: { type: integer, minimum: 1, default: 1 }
+        destination:
+          type: object
+          required: [countryCode]
+          properties:
+            countryCode: { type: string }
+            stateCode: { type: string }
+            cityName: { type: string }
+            lgaName: { type: string }
+    LogisticsQuoteResponse:
+      type: object
+      properties:
+        currency: { type: string }
+        basePrice: { type: number }
+        productShippingAdjustments:
+          type: object
+          properties:
+            addedCost: { type: number }
+            increaseCostBy: { type: number }
+            addedDays: { type: integer }
+        finalPrice: { type: number }
+        etaDays: { type: integer }
+        breakdown:
+          type: object
+          additionalProperties: true
     PricingTier:
       type: object
       required: [minQty, maxQty, strategy, value]

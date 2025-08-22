@@ -38,6 +38,7 @@ import {
   AdminInventoryRoute,
   AdminInvoicesRoute,
   AdminCouponAnalyticsRoute,
+  AdminLogisticsRoute,
 } from './routes/admin';
 import FileUploadRoute from '@/routes/general/fileUpload';
 import EmailProcessor from './services/EmailProcessor';
@@ -79,6 +80,7 @@ app.use('/categories', CategoriesRoute);
 app.use('/banners', BannersRoute);
 
 app.use('/products', ProductsRoute);
+app.use('/logistics', LogisticsPublicRoute);
 
 app.use('/user/reviews', UserReviewsRoute);
 app.use('/payments', PaymentRoute);
@@ -89,7 +91,6 @@ app.use('/carts', CartRoute);
 app.use('/checkout', CheckoutRoute);
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);
-app.use('/logistics', LogisticsPublicRoute);
 
 //------------------
 //admin
@@ -101,6 +102,7 @@ app.use('/admin/users', AdminUsersRoute);
 app.use('/admin/banners', AdminBannerRoute);
 
 app.use('/admin/product', AdminProductRoute);
+app.use('/admin/logistics', AdminLogisticsRoute);
 
 app.use('/admin/orders', AdminOrderRoute);
 app.use('/admin/coupon-analytics', AdminCouponAnalyticsRoute);

@@ -16,12 +16,12 @@ const getAllProducts = async (req: Request, res: Response) => {
 // Search products
 const searchProducts = async (req: Request, res: Response) => {
   try {
-    const { query } = req.query;
+    const q = (req.query.q as string) || '';
     const filters = req.body.filters || {};
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
 
-    const { data, message, code } = await ProductService.searchProducts(query as string, filters, page, limit);
+    const { data, message, code } = await ProductService.searchProducts(q, filters, page, limit);
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in searchProducts:', error);
@@ -88,8 +88,8 @@ const getProductsByCategoryAndSubCategory = async (req: Request, res: Response) 
 // Get product by ID
 const getProductById = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
-    const { data, message, code } = await ProductService.getProductById(productId);
+    const { id } = req.params as { id: string };
+    const { data, message, code } = await ProductService.getProductById(id);
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getProductById:', error);
@@ -116,6 +116,29 @@ export default {
   getTopSoldProducts,
   getHotSalesProducts,
   getProductsByCategoryAndSubCategory,
+  async getByCategorySlug(req: Request, res: Response) {
+    try {
+      const { slug } = req.params;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 20;
+      const sort = (req.query.sort as 'newest' | 'price_asc' | 'price_desc' | 'popular') || 'newest';
+      const { data, message, code, meta } = await ProductService.getByCategorySlug(slug, page, limit, sort);
+      return res.status(code).json({ message, data, meta });
+    } catch (error) {
+      console.error('Error in getByCategorySlug:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+  async getProductBySlug(req: Request, res: Response) {
+    try {
+      const { slug } = req.params as { slug: string };
+      const { data, message, code } = await ProductService.getProductBySlug(slug);
+      return res.status(code).json({ message, data });
+    } catch (error) {
+      console.error('Error in getProductBySlug:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
   getProductById,
   getRecommendation,
 };

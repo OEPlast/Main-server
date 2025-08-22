@@ -1,16 +1,22 @@
 import mongoose, { InferSchemaType } from 'mongoose';
 const { ObjectId } = mongoose.Schema;
 
+//for wholesale buyinh
 const pricingTierSchema = new mongoose.Schema(
   {
     minQty: { type: Number, required: true, min: 1 },
-    maxQty: { type: Number, required: true, min: 1 },
+    maxQty: { type: Number, min: 1, required: false },
     // Pricing strategy: fixedPrice sets unit price, percentOff/amountOff apply discounts on resolved base
     strategy: { type: String, enum: ['fixedPrice', 'percentOff', 'amountOff'], required: true },
     value: { type: Number, required: true, min: 0 },
   },
   { _id: false }
 );
+
+// Ensure maxQty, when provided, is >= minQty
+pricingTierSchema.path('maxQty').validate(function (this: { minQty: number }, v: number | undefined) {
+  return v == null || v >= this.minQty;
+}, 'maxQty must be >= minQty');
 
 const attributeSchema = new mongoose.Schema({
   name: {
@@ -25,10 +31,10 @@ const attributeSchema = new mongoose.Schema({
       },
       price: {
         type: Number,
+        min: 0,
       },
       discount: {
         type: Number,
-        default: 0,
         min: 0,
       },
       stock: {
@@ -51,6 +57,10 @@ const attributeSchema = new mongoose.Schema({
 
 const productSchema = new mongoose.Schema(
   {
+    sku: {
+      type: Number,
+      required: true,
+    },
     name: {
       type: String,
       required: true,
@@ -58,9 +68,6 @@ const productSchema = new mongoose.Schema(
     description: {
       type: String,
       required: true,
-    },
-    brand: {
-      type: String,
     },
     price: {
       type: Number,
@@ -77,22 +84,14 @@ const productSchema = new mongoose.Schema(
       required: true,
       ref: 'Category',
     },
-    subCategories: {
-      type: ObjectId,
-      ref: 'subCategory',
-    },
     tags: [{ type: String }],
-    cover_image: {
-      type: String,
-      required: true,
-    },
 
     description_images: [
       {
-        url: { type: String, required: true },
+        url: { type: String, required: true, default: '' },
         cover_image: {
           type: Boolean,
-          default: false,
+          default: false, //but at least one must be true
         },
       },
     ],
@@ -108,16 +107,35 @@ const productSchema = new mongoose.Schema(
         },
       },
     ],
+    dimension: [
+      {
+        key: {
+          type: String,
+          required: true,
+          enum: ['length', 'breadth', 'height', 'volume', 'width', 'weight'],
+        },
+        value: {
+          type: String,
+          required: true,
+        },
+      },
+    ],
     shipping: {
-      type: Number,
-      required: true,
-      default: 0,
-      min: 0,
-    },
-    deliveryTime: {
-      type: Number,
-      required: true,
-      min: 0,
+      addedCost: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      increaseCostBy: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
+      addedDays: {
+        type: Number,
+        default: 0,
+        min: 0,
+      },
     },
     attributes: [attributeSchema],
     pricingTiers: {
@@ -134,16 +152,6 @@ const productSchema = new mongoose.Schema(
       type: Number,
       required: true,
       default: 5,
-      min: 0,
-    },
-    ratings: {
-      type: Number,
-      default: 0,
-      min: 0,
-    },
-    numReviews: {
-      type: Number,
-      default: 0,
       min: 0,
     },
     discount: {
@@ -165,3 +173,4 @@ const productSchema = new mongoose.Schema(
 export type ProductType = InferSchemaType<typeof productSchema>;
 const Product = mongoose.model('Product', productSchema);
 export default Product;
+//dimenaions
