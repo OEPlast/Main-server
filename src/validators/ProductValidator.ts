@@ -78,6 +78,12 @@ const validateProductQuery = [
       toFloat: true,
       errorMessage: 'Maximum price must be a positive number',
     },
+    brand: {
+      in: ['query'],
+      optional: true,
+      isString: true,
+      trim: true,
+    },
     sortBy: {
       in: ['query'],
       optional: true,
@@ -101,6 +107,18 @@ const validateProductQuery = [
         options: [['in-stock', 'out-of-stock', 'low-stock']],
       },
       errorMessage: 'Availability must be one of: in-stock, out-of-stock, low-stock',
+    },
+    specKey: {
+      in: ['query'],
+      optional: true,
+      isString: true,
+      trim: true,
+    },
+    specValue: {
+      in: ['query'],
+      optional: true,
+      isString: true,
+      trim: true,
     },
   }),
   (req: Request, res: Response, next: NextFunction) => {

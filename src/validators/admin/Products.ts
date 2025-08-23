@@ -11,7 +11,7 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
       name: { isString: true, notEmpty: true, errorMessage: 'name is required' },
       description: { isString: true, notEmpty: true, errorMessage: 'description is required' },
       price: { isNumeric: true, errorMessage: 'price must be a number' },
-      category: { isString: true, notEmpty: true, errorMessage: 'category is required' },
+      category: { isMongoId: true, notEmpty: true, errorMessage: 'category is required' },
 
       tags: { optional: true, isArray: true },
       'tags.*': { optional: true, isString: true },
@@ -92,7 +92,7 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
 const updateProductValidator = async (req: Request, res: Response, next: NextFunction) => {
   await checkExact(
     checkSchema({
-      id: { in: ['params'], isString: true, notEmpty: true, errorMessage: 'id is required' },
+      id: { in: ['params'], isMongoId: true, notEmpty: true, optional: false, errorMessage: 'id is required' },
 
       sku: { optional: true, isNumeric: true },
       name: { optional: true, isString: true },
@@ -118,10 +118,10 @@ const updateProductValidator = async (req: Request, res: Response, next: NextFun
       },
       'dimension.*.value': { optional: true, isString: true },
 
-  shipping: { optional: true, isObject: true },
-  'shipping.addedCost': { optional: true, isFloat: { options: { min: 0 } } },
-  'shipping.increaseCostBy': { optional: true, isFloat: { options: { min: 0 } } },
-  'shipping.addedDays': { optional: true, isInt: { options: { min: 0 } } },
+      shipping: { optional: true, isObject: true },
+      'shipping.addedCost': { optional: true, isFloat: { options: { min: 0 } } },
+      'shipping.increaseCostBy': { optional: true, isFloat: { options: { min: 0 } } },
+      'shipping.addedDays': { optional: true, isInt: { options: { min: 0 } } },
 
       attributes: { optional: true, isArray: true },
       'attributes.*.name': { optional: true, isString: true },
@@ -189,7 +189,7 @@ const getProductByIdValidator = async (req: Request, res: Response, next: NextFu
     checkSchema({
       id: {
         in: ['params'],
-        isString: true,
+        isMongoId: true,
         optional: false,
         errorMessage: 'ID is required and should be a string',
       },
@@ -376,11 +376,11 @@ const updateCoverImageValidator = async (req: Request, res: Response, next: Next
         notEmpty: true,
         errorMessage: 'Product ID is required and should be a string',
       },
-      imageUrl: {
+      imageId: {
         in: ['body'],
-        isString: true,
+        isMongoId: true,
         optional: false,
-        errorMessage: 'imageUrl is required and should be a string',
+        errorMessage: 'imageId is required and should be an id',
       },
     })
   ).run(req);

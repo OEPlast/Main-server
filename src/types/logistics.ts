@@ -34,7 +34,7 @@ export type QuoteInput = {
   productId: string;
   quantity?: number;
   destination: {
-    countryCode: string;
+    countryName: string;
     stateCode?: string;
     cityName?: string;
     lgaName?: string;

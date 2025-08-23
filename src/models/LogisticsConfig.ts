@@ -32,14 +32,11 @@ const stateSchema = new mongoose.Schema(
   { _id: false }
 );
 
-const logisticsConfigSchema = new mongoose.Schema(
-  {
-    countryCode: { type: String, required: true, trim: true, uppercase: true, index: true, unique: true },
-    countryName: { type: String, required: true, trim: true },
-    states: { type: [stateSchema], default: [] },
-  },
-  { timestamps: true }
-);
+const logisticsConfigSchema = new mongoose.Schema({
+  countryCode: { type: String, required: true, trim: true, uppercase: true, index: true, unique: true },
+  countryName: { type: String, unique: true, default: '', required: true, trim: true, index: true },
+  states: { type: [stateSchema], default: [] },
+});
 
 export type LogisticsConfigType = InferSchemaType<typeof logisticsConfigSchema>;
 const LogisticsConfig = mongoose.model('LogisticsConfig', logisticsConfigSchema);

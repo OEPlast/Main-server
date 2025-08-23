@@ -1,9 +1,20 @@
 import express from 'express';
 import ProductValidator from '@/validators/admin/Products';
+import GeneralProductValidator from '@/validators/ProductValidator';
 import { isAdmin, authenticateUser, requirePermission } from '@/middleware/auth';
 import Admin_ProductController from '@/controller/admin/ProductController';
 
 const router = express.Router();
+
+// List all products (admin view) - mirrors general /all with extra permissions
+router.get(
+  '/all',
+  authenticateUser,
+  isAdmin,
+  requirePermission('products', 'read'),
+  ...GeneralProductValidator.validateProductQuery,
+  Admin_ProductController.getAllProducts
+);
 
 // Create product
 router.post(

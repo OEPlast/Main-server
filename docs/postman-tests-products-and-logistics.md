@@ -20,20 +20,26 @@ Auth
 - Query params (optional):
   - page: number (min 1)
   - limit: number (1-100)
-  - category: string (categoryId)
-  - subcategory: string (subcategoryId)
+  - category: string (category name or id)
+  - subcategory: string (subcategory name or id)
   - search: string (>= 2 chars)
   - minPrice: number
   - maxPrice: number
+  - brand: string (filter by brand name, case-insensitive)
   - sortBy: one of [price, name, createdAt, rating, sales]
   - sortOrder: one of [asc, desc]
   - availability: one of [in-stock, out-of-stock, low-stock]
+  - specKey: string (specification key, e.g., Brand)
+  - specValue: string (specification value, e.g., Nike)
 
 Use cases:
 
 - List all products: {{mainurl}}/products?page=1&limit=20
-- Filter by category: {{mainurl}}/products?category={{categoryId}}
+- Filter by category (by name): {{mainurl}}/products?category=Bags
+- Filter by category (by id): {{mainurl}}/products?category={{categoryId}}
 - Price range: {{mainurl}}/products?minPrice=1000&maxPrice=5000
+- Filter by specification (brand-name): {{mainurl}}/products?specKey=Brand&specValue=Nike
+- Filter by brand (top-level field): {{mainurl}}/products?brand=Acme
 
 ---
 
@@ -56,6 +62,7 @@ Use cases:
     "brand": "Acme",
     "attributes": { "Color": "Blue" },
     "tags": ["bestseller", "eco"],
+    "specifications": { "Brand": "Nike" },
     "sortBy": "newest"
   }
 }
@@ -465,34 +472,141 @@ More update use-cases
 - Method: GET
 - URL: {{mainurl}}/logistics/locations-tree
 
+Use cases:
+
+- Get full tree for UI dropdowns: {{mainurl}}/logistics/locations-tree
+- Verify empty or missing states handled gracefully
+
 ### 2) Get logistics config by country
 
 - Method: GET
 - URL: {{mainurl}}/logistics/config/{{countryCode}}
 - Example: {{mainurl}}/logistics/config/NG
 
+Use cases:
+
+- Existing country: {{mainurl}}/logistics/config/NG
+- Non-existing country (expect 404): {{mainurl}}/logistics/config/ZZ
+
 ### 3) Get shipping quote for a product and destination
 
 - Method: POST
 - URL: {{mainurl}}/logistics/quote
-- Body (JSON) — example:
+- Body (JSON) — longest, most robust example:
 
 ```json
 {
-  "countryCode": "NG",
+  "productId": "{{productId}}",
+  "quantity": 3,
   "destination": {
+    "countryCode": "NG",
     "stateCode": "LA",
-    "lgaCode": "IKEJA",
-    "cityCode": "IKEJA"
-  },
-  "product": {
-    "weight": 2.5,
-    "dimensions": { "length": 20, "width": 15, "height": 10 },
-    "quantity": 3,
-    "shipping": { "addedCost": 500, "increaseCostBy": 100, "addedDays": 2 }
+    "cityName": "Ikeja",
+    "lgaName": "Ikeja"
   }
 }
 ```
+
+Notes
+
+- The API derives base price/ETA from the configured country/state/city or LGA. Specificity order: city or lga > state fallback.
+- Product-level shipping modifiers are applied automatically using the product document fields:
+  - shipping.addedCost (flat addition)
+  - shipping.increaseCostBy (percent of base)
+  - shipping.addedDays (adds to ETA)
+- Final price = (base + base*increaseCostBy% + addedCost) * max(1, quantity)
+- If no matching state/city/lga and no fallback are found, base defaults to 0 and only product shipping modifiers apply.
+
+Additional Quote Use Cases
+
+1. City-level override only (quantity omitted falls back to 1)
+
+```json
+{
+  "productId": "{{productId}}",
+  "destination": {
+    "countryCode": "NG",
+    "stateCode": "LA",
+    "cityName": "Lekki"
+  }
+}
+```
+
+2. LGA-level override only
+
+```json
+{
+  "productId": "{{productId}}",
+  "quantity": 5,
+  "destination": {
+    "countryCode": "NG",
+    "stateCode": "LA",
+    "lgaName": "Eti-Osa"
+  }
+}
+```
+
+3. State fallback (no city/lga match)
+
+```json
+{
+  "productId": "{{productId}}",
+  "destination": {
+    "countryCode": "NG",
+    "stateCode": "FC"
+  }
+}
+```
+
+4. No match anywhere (base=0, only product shipping applies)
+
+```json
+{
+  "productId": "{{productId}}",
+  "quantity": 2,
+  "destination": {
+    "countryCode": "NG",
+    "stateCode": "XX"
+  }
+}
+```
+
+5. Different country with mixed overrides
+
+```json
+{
+  "productId": "{{productId}}",
+  "quantity": 10,
+  "destination": {
+    "countryCode": "US",
+    "stateCode": "CA",
+    "cityName": "Los Angeles"
+  }
+}
+```
+
+6. Error case — unknown product (expect 404)
+
+```json
+{
+  "productId": "000000000000000000000000",
+  "destination": {
+    "countryCode": "NG",
+    "stateCode": "LA",
+    "cityName": "Ikeja"
+  }
+}
+```
+
+### 4) Track shipment by tracking number
+
+- Method: GET
+- URL: {{mainurl}}/logistics/track/{{trackingNumber}}
+
+Use cases:
+
+- Existing tracking number: {{mainurl}}/logistics/track/ABC123456
+- Unknown tracking number: {{mainurl}}/logistics/track/NOTFOUND
 
 ## Admin — Logistics
 
@@ -516,11 +630,16 @@ Use cases:
 - URL: {{mainurl}}/admin/logistics/{{countryCode}}
 - Example: {{mainurl}}/admin/logistics/NG
 
-### 3) Upsert logistics config (create or replace for a country)
+Use cases:
 
-- Method: PUT
-- URL: {{mainurl}}/admin/logistics
-- Body (JSON):
+- Existing: {{mainurl}}/admin/logistics/NG
+- Not found (expect 404): {{mainurl}}/admin/logistics/ZZ
+
+### 3) Create logistics config (full doc)
+
+- Method: POST
+- URL: {{mainurl}}/admin/logistics/config
+- Body (JSON) — longest, most robust example with all optional fields:
 
 ```json
 {
@@ -534,19 +653,131 @@ Use cases:
       "fallbackEtaDays": 3,
       "cities": [
         { "name": "Ikeja", "code": "IKEJA", "price": 2000, "etaDays": 2 },
-        { "name": "Lekki", "code": "LEKKI" }
+        { "name": "Lekki", "code": "LEKKI", "price": 1800 },
+        { "name": "Surulere", "code": "SRL" }
       ],
-      "lgas": [{ "name": "Ikeja", "code": "IKEJA", "price": 1800, "etaDays": 2 }]
+      "lgas": [
+        { "name": "Ikeja", "code": "IKEJA", "price": 1800, "etaDays": 2 },
+        { "name": "Eti-Osa", "code": "ETI", "price": 1600 },
+        { "name": "Kosofe", "code": "KSF" }
+      ]
     },
     {
       "name": "Abuja",
       "code": "FC",
       "fallbackPrice": 1200,
-      "fallbackEtaDays": 4
+      "fallbackEtaDays": 4,
+      "cities": [{ "name": "Garki", "price": 1400, "etaDays": 3 }, { "name": "Wuse" }],
+      "lgas": [
+        { "name": "Abaji", "code": "ABJ" },
+        { "name": "Bwari", "code": "BWR", "etaDays": 5 }
+      ]
     }
   ]
 }
 ```
+
+### 4) Update logistics config by id (partial)
+
+- Method: PATCH
+- URL: {{mainurl}}/admin/logistics/config/{{id}}
+- Body (JSON) — partial update allowed:
+
+```json
+{
+  "countryName": "Nigeria",
+  "states": [
+    {
+      "name": "Lagos",
+      "code": "LA",
+      "fallbackPrice": 1600,
+      "cities": [
+        { "name": "Ikeja", "price": 2100 },
+        { "name": "Lekki", "etaDays": 3 }
+      ]
+    }
+  ]
+}
+```
+
+Additional Admin Logistics Use Cases
+
+1. Create an empty country (scaffold, no states yet)
+
+- Method: POST
+- URL: {{mainurl}}/admin/logistics/country/add
+
+```json
+{
+  "countryCode": "GH",
+  "countryName": "Ghana"
+}
+```
+
+2. Update country name only
+
+- Method: PATCH
+- URL: {{mainurl}}/admin/logistics/country/{{countryCode}}
+
+```json
+{
+  "countryName": "Federal Republic of Nigeria"
+}
+```
+
+3. Minimal upsert (no cities/lgas, uses state fallbacks only)
+
+```json
+{
+  "countryCode": "KE",
+  "countryName": "Kenya",
+  "states": [
+    { "name": "Nairobi", "code": "NRB", "fallbackPrice": 1700, "fallbackEtaDays": 3 },
+    { "name": "Mombasa", "code": "MSA" }
+  ]
+}
+```
+
+4. Full upsert with mixed specificity and sparse overrides
+
+```json
+{
+  "countryCode": "US",
+  "countryName": "United States",
+  "states": [
+    {
+      "name": "California",
+      "code": "CA",
+      "fallbackPrice": 2500,
+      "fallbackEtaDays": 5,
+      "cities": [
+        { "name": "Los Angeles", "code": "LA", "price": 3000 },
+        { "name": "San Francisco", "code": "SF", "etaDays": 6 }
+      ],
+      "lgas": [
+        { "name": "Los Angeles County", "code": "LAC", "price": 2800 },
+        { "name": "Orange County", "code": "ORC" }
+      ]
+    },
+    {
+      "name": "New York",
+      "code": "NY",
+      "fallbackPrice": 2200,
+      "cities": [{ "name": "New York City", "code": "NYC", "price": 3200, "etaDays": 4 }, { "name": "Buffalo" }]
+    }
+  ]
+}
+```
+
+5. Delete a country
+
+- Method: DELETE
+- URL: {{mainurl}}/admin/logistics/country/{{countryCode}}
+
+Use cases:
+
+- Delete existing: {{mainurl}}/admin/logistics/country/KE
+- Delete non-existing (expect 404): {{mainurl}}/admin/logistics/country/ZZ
 
 Notes
 

@@ -1,14 +1,13 @@
-import LogisticsConfigModel from '@/models/LogisticsConfig';
+import LogisticsConfigModel, { LogisticsConfigType } from '@/models/LogisticsConfig';
 import Product from '@/models/Product';
-import { QuoteInput, QuoteResult, LogisticsConfig as LogisticsConfigType, LocationTree } from '@/types/logistics';
+import { QuoteInput, QuoteResult, LocationTree } from '@/types/logistics';
 import { CustomResponsePromise } from '@/types';
-import { PipelineStage } from 'mongoose';
+import mongoose, { PipelineStage } from 'mongoose';
+import { duplicateMessage, isDuplicateKeyError } from '@/middleware/mongodb';
 
-const getConfigByCountry = async (countryCode: string): CustomResponsePromise<LogisticsConfigType> => {
+const getConfigByCountry = async (country: string): CustomResponsePromise<LogisticsConfigType> => {
   try {
-    const cfg = await LogisticsConfigModel.findOne({ countryCode: countryCode.toUpperCase() })
-      .lean<LogisticsConfigType>()
-      .exec();
+    const cfg = await LogisticsConfigModel.findOne({ countryName: country }).collation({ locale: 'en', strength: 2 });
     if (!cfg) {
       return { message: 'Logistics config not found', data: null, code: 404 };
     }
@@ -19,22 +18,48 @@ const getConfigByCountry = async (countryCode: string): CustomResponsePromise<Lo
   }
 };
 
-const upsertConfig = async (payload: LogisticsConfigType): CustomResponsePromise<LogisticsConfigType> => {
+const createConfig = async (payload: LogisticsConfigType): CustomResponsePromise<LogisticsConfigType> => {
   try {
-    const filter = { countryCode: payload.countryCode.toUpperCase() };
-    const update = {
+    const code = payload.countryCode?.toUpperCase();
+    const name = payload.countryName;
+    const existing = await LogisticsConfigModel.findOne({
+      $or: [{ countryCode: code }, { countryName: name }],
+    });
+    if (existing) {
+      return { message: 'Logistics config already exists for this country or code', data: null, code: 409 };
+    }
+    const created = await LogisticsConfigModel.create({
       countryCode: payload.countryCode.toUpperCase(),
       countryName: payload.countryName,
       states: payload.states ?? [],
-    };
-    const opts = { upsert: true, new: true, setDefaultsOnInsert: true } as const;
-    const doc = await LogisticsConfigModel.findOneAndUpdate(filter, update, opts).lean<LogisticsConfigType>().exec();
-    if (!doc) {
-      return { message: 'Failed to upsert logistics config', data: null, code: 500 };
-    }
-    return { message: 'Logistics config upserted successfully', data: doc, code: 200 };
+    });
+    return { message: 'Logistics config created successfully', data: created, code: 201 };
   } catch (error) {
-    console.error('upsertConfig error:', error);
+    console.error('createConfig error:', error);
+    return { message: 'Something went wrong', data: null, code: 500 };
+  }
+};
+
+const updateConfig = async (
+  id: string,
+  payload: Partial<LogisticsConfigType>
+): CustomResponsePromise<LogisticsConfigType> => {
+  try {
+    const update: Partial<LogisticsConfigType> = {};
+    if (payload.countryCode) update.countryCode = payload.countryCode.toUpperCase();
+    if (payload.countryName) update.countryName = payload.countryName;
+    if (payload.states) update.states = payload.states;
+
+    const updated = await LogisticsConfigModel.findByIdAndUpdate(id, { $set: update }, { new: true });
+    if (!updated) {
+      return { message: 'Logistics config not found', data: null, code: 404 };
+    }
+    return { message: 'Logistics config updated successfully', data: updated, code: 200 };
+  } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      return { message: duplicateMessage(error, 'Config'), data: null, code: 500 };
+    }
+    console.error('updateConfig error:', error);
     return { message: 'Something went wrong', data: null, code: 500 };
   }
 };
@@ -43,7 +68,7 @@ const listCountries = async (): CustomResponsePromise<
   Array<Pick<LogisticsConfigType, 'countryCode' | 'countryName'>>
 > => {
   try {
-    const docs = await LogisticsConfigModel.find({}, { countryCode: 1, countryName: 1, _id: 0 }).lean().exec();
+    const docs = await LogisticsConfigModel.find({}, { countryCode: 1, countryName: 1, _id: 1 });
     return {
       message: 'Countries retrieved successfully',
       data: docs as Array<Pick<LogisticsConfigType, 'countryCode' | 'countryName'>>,
@@ -59,12 +84,12 @@ const quote = async (input: QuoteInput): CustomResponsePromise<QuoteResult> => {
   try {
     const { productId, quantity = 1, destination } = input;
 
-    const product = await Product.findById(productId).lean().exec();
+    const product = await Product.findById(productId);
     if (!product) {
       return { message: 'Product not found', data: null, code: 404 };
     }
 
-    const cfgResp = await getConfigByCountry(destination.countryCode);
+    const cfgResp = await getConfigByCountry(destination.countryName);
     if (cfgResp.code !== 200 || !cfgResp.data) {
       return { message: 'Logistics config not found for country', data: null, code: 404 };
     }
@@ -186,17 +211,17 @@ const listLocationsTree = async (): CustomResponsePromise<LocationTree> => {
 const createEmptyCountry = async (
   countryCode: string,
   countryName: string
-): CustomResponsePromise<Pick<LogisticsConfigType, 'countryCode' | 'countryName' | 'states'>> => {
+): CustomResponsePromise<LogisticsConfigType> => {
   try {
     const code = countryCode.toUpperCase();
-    const exists = await LogisticsConfigModel.findOne({ countryCode: code }).lean().exec();
+    const exists = await LogisticsConfigModel.findOne({ countryCode: code });
     if (exists) {
       return { message: 'Country already exists', data: null, code: 409 };
     }
     const created = await LogisticsConfigModel.create({ countryCode: code, countryName, states: [] });
     return {
       message: 'Country created successfully',
-      data: { countryCode: created.countryCode, countryName: created.countryName, states: [] },
+      data: created,
       code: 201,
     };
   } catch (error) {
@@ -205,10 +230,9 @@ const createEmptyCountry = async (
   }
 };
 
-const deleteCountry = async (countryCode: string): CustomResponsePromise<null> => {
+const deleteCountry = async (id: string): CustomResponsePromise<null> => {
   try {
-    const code = countryCode.toUpperCase();
-    const res = await LogisticsConfigModel.deleteOne({ countryCode: code }).exec();
+    const res = await LogisticsConfigModel.deleteOne({ _id: id });
     if (res.deletedCount && res.deletedCount > 0) {
       return { message: 'Country deleted successfully', data: null, code: 200 };
     }
@@ -229,9 +253,7 @@ const updateCountryName = async (
       { countryCode: code },
       { $set: { countryName } },
       { new: true }
-    )
-      .lean<LogisticsConfigType>()
-      .exec();
+    );
     if (!updated) {
       return { message: 'Country not found', data: null, code: 404 };
     }
@@ -246,13 +268,223 @@ const updateCountryName = async (
   }
 };
 
+type Destination = {
+  countryName: string;
+  stateCode: string;
+  lgaName: string;
+};
+
+type OrderItem = {
+  productId: string;
+  quantity: number;
+};
+
+// Shipping pricing tuning knobs (change these to adjust growth behavior)
+// Progressive shipping constants
+const PROG_FIRST_INTERVAL = 5; // first N units at full base shipping
+const PROG_INTERVAL_SIZE = 25; // progressive blocks after first interval
+const PROG_FLOOR_RATIO = 0.04; // min fraction of baseShipping per unit at very large quantities
+const PROG_DECAY_RATE = 1.3; // speed of decay per interval towards the floor ratio
+// Cart-level saturation and cap (to avoid runaway totals)
+const PROG_SATURATION_FLOOR = 0.18; // minimum multiplier applied to rawShipping after grouping
+const PROG_SATURATION_LN_COEFF = 0.5; // how fast saturation decreases with ln(qty)
+const PROG_CAP_BASE = 8; // base term for the cap function
+const PROG_CAP_LN_COEFF = 5; // coefficient of ln(qty) in the cap
+const PROG_CAP_MULTIPLIER = 19; // overall multiplier for the cap
+
+export async function calculateProgressiveShipping(items: OrderItem[], destination: Destination): Promise<number> {
+  if (!items.length) return 0;
+
+  const productIds = items.map((i) => new mongoose.Types.ObjectId(i.productId));
+
+  // Fetch logistics config
+  const logisticsConfig: LogisticsConfigType | null = await LogisticsConfigModel.findOne({
+    countryName: destination.countryName,
+  });
+  if (!logisticsConfig) throw new Error('Logistics config not found');
+
+  const stateConfig = logisticsConfig.states.find((s) => s.code?.toUpperCase() === destination.stateCode.toUpperCase());
+  const lgaConfig = stateConfig?.lgas.find((l) => l.name?.toLowerCase() === destination.lgaName.toLowerCase());
+
+  const fallbackPrice = lgaConfig?.price ?? stateConfig?.fallbackPrice ?? 0;
+
+  // Use tuning constants
+  const FIRST_INTERVAL = PROG_FIRST_INTERVAL;
+  const INTERVAL_SIZE = PROG_INTERVAL_SIZE;
+  // New model: per-unit cost factor in interval i is
+  // unitFactor(i) = FLOOR_RATIO + (1 - FLOOR_RATIO) / (1 + DECAY_RATE * i)
+  // where i starts at 1. This creates a logarithmic decay towards FLOOR_RATIO.
+  const FLOOR_RATIO = PROG_FLOOR_RATIO; // minimum fraction at very large quantities
+  const DECAY_RATE = PROG_DECAY_RATE; // decay speed
+
+  // Prepare cart quantity mapping
+  const qtyMap: Record<string, number> = {};
+  for (const i of items) {
+    // Use stringified ObjectId as keys to match aggregation $toString("$_id") lookups
+    qtyMap[String(i.productId)] = i.quantity;
+  }
+
+  const aggregationResult = await Product.aggregate([
+    { $match: { _id: { $in: productIds } } },
+
+    // Attach quantity from cart
+    {
+      $addFields: {
+        // Pull quantity from the input items map by matching on product _id string
+        qty: {
+          $ifNull: [
+            {
+              $getField: {
+                input: { $literal: qtyMap },
+                field: { $toString: '$_id' },
+              },
+            },
+            0,
+          ],
+        },
+        // If product has a positive explicit addedCost, use it; otherwise fall back to location price
+        baseShipping: {
+          $let: {
+            vars: { ship: { $ifNull: ['$shipping.addedCost', null] } },
+            in: { $cond: [{ $gt: ['$$ship', 0] }, '$$ship', fallbackPrice] },
+          },
+        },
+      },
+    },
+
+    // Compute total line shipping with progressive intervals (log-decay model)
+    {
+      $addFields: {
+        totalLineShipping: {
+          $let: {
+            vars: {
+              remainingQty: { $max: [{ $subtract: ['$qty', FIRST_INTERVAL] }, 0] },
+            },
+            in: {
+              $add: [
+                // First block at full price (up to FIRST_INTERVAL)
+                { $multiply: [{ $min: ['$qty', FIRST_INTERVAL] }, '$baseShipping'] },
+
+                // Remaining intervals with logarithmic decay and floor ratio
+                {
+                  $sum: {
+                    $map: {
+                      input: {
+                        $range: [
+                          1,
+                          {
+                            $add: [
+                              1,
+                              {
+                                $ceil: {
+                                  $divide: ['$$remainingQty', INTERVAL_SIZE],
+                                },
+                              },
+                            ],
+                          },
+                        ],
+                      },
+                      as: 'i',
+                      in: {
+                        $let: {
+                          vars: {
+                            unitsInInterval: {
+                              $min: [
+                                INTERVAL_SIZE,
+                                {
+                                  $max: [
+                                    {
+                                      $subtract: [
+                                        '$$remainingQty',
+                                        { $multiply: [{ $subtract: ['$$i', 1] }, INTERVAL_SIZE] },
+                                      ],
+                                    },
+                                    0,
+                                  ],
+                                },
+                              ],
+                            },
+                            unitFactor: {
+                              $add: [
+                                FLOOR_RATIO,
+                                {
+                                  $divide: [
+                                    { $subtract: [1, FLOOR_RATIO] },
+                                    { $add: [1, { $multiply: [DECAY_RATE, '$$i'] }] },
+                                  ],
+                                },
+                              ],
+                            },
+                          },
+                          in: { $multiply: ['$$unitsInInterval', '$baseShipping', '$$unitFactor'] },
+                        },
+                      },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+
+    // Sum across all products and gather total quantity
+    {
+      $group: {
+        _id: null,
+        rawShipping: { $sum: '$totalLineShipping' },
+        qtyTotal: { $sum: '$qty' },
+      },
+    },
+    // Cart-level saturation and dynamic cap to avoid runaway totals
+    {
+      $addFields: {
+        // Saturation multiplier decreases slowly with cart size but floors at a reasonable value
+        saturationMultiplier: {
+          $max: [
+            PROG_SATURATION_FLOOR,
+            {
+              $divide: [
+                1,
+                {
+                  $add: [1, { $multiply: [PROG_SATURATION_LN_COEFF, { $ln: { $add: ['$qtyTotal', 1] } }] }],
+                },
+              ],
+            },
+          ],
+        },
+        // Cap grows sublinearly with total qty
+        capLimit: {
+          $multiply: [
+            fallbackPrice,
+            {
+              $add: [PROG_CAP_BASE, { $multiply: [PROG_CAP_LN_COEFF, { $ln: { $add: ['$qtyTotal', 1] } }] }],
+            },
+            PROG_CAP_MULTIPLIER,
+          ],
+        },
+      },
+    },
+    {
+      $addFields: {
+        flatShipping: { $min: [{ $multiply: ['$rawShipping', '$saturationMultiplier'] }, '$capLimit'] },
+      },
+    },
+  ]);
+
+  return aggregationResult[0]?.flatShipping ?? 0;
+}
+
 export default {
   getConfigByCountry,
-  upsertConfig,
+  createConfig,
+  updateConfig,
   listCountries,
   quote,
   listLocationsTree,
   createEmptyCountry,
   deleteCountry,
   updateCountryName,
+  calculateProgressiveShipping,
 };

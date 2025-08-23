@@ -24,8 +24,8 @@ const quote = async (req: Request, res: Response) => {
 
 const getConfig = async (req: Request, res: Response) => {
   try {
-    const { countryCode } = req.params;
-    const response = await LogisticsService.getConfigByCountry(countryCode);
+    const { country } = req.params;
+    const response = await LogisticsService.getConfigByCountry(country);
     return res.status(response.code).json(response);
   } catch (error) {
     console.error('Error fetching logistics config:', error);
@@ -53,5 +53,19 @@ const listLocationsTree = async (_req: Request, res: Response) => {
   }
 };
 
-const LogisticsController = { trackOrder, quote, getConfig, listCountries, listLocationsTree };
+const flatCartShipping = async (req: Request, res: Response) => {
+  try {
+    const { items, destination } = req.body as {
+      items: Array<{ productId: string; quantity: number }>;
+      destination: { countryName: string; stateCode: string; lgaName: string };
+    };
+    const amount = await LogisticsService.calculateProgressiveShipping(items, destination);
+    return res.status(200).json({ message: 'Flat cart shipping calculated', data: { amount }, code: 200 });
+  } catch (error) {
+    console.error('Error calculating flat cart shipping:', error);
+    return res.status(500).json({ message: 'Internal server error', data: null, code: 500 });
+  }
+};
+
+const LogisticsController = { trackOrder, quote, getConfig, listCountries, listLocationsTree, flatCartShipping };
 export default LogisticsController;

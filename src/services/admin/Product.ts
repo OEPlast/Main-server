@@ -1,8 +1,14 @@
 import Product, { ProductType } from '../../models/Product';
 import slugify from 'slugify';
-import { CustomResponseType } from '@/types';
-import mongoose from 'mongoose';
+import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
+import mongoose, { PipelineStage } from 'mongoose';
 import eventPublisher from '@/events/eventPublisher';
+import { duplicateMessage, isDuplicateKeyError } from '@/middleware/mongodb';
+import Category from '@/models/Category';
+
+function escapeRegex(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 // Pricing types to mirror model
 type PricingTier = {
@@ -111,6 +117,9 @@ const createProduct = async (data: CreateProductData): Promise<CustomResponseTyp
       code: 201,
     };
   } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      return { message: duplicateMessage(error, 'Product'), data: null, code: 400 };
+    }
     console.error(error);
     return {
       message: 'Something went wrong',
@@ -203,6 +212,9 @@ const updateProduct = async (
       code: 200,
     };
   } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      return { message: duplicateMessage(error, 'Product'), data: null, code: 400 };
+    }
     console.error(error);
     return {
       message: 'Something went wrong',
@@ -313,7 +325,7 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
 };
 
 // Add a function to update the cover image of a product
-const updateCoverImage = async (productId: string, imageUrl: string): Promise<CustomResponseType<ProductType>> => {
+const updateCoverImage = async (productId: string, imageId: string): Promise<CustomResponseType<ProductType>> => {
   try {
     const session = await mongoose.startSession();
     let resultDoc: ProductType | null = null;
@@ -330,7 +342,7 @@ const updateCoverImage = async (productId: string, imageUrl: string): Promise<Cu
       const u = await Product.findOneAndUpdate(
         { _id: productId },
         { $set: { 'description_images.$[elem].cover_image': true } },
-        { arrayFilters: [{ 'elem.url': imageUrl }], new: true, session }
+        { arrayFilters: [{ 'elem._id': imageId }], new: true, session }
       )
         .lean<ProductType>()
         .exec();
@@ -420,6 +432,191 @@ const removeSpecification = async (productId: string, key: string): Promise<Cust
   }
 };
 
+/**
+ * Fetches all products with filters via aggregation pipeline.
+ */
+type ListProductsParams = {
+  page?: number;
+  limit?: number;
+  category?: string;
+  subcategory?: string;
+  search?: string;
+  brand?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  sortBy?: 'price' | 'name' | 'createdAt' | 'rating' | 'sales';
+  sortOrder?: 'asc' | 'desc';
+  availability?: 'in-stock' | 'out-of-stock' | 'low-stock';
+  specKey?: string;
+  specValue?: string;
+};
+
+const getAllProducts = async (
+  params: ListProductsParams
+): Promise<
+  CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; pages: number }>
+> => {
+  try {
+    const page = params.page && params.page > 0 ? params.page : 1;
+    const limit = params.limit && params.limit > 0 ? Math.min(params.limit, 100) : 20;
+    const sortOrderNum: 1 | -1 = params.sortOrder === 'asc' ? 1 : -1;
+
+    const match: Record<string, unknown> = {};
+    const and: Record<string, unknown>[] = [];
+
+    if (params.category) {
+      // Allow passing category either as ID or name. Prefer ID if valid; otherwise try name.
+      let categoryMatch: unknown = params.category;
+      try {
+        categoryMatch = new mongoose.Types.ObjectId(params.category);
+        and.push({ category: categoryMatch });
+      } catch {
+        const cat = await Category.findOne({ name: new RegExp(`^${escapeRegex(params.category)}$`, 'i') }).select(
+          '_id'
+        );
+        if (cat) and.push({ category: cat._id });
+      }
+    }
+    if (params.search) {
+      const rx = new RegExp(params.search, 'i');
+      and.push({
+        $or: [{ name: rx }],
+      });
+    }
+    if (params.brand) {
+      and.push({ brand: { $regex: params.brand, $options: 'i' } });
+    }
+    if (typeof params.minPrice === 'number' || typeof params.maxPrice === 'number') {
+      const priceCond: Record<string, number> = {};
+      if (typeof params.minPrice === 'number') priceCond.$gte = params.minPrice;
+      if (typeof params.maxPrice === 'number') priceCond.$lte = params.maxPrice;
+      and.push({ price: priceCond });
+    }
+    // Specifications filter support
+    if (params.specKey && params.specValue) {
+      and.push({
+        specifications: {
+          $elemMatch: {
+            key: new RegExp(`^${escapeRegex(params.specKey)}$`, 'i'),
+            value: new RegExp(escapeRegex(params.specValue), 'i'),
+          },
+        },
+      });
+    }
+    if (params.availability === 'in-stock') {
+      and.push({ stock: { $gt: 0 } });
+    } else if (params.availability === 'out-of-stock') {
+      and.push({ stock: { $eq: 0 } });
+    } else if (params.availability === 'low-stock') {
+      and.push({ $expr: { $and: [{ $gt: ['$stock', 0] }, { $lte: ['$stock', '$lowStockThreshold'] }] } });
+    }
+
+    if (and.length) match.$and = and;
+
+    const pipeline: PipelineStage[] = [];
+    if (Object.keys(match).length) pipeline.push({ $match: match });
+
+    // Category populate via $lookup
+    pipeline.push(
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } }
+    );
+
+    // Optional sales-based sorting
+    if (params.sortBy === 'sales') {
+      pipeline.push(
+        {
+          $lookup: {
+            from: 'orders',
+            let: { pid: '$_id' },
+            pipeline: [
+              { $unwind: '$products' },
+              { $match: { $expr: { $eq: ['$products.product', '$$pid'] } } },
+              { $count: 'count' },
+            ],
+            as: 'salesAgg',
+          },
+        },
+        { $addFields: { salesCount: { $ifNull: [{ $arrayElemAt: ['$salesAgg.count', 0] }, 0] } } },
+        { $project: { salesAgg: 0 } }
+      );
+    }
+
+    // Sorting
+    const sortStage: Record<string, 1 | -1> = {};
+    if (params.sortBy === 'sales') sortStage.salesCount = sortOrderNum;
+    else if (params.sortBy === 'price') sortStage.price = sortOrderNum;
+    else if (params.sortBy === 'name') sortStage.name = sortOrderNum;
+    else if (params.sortBy === 'rating') sortStage.rating = sortOrderNum as 1 | -1; // rating may not exist
+    else sortStage.createdAt = sortOrderNum; // default newest
+
+    pipeline.push({ $sort: sortStage });
+
+    // Facet for data and total count
+    pipeline.push(
+      {
+        $facet: {
+          data: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                price: 1,
+                sku: 1,
+                tags: 1,
+                slug: 1,
+                category: {
+                  _id: '$category._id',
+                  name: '$category.name',
+                  image: '$category.image',
+                  slug: '$category.slug',
+                },
+                description_images: {
+                  $filter: {
+                    input: '$description_images',
+                    as: 'img',
+                    cond: { $eq: ['$$img.cover_image', true] },
+                  },
+                },
+              },
+            },
+          ],
+          totalCount: [{ $count: 'total' }],
+        },
+      },
+      {
+        $project: {
+          data: 1,
+          total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
+        },
+      }
+    );
+
+    const agg = await Product.aggregate(pipeline).exec();
+    const products = (agg[0]?.data as ProductType[]) || [];
+    const total = (agg[0]?.total as number) || 0;
+
+    return {
+      message: 'Products retrieved successfully',
+      data: products,
+      code: 200,
+      meta: { total, page, limit, pages: Math.ceil(total / limit) },
+    };
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    return { message: 'Failed to fetch products', data: null, code: 500 };
+  }
+};
+
 const Admin_ProductService = {
   createProduct,
   updateProduct,
@@ -431,6 +628,7 @@ const Admin_ProductService = {
   removeTag,
   addSpecifications,
   removeSpecification,
+  getAllProducts,
 };
 
 export default Admin_ProductService;

@@ -1,20 +1,31 @@
 import { Request, Response } from 'express';
 import LogisticsService from '@/services/LogisticsService';
 
-const upsertConfig = async (req: Request, res: Response) => {
+const createConfig = async (req: Request, res: Response) => {
   try {
-    const response = await LogisticsService.upsertConfig(req.body);
+    const response = await LogisticsService.createConfig(req.body);
     return res.status(response.code).json(response);
   } catch (error) {
-    console.error('Admin upsert logistics config error:', error);
+    console.error('Admin create logistics config error:', error);
+    return res.status(500).json({ message: 'Internal server error', data: null });
+  }
+};
+
+const updateConfig = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params as { id: string };
+    const response = await LogisticsService.updateConfig(id, req.body);
+    return res.status(response.code).json(response);
+  } catch (error) {
+    console.error('Admin update logistics config error:', error);
     return res.status(500).json({ message: 'Internal server error', data: null });
   }
 };
 
 const getByCountry = async (req: Request, res: Response) => {
   try {
-    const { countryCode } = req.params;
-    const response = await LogisticsService.getConfigByCountry(countryCode);
+    const { country } = req.params;
+    const response = await LogisticsService.getConfigByCountry(country);
     return res.status(response.code).json(response);
   } catch (error) {
     console.error('Admin get logistics config error:', error);
@@ -45,8 +56,8 @@ const createEmptyCountry = async (req: Request, res: Response) => {
 
 const deleteCountry = async (req: Request, res: Response) => {
   try {
-    const { countryCode } = req.params as { countryCode: string };
-    const response = await LogisticsService.deleteCountry(countryCode);
+    const { id } = req.params as { id: string };
+    const response = await LogisticsService.deleteCountry(id);
     return res.status(response.code).json(response);
   } catch (error) {
     console.error('Admin delete country error:', error);
@@ -54,16 +65,11 @@ const deleteCountry = async (req: Request, res: Response) => {
   }
 };
 
-const updateCountryName = async (req: Request, res: Response) => {
-  try {
-    const { countryCode } = req.params as { countryCode: string };
-    const { countryName } = req.body as { countryName: string };
-    const response = await LogisticsService.updateCountryName(countryCode, countryName);
-    return res.status(response.code).json(response);
-  } catch (error) {
-    console.error('Admin update country name error:', error);
-    return res.status(500).json({ message: 'Internal server error', data: null });
-  }
+export default {
+  createConfig,
+  updateConfig,
+  getByCountry,
+  listCountries,
+  createEmptyCountry,
+  deleteCountry,
 };
-
-export default { upsertConfig, getByCountry, listCountries, createEmptyCountry, deleteCountry, updateCountryName };

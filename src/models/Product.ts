@@ -1,6 +1,19 @@
 import mongoose, { InferSchemaType } from 'mongoose';
 const { ObjectId } = mongoose.Schema;
 
+const specificationSchema = new mongoose.Schema(
+  {
+    key: {
+      type: String,
+      required: true,
+    },
+    value: {
+      type: String,
+      required: true,
+    },
+  },
+  { _id: false }
+);
 //for wholesale buyinh
 const pricingTierSchema = new mongoose.Schema(
   {
@@ -18,42 +31,45 @@ pricingTierSchema.path('maxQty').validate(function (this: { minQty: number }, v:
   return v == null || v >= this.minQty;
 }, 'maxQty must be >= minQty');
 
-const attributeSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-  },
-  children: [
-    {
-      name: {
-        type: String,
-        required: true,
-      },
-      price: {
-        type: Number,
-        min: 0,
-      },
-      discount: {
-        type: Number,
-        min: 0,
-      },
-      stock: {
-        type: Number,
-        required: true,
-        default: 0,
-        min: 0,
-      },
-      image: {
-        type: String,
-        required: true,
-      },
-      pricingTiers: {
-        type: [pricingTierSchema],
-        default: undefined,
-      },
+const attributeSchema = new mongoose.Schema(
+  {
+    name: {
+      type: String,
+      required: true,
     },
-  ],
-});
+    children: [
+      {
+        name: {
+          type: String,
+          required: true,
+        },
+        price: {
+          type: Number,
+          min: 0,
+        },
+        discount: {
+          type: Number,
+          min: 0,
+        },
+        stock: {
+          type: Number,
+          required: true,
+          default: 0,
+          min: 0,
+        },
+        image: {
+          type: String,
+          required: true,
+        },
+        pricingTiers: {
+          type: [pricingTierSchema],
+          default: undefined,
+        },
+      },
+    ],
+  },
+  { _id: false }
+);
 
 const productSchema = new mongoose.Schema(
   {
@@ -95,18 +111,7 @@ const productSchema = new mongoose.Schema(
         },
       },
     ],
-    specifications: [
-      {
-        key: {
-          type: String,
-          required: true,
-        },
-        value: {
-          type: String,
-          required: true,
-        },
-      },
-    ],
+    specifications: [specificationSchema],
     dimension: [
       {
         key: {
