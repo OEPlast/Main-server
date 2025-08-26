@@ -20,9 +20,29 @@ export const authenticateUser = async (req: Request, res: Response, next: NextFu
 
     (req as AuthenticatedRequest).userId = user._id.toString();
     (req as AuthenticatedRequest).role = user.role;
-    next();
+    return next();
   } catch (error) {
     return res.status(401).json({ message: 'Invalid token' });
+  }
+};
+
+//try authentication, go to the next phase if it auth is successful or not
+export const authenticateUser_No_Force = async (req: Request, res: Response, next: NextFunction) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) {
+    next();
+  } else {
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; role: UserType['role'] };
+      const user = await User.findById(decoded.userId, { role: true });
+      if (!user) return next();
+
+      (req as AuthenticatedRequest).userId = user._id.toString();
+      (req as AuthenticatedRequest).role = user.role;
+      return next();
+    } catch (error) {
+      return next();
+    }
   }
 };
 

@@ -1,13 +1,14 @@
 import express from 'express';
-import { authenticateUser } from '../../middleware/auth';
+import { authenticateUser, authenticateUser_No_Force } from '../../middleware/auth';
 import ReviewController from '../../controller/reviewController';
 import ReviewValidator from '../../validators/ReviewValidator';
 import ReviewService from '@/services/reviewService';
 
 const router = express.Router();
 
-// Public list endpoint: reviews for product
-router.get('/product/:productId', async (req, res) => {
+// reviews for product
+//TODO: add pagination
+router.get('/product/:productId', authenticateUser_No_Force, async (req, res) => {
   try {
     const { productId } = req.params;
     const page = Number(req.query.page || 1);
@@ -19,14 +20,10 @@ router.get('/product/:productId', async (req, res) => {
   }
 });
 
-// Public routes (no auth required)
+// get likes for one review <not needed?>
 router.get('/:reviewId/likeCount', ...ReviewValidator.validateReviewId, ReviewController.getLikeCount);
 
 // Protected routes (auth required)
-router.post('/', authenticateUser, ...ReviewValidator.validateCreateReview, ReviewController.createReview);
-router.put('/:reviewId', authenticateUser, ...ReviewValidator.validateUpdateReview, ReviewController.updateReview);
-router.delete('/:reviewId', authenticateUser, ...ReviewValidator.validateReviewId, ReviewController.deleteReview);
-
 router.post('/:reviewId/like', authenticateUser, ...ReviewValidator.validateReviewId, ReviewController.likeReview);
 router.post('/:reviewId/unlike', authenticateUser, ...ReviewValidator.validateReviewId, ReviewController.unlikeReview);
 router.get(

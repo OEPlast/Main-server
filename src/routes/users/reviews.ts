@@ -7,11 +7,15 @@ const router = express.Router();
 
 // All review routes require authentication
 router.use(authenticateUser);
-
-router.get('/me', ReviewController.getUserReviews);
+//all reviews by auth user
+router.get('/all', ReviewController.getUserReviews);
+//review on one product
 router.get('/product/:product', ReviewController.getUserProductReview);
+//create reveiw
 router.post('/', ...ReviewValidator.validateCreateReview, ReviewController.createReview);
+//edit review
 router.put('/:id', ...ReviewValidator.validateUpdateReview, ReviewController.updateReview);
+//delete review
 router.delete('/:id', ...ReviewValidator.validateReviewId, ReviewController.deleteReview);
 
 export default router;

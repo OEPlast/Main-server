@@ -78,16 +78,16 @@ app.use('/user', UserRoute);
 app.use('/files', FileUploadRoute);
 app.use('/categories', CategoriesRoute);
 app.use('/banners', BannersRoute);
-
 app.use('/products', ProductsRoute);
 app.use('/logistics', LogisticsPublicRoute);
 
-app.use('/user/reviews', UserReviewsRoute);
-app.use('/payments', PaymentRoute);
-app.use('/reviews', ReviewRoute);
 app.use('/wishlist', WishlistRoute);
-app.use('/orders', OrderRoute);
+app.use('/reviews/user', UserReviewsRoute);
+app.use('/reviews', ReviewRoute);
 app.use('/carts', CartRoute);
+
+app.use('/payments', PaymentRoute);
+app.use('/orders', OrderRoute);
 app.use('/checkout', CheckoutRoute);
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);
@@ -100,17 +100,18 @@ app.use('/admin/attributes', AdminAttributeRoute);
 app.use('/admin/category', AdminCategoryRoute);
 app.use('/admin/users', AdminUsersRoute);
 app.use('/admin/banners', AdminBannerRoute);
-
 app.use('/admin/product', AdminProductRoute);
 app.use('/admin/logistics', AdminLogisticsRoute);
 
-app.use('/admin/orders', AdminOrderRoute);
-app.use('/admin/coupon-analytics', AdminCouponAnalyticsRoute);
-app.use('/admin/shipment', AdminShipmentRoute);
+app.use('/reviews', ReviewRoute);
 app.use('/admin/campaigns', AdminCampaignRoute);
-app.use('/admin/sales', AdminSalesRoute);
-app.use('/admin/inventory', AdminInventoryRoute);
 app.use('/admin/invoices', AdminInvoicesRoute);
+app.use('/admin/sales', AdminSalesRoute);
+
+app.use('/admin/orders', AdminOrderRoute);
+app.use('/admin/shipment', AdminShipmentRoute);
+app.use('/admin/inventory', AdminInventoryRoute);
+app.use('/admin/coupon-analytics', AdminCouponAnalyticsRoute);
 app.use('/admin/analytics', AdminAnalyticsRoute);
 
 //------------------
