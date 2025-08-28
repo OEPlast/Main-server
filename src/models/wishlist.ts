@@ -17,6 +17,9 @@ const wishlistSchema = new mongoose.Schema(
   }
 );
 
+// Indexes for fast pagination and user filtering
+wishlistSchema.index({ user: 1, product: -1 }, { unique: true });
+
 export type WishlistType = InferSchemaType<typeof wishlistSchema>;
 const Wishlist = mongoose.model('wishlist', wishlistSchema);
 

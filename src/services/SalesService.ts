@@ -8,7 +8,6 @@ interface AggregatedSale {
   title?: string;
   type: SalesType['type'];
   isActive: boolean;
-  limit?: number;
   startDate?: Date;
   endDate?: Date;
   createdAt: Date;
@@ -44,7 +43,6 @@ export const getAllActiveSales = async (
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           createdAt: 1,
@@ -98,7 +96,6 @@ export const getSaleById = async (id: string): CustomResponsePromise<AggregatedS
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           createdAt: 1,
@@ -164,7 +161,6 @@ export const getAllActiveFlashSales = async (
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           createdAt: 1,
@@ -204,15 +200,42 @@ export const getAllActiveLimitedSales = async (
   limit = 20
 ): CustomResponsePromise<{ sales: AggregatedSale[]; page: number; total: number }> => {
   try {
-    const match = {
-      type: 'Limited' as SalesType['type'],
-      isActive: true,
-      deleted: { $ne: true },
-      limit: { $gte: 1 },
-    };
-    const total = await Sales.countDocuments(match);
+    const baseMatch = { type: 'Limited' as SalesType['type'], isActive: true, deleted: { $ne: true } } as const;
+    const countAgg = await Sales.aggregate([
+      { $match: baseMatch },
+      {
+        $addFields: {
+          hasAvailable: {
+            $anyElementTrue: {
+              $map: {
+                input: '$variants',
+                as: 'v',
+                in: { $or: [{ $eq: ['$$v.maxBuys', 0] }, { $lt: ['$$v.boughtCount', '$$v.maxBuys'] }] },
+              },
+            },
+          },
+        },
+      },
+      { $match: { hasAvailable: true } },
+      { $count: 'total' },
+    ]);
+    const total = countAgg[0]?.total || 0;
     const sales = (await Sales.aggregate([
-      { $match: match },
+      { $match: baseMatch },
+      {
+        $addFields: {
+          hasAvailable: {
+            $anyElementTrue: {
+              $map: {
+                input: '$variants',
+                as: 'v',
+                in: { $or: [{ $eq: ['$$v.maxBuys', 0] }, { $lt: ['$$v.boughtCount', '$$v.maxBuys'] }] },
+              },
+            },
+          },
+        },
+      },
+      { $match: { hasAvailable: true } },
       {
         $lookup: {
           from: 'products',
@@ -228,7 +251,6 @@ export const getAllActiveLimitedSales = async (
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           createdAt: 1,
@@ -291,7 +313,6 @@ export const getAllActiveNormalSales = async (
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           createdAt: 1,
@@ -356,15 +377,7 @@ export const isSaleAvailable = async (saleId: string, variantIndex?: number): Cu
         };
       }
     }
-    // Limited: check limit
-    if (sale.type === 'Limited' && sale.limit < 1) {
-      await markSaleInactiveIfNeeded(sale);
-      return {
-        message: 'Limited sale limit reached',
-        data: null,
-        code: 400,
-      };
-    }
+    // Limited: availability will be inferred from variants availability (below)
     // Variant checks
     if (typeof variantIndex === 'number') {
       const variant = sale.variants[variantIndex];
@@ -422,9 +435,6 @@ export const markSaleInactiveIfNeeded = async (sale: import('@/models/Sales').Sa
       sale.isActive = false;
       updated = true;
     }
-  } else if (sale.type === 'Limited' && sale.limit < 1) {
-    sale.isActive = false;
-    updated = true;
   } else if (sale.type === 'Flash') {
     const now = new Date();
     if (!sale.startDate || !sale.endDate || sale.startDate > now || sale.endDate < now) {

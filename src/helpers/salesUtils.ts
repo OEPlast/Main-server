@@ -29,6 +29,12 @@ export function checkSaleAvailability(
   attributes?: { name: string; value: string }[]
 ): { available: boolean; variantIndex?: number; discount?: number } {
   if (!sale) return { available: false };
+  if (sale.type === 'Flash') {
+    const now = new Date();
+    if (!sale.startDate || !sale.endDate || sale.startDate > now || sale.endDate < now) {
+      return { available: false };
+    }
+  }
   // If sale has variants, try to match attributes
   if (Array.isArray(sale.variants) && sale.variants.length > 0 && attributes) {
     const idx = sale.variants.findIndex(
@@ -40,9 +46,7 @@ export function checkSaleAvailability(
     if (idx !== -1) {
       const variant = sale.variants[idx]!;
       return {
-        available:
-          (sale.type !== 'Limited' || (sale.limit ?? 0) > 0) &&
-          (variant.maxBuys === 0 || variant.boughtCount < variant.maxBuys),
+        available: variant.maxBuys === 0 || variant.boughtCount < variant.maxBuys,
         variantIndex: idx,
         discount: variant.discount,
       };
@@ -50,8 +54,8 @@ export function checkSaleAvailability(
     return { available: false };
   }
   // No variants, check sale-wide limits
-  if (sale.type === 'Limited' && (sale.limit ?? 0) < 1) return { available: false };
-  return { available: true, discount: (sale as SalesType & { discount?: number }).discount || 0 };
+  // With current schema, there is no top-level limit/discount; availability is based on active flag and Flash window
+  return { available: true, discount: 0 };
 }
 
 /**
@@ -65,5 +69,6 @@ export function getSaleDiscount(sale: SalesType | null, attributes?: { name: str
     );
     return variant ? variant.discount : 0;
   }
-  return (sale as SalesType & { discount?: number }).discount || 0;
+  // No top-level discount in current schema
+  return 0;
 }

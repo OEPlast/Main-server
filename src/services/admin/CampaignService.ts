@@ -1,4 +1,5 @@
 import Campaign, { ICampaign } from '../../models/Campaign';
+import { Types } from 'mongoose';
 import { CustomResponseType } from '@/types';
 
 const createCampaign = async (campaignData: {
@@ -8,34 +9,19 @@ const createCampaign = async (campaignData: {
   startDate?: Date;
   endDate?: Date;
   status?: 'active' | 'inactive' | 'draft';
-  products?: Array<{
-    productId: string;
-    discount: {
-      type: 'percentage' | 'fixed';
-      value: number;
-    };
-  }>;
-  sales?: Array<{
-    saleId: string;
-    name: string;
-    discount: number;
-    type: 'flash' | 'limited' | 'clearance';
-  }>;
+  products?: string[];
+  sales?: string[];
 }): Promise<CustomResponseType<ICampaign>> => {
   try {
     const campaign = new Campaign({
       ...campaignData,
-      totalProducts: campaignData.products?.length || 0,
-      totalSales: campaignData.sales?.length || 0,
-      averagePrice: 0, // Will be calculated based on products
-      maxDiscount: Math.max(
-        ...(campaignData.products?.map((p) => p.discount.value) || [0]),
-        ...(campaignData.sales?.map((s) => s.discount) || [0])
-      ),
     });
 
     await campaign.save();
-    await campaign.populate('products.productId sales.saleId');
+    await campaign.populate([
+      { path: 'products', select: 'name price description slug status' },
+      { path: 'sales', select: 'title type startDate endDate isActive' },
+    ]);
 
     return {
       message: 'Campaign created successfully',
@@ -53,26 +39,23 @@ const createCampaign = async (campaignData: {
 };
 
 const getAllCampaigns = async (
-  page = 1,
-  limit = 20,
   status?: string
 ): Promise<CustomResponseType<{ campaigns: ICampaign[]; total: number; page: number; limit: number }>> => {
   try {
     const filter = status ? { status } : {};
 
+    // Admin listing: no pagination, populate both products and sales
     const [campaigns, total] = await Promise.all([
       Campaign.find(filter)
-        .populate('products.productId', 'name price images')
-        .populate('sales.saleId', 'name discountType discountValue')
-        .skip((page - 1) * limit)
-        .limit(limit)
+        .populate({ path: 'products', select: 'name price description slug status' })
+        .populate({ path: 'sales', select: 'title type startDate endDate isActive' })
         .sort({ createdAt: -1 }),
       Campaign.countDocuments(filter),
     ]);
 
     return {
       message: 'Campaigns retrieved successfully',
-      data: { campaigns, total, page, limit },
+      data: { campaigns, total, page: 1, limit: campaigns.length },
       code: 200,
     };
   } catch (error) {
@@ -88,8 +71,8 @@ const getAllCampaigns = async (
 const getCampaignById = async (campaignId: string): Promise<CustomResponseType<ICampaign>> => {
   try {
     const campaign = await Campaign.findById(campaignId)
-      .populate('products.productId', 'name price images description')
-      .populate('sales.saleId', 'name discountType discountValue startDate endDate');
+      .populate({ path: 'products', select: 'name price description slug status' })
+      .populate({ path: 'sales', select: 'title type startDate endDate isActive' });
 
     if (!campaign) {
       return {
@@ -119,27 +102,9 @@ const updateCampaign = async (
   updates: Partial<ICampaign>
 ): Promise<CustomResponseType<ICampaign>> => {
   try {
-    // Recalculate totals if products or sales are updated
-    if (updates.products || updates.sales) {
-      updates.totalProducts = updates.products?.length || 0;
-      updates.totalSales = updates.sales?.length || 0;
-
-      const productDiscounts: number[] = (updates.products ?? []).map((p: ICampaign['products'][number] | undefined) =>
-        p && p.discount && typeof p.discount.value === 'number' ? p.discount.value : 0
-      );
-      const saleDiscounts: number[] = (updates.sales ?? []).map((s: ICampaign['sales'][number] | undefined) =>
-        s && typeof s.discount === 'number' ? s.discount : 0
-      );
-
-      updates.maxDiscount = Math.max(
-        ...(productDiscounts.length ? productDiscounts : [0]),
-        ...(saleDiscounts.length ? saleDiscounts : [0])
-      );
-    }
-
     const campaign = await Campaign.findByIdAndUpdate(campaignId, updates, { new: true })
-      .populate('products.productId', 'name price images')
-      .populate('sales.saleId', 'name discountType discountValue');
+      .populate({ path: 'products', select: 'name price description slug status' })
+      .populate({ path: 'sales', select: 'title type startDate endDate isActive' });
 
     if (!campaign) {
       return {
@@ -196,9 +161,9 @@ const toggleCampaignStatus = async (
   status: 'active' | 'inactive'
 ): Promise<CustomResponseType<ICampaign>> => {
   try {
-    const campaign = await Campaign.findByIdAndUpdate(campaignId, { status }, { new: true }).populate(
-      'products.productId sales.saleId'
-    );
+    const campaign = await Campaign.findByIdAndUpdate(campaignId, { status }, { new: true })
+      .populate({ path: 'products', select: 'name price description slug status' })
+      .populate({ path: 'sales', select: 'title type startDate endDate isActive' });
 
     if (!campaign) {
       return {
@@ -223,16 +188,7 @@ const toggleCampaignStatus = async (
   }
 };
 
-const addProductToCampaign = async (
-  campaignId: string,
-  productData: {
-    productId: string;
-    discount: {
-      type: 'percentage' | 'fixed';
-      value: number;
-    };
-  }
-): Promise<CustomResponseType<ICampaign>> => {
+const addProductToCampaign = async (campaignId: string, productId: string): Promise<CustomResponseType<ICampaign>> => {
   try {
     const campaign = await Campaign.findById(campaignId);
 
@@ -245,9 +201,7 @@ const addProductToCampaign = async (
     }
 
     // Check if product already exists in campaign
-    const existingProduct = campaign.products.find(
-      (p: ICampaign['products'][number]) => p.productId.toString() === productData.productId
-    );
+    const existingProduct = (campaign.products as unknown[]).some((p) => p?.toString() === productId);
 
     if (existingProduct) {
       return {
@@ -257,12 +211,14 @@ const addProductToCampaign = async (
       };
     }
 
-    campaign.products.push(productData as unknown as ICampaign['products'][number]);
-    campaign.totalProducts = campaign.products.length;
-    campaign.maxDiscount = Math.max(campaign.maxDiscount, productData.discount.value);
+    // Push product id (Mongoose will cast string to ObjectId)
+    (campaign.products as unknown[]).push(productId);
 
     await campaign.save();
-    await campaign.populate('products.productId sales.saleId');
+    await campaign.populate([
+      { path: 'products', select: 'name price description slug status' },
+      { path: 'sales', select: 'title type startDate endDate isActive' },
+    ]);
 
     return {
       message: 'Product added to campaign successfully',
@@ -295,16 +251,14 @@ const removeProductFromCampaign = async (
     }
 
     // Remove product from campaign
-    const productIndex = campaign.products.findIndex(
-      (p: ICampaign['products'][number]) => p.productId.toString() === productId
-    );
-    if (productIndex > -1) {
-      campaign.products.splice(productIndex, 1);
-    }
-    campaign.totalProducts = campaign.products.length;
+    const current = campaign.products as unknown as Types.ObjectId[];
+    campaign.products = current.filter((p) => p.toString() !== productId) as unknown as ICampaign['products'];
 
     await campaign.save();
-    await campaign.populate('products.productId sales.saleId');
+    await campaign.populate([
+      { path: 'products', select: 'name price description slug status' },
+      { path: 'sales', select: 'title type startDate endDate isActive' },
+    ]);
 
     return {
       message: 'Product removed from campaign successfully',

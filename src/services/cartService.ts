@@ -1,24 +1,28 @@
 import Cart, { CartType } from '@/models/Cart';
-import Product from '@/models/Product';
+import Product, { ProductType } from '@/models/Product';
+import Coupon, { CouponType } from '@/models/Coupon';
 import { CustomResponseType } from '@/types';
-import { findActiveSaleForProduct, checkSaleAvailability } from '@/helpers/salesUtils';
-import { ProductPricingShape, VariantOption, resolveBestVariant, applyPricingTier } from '@/helpers/pricingUtils';
-
-/**
- * Validates the cart against current sales and discounts.
- * Returns an array of products with sale changes or invalid sales.
- */
+import { checkSaleAvailability } from '@/helpers/salesUtils';
+import {
+  ProductPricingShape,
+  VariantOption,
+  resolveBestVariant,
+  applyPricingTier,
+  PricingTier,
+} from '@/helpers/pricingUtils';
+import mongoose from 'mongoose';
 
 // Define changed entry types to avoid any
 type ChangedSaleInfo = {
-  sale?: CartType['products'][number]['sale'];
-  saleType?: CartType['products'][number]['saleType'];
-  saleDiscount?: CartType['products'][number]['saleDiscount'];
-  saleVariantIndex?: CartType['products'][number]['saleVariantIndex'];
+  sale?: mongoose.Types.ObjectId;
+  saleVariantIndex?: number;
+  appliedDiscount?: number;
+  discountAmount?: number;
 };
 
 type ChangedEntry = {
-  product: CartType['products'][number]['product'];
+  itemId: mongoose.Types.ObjectId;
+  product: mongoose.Types.ObjectId;
   old: ChangedSaleInfo;
   current: ChangedSaleInfo;
 };
@@ -26,8 +30,11 @@ type ChangedEntry = {
 // Use multi-attribute resolver
 const resolveVariant = resolveBestVariant;
 
+// Applied tier shape (selected tier + the price it yielded)
+type AppliedPricingTier = PricingTier & { appliedPrice: number };
+
 // Pricing helpers
-function calculateUnitPrice({
+function calculateItemPricing({
   product,
   variant,
   qty,
@@ -36,56 +43,81 @@ function calculateUnitPrice({
   product: ProductPricingShape;
   variant?: VariantOption;
   qty: number;
-  saleContext?: { discount?: number };
-}): { unitPrice: number; applied: { base: number; variantPrice?: number; tier?: string; discountPct?: number } } {
+  saleContext?: { discount?: number; amountOff?: number };
+}): {
+  unitPrice: number;
+  totalPrice: number;
+  appliedDiscount: number;
+  discountAmount: number;
+  pricingTier?: AppliedPricingTier;
+} {
   // 1) Base price resolution
   const variantPrice = typeof variant?.price === 'number' ? variant.price : undefined;
-  let unit = typeof variantPrice === 'number' ? variantPrice : product.price;
-  const base = unit;
+  let unitPrice = typeof variantPrice === 'number' ? variantPrice : product.price;
 
   // 2) Wholesale tiers (variant first, then product)
-  const unitAfterVariantTier = applyPricingTier(unit, qty, variant?.pricingTiers);
-  const tierAppliedVariant = unitAfterVariantTier !== unit ? 'variant' : undefined;
-  unit = unitAfterVariantTier;
-  const unitAfterProductTier = applyPricingTier(unit, qty, product.pricingTiers);
-  const tierApplied = unitAfterProductTier !== unit ? 'product' : tierAppliedVariant;
-  unit = unitAfterProductTier;
+  const unitAfterVariantTier = applyPricingTier(unitPrice, qty, variant?.pricingTiers);
+  const tierAppliedVariant = unitAfterVariantTier !== unitPrice;
+  unitPrice = unitAfterVariantTier;
+  const unitAfterProductTier = applyPricingTier(unitPrice, qty, product.pricingTiers);
+  const tierApplied = unitAfterProductTier !== unitPrice || tierAppliedVariant;
+  unitPrice = unitAfterProductTier;
+
+  let appliedTier: AppliedPricingTier | undefined;
+  if (tierApplied) {
+    const tiers = variant?.pricingTiers || product.pricingTiers || [];
+    const applicable = tiers.filter((t) => qty >= t.minQty && (t.maxQty == null || qty <= t.maxQty));
+    if (applicable.length > 0) {
+      const bestTier = applicable.sort((a, b) => b.minQty - a.minQty)[0];
+      appliedTier = {
+        minQty: bestTier.minQty,
+        maxQty: bestTier.maxQty,
+        strategy: bestTier.strategy,
+        value: bestTier.value,
+        appliedPrice: unitPrice,
+      };
+    }
+  }
 
   // 3) Static discounts (prefer variant discount if present)
   const variantDiscountPct = typeof variant?.discount === 'number' ? variant.discount : undefined;
   const productDiscountPct = typeof product.discount === 'number' ? product.discount : 0;
   const staticDiscountPct = typeof variantDiscountPct === 'number' ? variantDiscountPct : productDiscountPct;
   if (staticDiscountPct && staticDiscountPct > 0) {
-    unit = Math.max(0, unit - (unit * staticDiscountPct) / 100);
+    unitPrice = Math.max(0, unitPrice - (unitPrice * staticDiscountPct) / 100);
   }
 
   // 4) Sale discount (overrides static discount precedence)
-  const salePct = typeof saleContext?.discount === 'number' ? saleContext.discount : 0;
-  if (salePct > 0) {
-    unit = Math.max(
-      0,
-      (typeof variantPrice === 'number' ? variantPrice : product.price) -
-        ((typeof variantPrice === 'number' ? variantPrice : product.price) * salePct) / 100
-    );
+  let appliedDiscountPct = staticDiscountPct || 0;
+  let discountAmount = 0;
+
+  if (saleContext?.discount && saleContext.discount > 0) {
+    appliedDiscountPct = saleContext.discount;
+    const saleBasePrice = typeof variantPrice === 'number' ? variantPrice : product.price;
+    unitPrice = Math.max(0, saleBasePrice - (saleBasePrice * saleContext.discount) / 100);
+    discountAmount = (saleBasePrice * saleContext.discount) / 100;
+  } else if (saleContext?.amountOff && saleContext.amountOff > 0) {
+    const saleBasePrice = typeof variantPrice === 'number' ? variantPrice : product.price;
+    unitPrice = Math.max(0, saleBasePrice - saleContext.amountOff);
+    discountAmount = saleContext.amountOff;
+    appliedDiscountPct = (saleContext.amountOff / saleBasePrice) * 100;
   }
 
+  const totalPrice = unitPrice * qty;
+  const totalDiscountAmount = discountAmount * qty;
+
   return {
-    unitPrice: unit,
-    applied: {
-      base,
-      variantPrice,
-      tier: tierApplied,
-      discountPct: salePct > 0 ? salePct : staticDiscountPct || 0,
-    },
+    unitPrice,
+    totalPrice,
+    appliedDiscount: appliedDiscountPct,
+    discountAmount: totalDiscountAmount,
+    pricingTier: appliedTier,
   };
 }
 
 /**
- * Adds an item to the cart.
- * @param userId - The ID of the user.
- * @param productId - The ID of the product.
- * @param qty - The quantity to add.
- * @param attributes - The attributes of the product.
+ * Adds an item to the cart or updates quantity if item already exists.
+ * Creates cart document if it doesn't exist for the user.
  */
 const addToCart = async (
   userId: string,
@@ -94,10 +126,32 @@ const addToCart = async (
   attributes: { name: string; value: string }[]
 ): Promise<CustomResponseType<CartType>> => {
   try {
-    const product = await Product.findById(productId);
-    if (!product) {
+    // Use aggregation pipeline to get product data and validate stock
+    const productData = await Product.aggregate([
+      { $match: { _id: new mongoose.Types.ObjectId(productId) } },
+      {
+        $lookup: {
+          from: 'sales',
+          let: { productId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$product', '$$productId'] },
+                isActive: true,
+                deleted: { $ne: true },
+              },
+            },
+          ],
+          as: 'activeSales',
+        },
+      },
+    ]);
+
+    if (!productData.length) {
       return { message: 'Product not found', data: null, code: 404 };
     }
+
+    const product = productData[0];
 
     if (qty > product.stock) {
       return { message: 'Insufficient stock', data: null, code: 400 };
@@ -106,55 +160,125 @@ const addToCart = async (
     // Identify variant
     const variant = resolveVariant(product as unknown as ProductPricingShape, attributes);
 
-    // Active sale
-    const sale = await findActiveSaleForProduct(productId);
-    let saleInfo: {
-      sale?: CartType['products'][number]['sale'];
-      saleType?: CartType['products'][number]['saleType'];
-      saleVariantIndex?: CartType['products'][number]['saleVariantIndex'];
-      saleDiscount?: CartType['products'][number]['saleDiscount'];
-    } = {};
+    // Check for active sales
+    const activeSale = product.activeSales.length > 0 ? product.activeSales[0] : null;
+    let saleInfo: Partial<Pick<ChangedSaleInfo, 'sale' | 'saleVariantIndex'>> = {};
+    let saleContext: Partial<{ discount: number; amountOff: number }> = {};
 
-    let saleDiscount: number | undefined;
-    let saleVariantIndex: number | undefined;
-    if (sale) {
-      const { available, variantIndex, discount } = checkSaleAvailability(sale, attributes);
+    if (activeSale) {
+      const { available, variantIndex } = checkSaleAvailability(activeSale, attributes);
       if (available) {
-        saleDiscount = typeof discount === 'number' ? discount : 0;
-        saleVariantIndex = typeof variantIndex === 'number' ? variantIndex : undefined;
         saleInfo = {
-          sale: sale._id as unknown as CartType['products'][number]['sale'],
-          saleType: sale.type as CartType['products'][number]['saleType'],
-          saleVariantIndex: saleVariantIndex as CartType['products'][number]['saleVariantIndex'],
-          saleDiscount: saleDiscount as CartType['products'][number]['saleDiscount'],
+          sale: activeSale._id,
+          saleVariantIndex: typeof variantIndex === 'number' ? variantIndex : undefined,
         };
+
+        if (activeSale.variants && variantIndex !== undefined && activeSale.variants[variantIndex]) {
+          const variant = activeSale.variants[variantIndex];
+          saleContext = {
+            discount: variant.discount || 0,
+            amountOff: variant.amountOff || 0,
+          };
+        }
       }
     }
 
-    const pricing = calculateUnitPrice({
+    const pricing = calculateItemPricing({
       product: product as unknown as ProductPricingShape,
       variant,
       qty,
-      saleContext: { discount: saleDiscount },
+      saleContext,
     });
 
-    const cart = await Cart.findOneAndUpdate(
-      { user: userId },
+    // Create product snapshot
+    const productSnapshot = {
+      name: product.name,
+      price: product.price,
+      sku: product.sku,
+    };
+
+    const newItem = {
+      product: productId,
+      qty,
+      productSnapshot,
+      selectedAttributes: attributes,
+      unitPrice: pricing.unitPrice,
+      totalPrice: pricing.totalPrice,
+      appliedDiscount: pricing.appliedDiscount,
+      discountAmount: pricing.discountAmount,
+      pricingTier: pricing.pricingTier,
+      addedAt: new Date(),
+      ...saleInfo,
+    };
+
+    // Use aggregation pipeline to check if item already exists and update or insert
+    const result = await Cart.aggregate([
+      { $match: { user: new mongoose.Types.ObjectId(userId) } },
       {
-        $push: {
-          products: {
-            product: productId,
-            qty,
-            price: pricing.unitPrice,
-            attributes,
-            ...saleInfo,
+        $addFields: {
+          existingItemIndex: {
+            $indexOfArray: [
+              '$items',
+              {
+                $arrayElemAt: [
+                  {
+                    $filter: {
+                      input: '$items',
+                      cond: {
+                        $and: [
+                          { $eq: ['$$this.product', new mongoose.Types.ObjectId(productId)] },
+                          { $eq: ['$$this.selectedAttributes', attributes] },
+                        ],
+                      },
+                    },
+                  },
+                  0,
+                ],
+              },
+            ],
           },
         },
       },
-      { new: true, upsert: true }
-    );
+    ]);
 
-    return { message: 'Item added to cart successfully', data: cart, code: 200 };
+    if (result.length > 0 && result[0].existingItemIndex !== -1) {
+      // Item exists, update quantity
+      await Cart.findOneAndUpdate(
+        {
+          user: userId,
+          'items.product': productId,
+          'items.selectedAttributes': attributes,
+        },
+        {
+          $inc: { 'items.$.qty': qty },
+          $set: {
+            'items.$.totalPrice': pricing.totalPrice,
+            'items.$.unitPrice': pricing.unitPrice,
+            'items.$.appliedDiscount': pricing.appliedDiscount,
+            'items.$.discountAmount': pricing.discountAmount,
+            'items.$.pricingTier': pricing.pricingTier,
+            lastActivity: new Date(),
+          },
+        },
+        { new: true }
+      );
+    } else {
+      // Add new item or create cart
+      await Cart.findOneAndUpdate(
+        { user: userId },
+        {
+          $push: { items: newItem },
+          $set: { lastActivity: new Date() },
+        },
+        { new: true, upsert: true }
+      );
+    }
+
+    // Recalculate cart totals using aggregation
+    await recalculateCartTotals(userId);
+
+    const updatedCart = await Cart.findOne({ user: userId });
+    return { message: 'Item added to cart successfully', data: updatedCart, code: 200 };
   } catch (error) {
     console.error('Error adding item to cart:', error);
     return { message: 'Failed to add item to cart', data: null, code: 500 };
@@ -162,15 +286,14 @@ const addToCart = async (
 };
 
 /**
- * Clears the entire cart for a user.
- * @param userId - The ID of the user.
+ * Clears the entire cart for a user by deleting the cart document.
  */
 const clearCart = async (userId: string): Promise<CustomResponseType> => {
   try {
-    const cart = await Cart.findOneAndDelete({ user: userId });
-    if (!cart) {
+    const result = await Cart.deleteOne({ user: userId });
+    if (result.deletedCount === 0) {
       return {
-        message: 'Cart not found',
+        message: 'Cart not found or already empty',
         data: null,
         code: 404,
       };
@@ -191,13 +314,18 @@ const clearCart = async (userId: string): Promise<CustomResponseType> => {
 };
 
 /**
- * Removes an item from the cart.
- * @param userId - The ID of the user.
- * @param productId - The ID of the product to remove.
+ * Removes a specific item from the cart based on product ID and attributes.
  */
-const removeFromCart = async (userId: string, productId: string): Promise<CustomResponseType<CartType>> => {
+const removeFromCart = async (userId: string, itemId: string): Promise<CustomResponseType<CartType>> => {
   try {
-    const cart = await Cart.findOneAndUpdate({ user: userId }, { $pull: { products: { product: productId } } });
+    const cart = await Cart.findOneAndUpdate(
+      { user: userId },
+      {
+        $pull: { items: { _id: new mongoose.Types.ObjectId(itemId) } },
+        $set: { lastActivity: new Date() },
+      },
+      { new: true }
+    );
 
     if (!cart) {
       return {
@@ -207,9 +335,23 @@ const removeFromCart = async (userId: string, productId: string): Promise<Custom
       };
     }
 
+    // If no items left, delete the cart
+    if (cart.items.length === 0) {
+      await Cart.deleteOne({ user: userId });
+      return {
+        message: 'Item removed and cart cleared',
+        data: null,
+        code: 200,
+      };
+    }
+
+    // Recalculate totals
+    await recalculateCartTotals(userId);
+    const updatedCart = await Cart.findOne({ user: userId });
+
     return {
       message: 'Item removed from cart successfully',
-      data: cart,
+      data: updatedCart,
       code: 200,
     };
   } catch (error) {
@@ -223,134 +365,484 @@ const removeFromCart = async (userId: string, productId: string): Promise<Custom
 };
 
 /**
- * Updates the quantity of an item in the cart.
- * @param userId - The ID of the user.
- * @param productId - The ID of the product to update.
- * @param qty - The new quantity.
+ * Updates a specific item in the cart (quantity, attributes, etc.).
  */
 const updateCartItem = async (
   userId: string,
-  productId: string,
-  qty: number
+  itemId: string,
+  updates: {
+    qty?: number;
+    selectedAttributes?: { name: string; value: string }[];
+  }
 ): Promise<CustomResponseType<CartType>> => {
   try {
-    const cart = await Cart.findOne({ user: userId }).populate('products.product');
-    if (!cart) return { message: 'Cart not found', data: null, code: 404 };
+    const cart = await Cart.aggregate([
+      { $match: { user: new mongoose.Types.ObjectId(userId) } },
+      { $unwind: '$items' },
+      { $match: { 'items._id': new mongoose.Types.ObjectId(itemId) } },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'items.product',
+          foreignField: '_id',
+          as: 'productData',
+        },
+      },
+      {
+        $lookup: {
+          from: 'sales',
+          let: { productId: '$items.product' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$product', '$$productId'] },
+                isActive: true,
+                deleted: { $ne: true },
+              },
+            },
+          ],
+          as: 'activeSales',
+        },
+      },
+    ]);
 
-    const item = cart.products.find((p) => p.product && p.product.toString() === productId);
-    if (!item) return { message: 'Item not in cart', data: null, code: 404 };
-
-    const productDoc = await Product.findById(productId);
-    if (!productDoc) return { message: 'Product not found', data: null, code: 404 };
-    if (qty > productDoc.stock) return { message: 'Insufficient stock', data: null, code: 400 };
-
-    // Recompute price with tiers/discounts
-    const sale = await findActiveSaleForProduct(productId);
-    let saleDiscount: number | undefined;
-    if (sale) {
-      const { available, discount } = checkSaleAvailability(sale, item.attributes as { name: string; value: string }[]);
-      if (available) saleDiscount = typeof discount === 'number' ? discount : 0;
+    if (!cart.length || !cart[0].productData.length) {
+      return { message: 'Cart item or product not found', data: null, code: 404 };
     }
 
-    const variant = resolveVariant(
-      productDoc as unknown as ProductPricingShape,
-      item.attributes as { name: string; value: string }[]
-    );
-    const pricing = calculateUnitPrice({
-      product: productDoc as unknown as ProductPricingShape,
+    const cartItem = cart[0].items;
+    const product = cart[0].productData[0];
+    const newQty = updates.qty || cartItem.qty;
+    const newAttributes = updates.selectedAttributes || cartItem.selectedAttributes;
+
+    if (newQty > product.stock) {
+      return { message: 'Insufficient stock', data: null, code: 400 };
+    }
+
+    // Recalculate pricing with new quantity/attributes
+    const variant = resolveVariant(product as unknown as ProductPricingShape, newAttributes);
+    const activeSale = cart[0].activeSales.length > 0 ? cart[0].activeSales[0] : null;
+
+    let saleContext: Partial<{ discount: number; amountOff: number }> = {};
+    let saleInfo: Partial<Pick<ChangedSaleInfo, 'sale' | 'saleVariantIndex'>> = {};
+
+    if (activeSale) {
+      const { available, variantIndex } = checkSaleAvailability(activeSale, newAttributes);
+      if (available && activeSale.variants && variantIndex !== undefined && activeSale.variants[variantIndex]) {
+        const saleVariant = activeSale.variants[variantIndex];
+        saleContext = {
+          discount: saleVariant.discount || 0,
+          amountOff: saleVariant.amountOff || 0,
+        };
+        saleInfo = {
+          sale: activeSale._id,
+          saleVariantIndex: variantIndex,
+        };
+      }
+    }
+
+    const pricing = calculateItemPricing({
+      product: product as unknown as ProductPricingShape,
       variant,
-      qty,
-      saleContext: { discount: saleDiscount },
+      qty: newQty,
+      saleContext,
     });
 
-    const updated = await Cart.findOneAndUpdate(
-      { user: userId, 'products.product': productId },
-      { $set: { 'products.$.qty': qty, 'products.$.price': pricing.unitPrice } },
+    // Update the specific item
+    const updatedCart = await Cart.findOneAndUpdate(
+      { user: userId, 'items._id': new mongoose.Types.ObjectId(itemId) },
+      {
+        $set: {
+          'items.$.qty': newQty,
+          'items.$.selectedAttributes': newAttributes,
+          'items.$.unitPrice': pricing.unitPrice,
+          'items.$.totalPrice': pricing.totalPrice,
+          'items.$.appliedDiscount': pricing.appliedDiscount,
+          'items.$.discountAmount': pricing.discountAmount,
+          'items.$.pricingTier': pricing.pricingTier,
+          ...Object.fromEntries(Object.entries(saleInfo).map(([key, value]) => [`items.$.${key}`, value])),
+          lastActivity: new Date(),
+        },
+      },
       { new: true }
     );
 
-    return { message: 'Cart item updated successfully', data: updated as unknown as CartType, code: 200 };
+    if (!updatedCart) {
+      return { message: 'Failed to update cart item', data: null, code: 400 };
+    }
+
+    // Recalculate cart totals
+    await recalculateCartTotals(userId);
+    const finalCart = await Cart.findOne({ user: userId });
+
+    return { message: 'Cart item updated successfully', data: finalCart, code: 200 };
   } catch (error) {
     console.error('Error updating cart item:', error);
     return { message: 'Failed to update cart item', data: null, code: 500 };
   }
 };
 
-// Validate sales helper
+/**
+ * Recalculates cart totals using aggregation pipeline
+ */
+const recalculateCartTotals = async (userId: string): Promise<void> => {
+  try {
+    await Cart.aggregate([
+      { $match: { user: new mongoose.Types.ObjectId(userId) } },
+      {
+        $addFields: {
+          subtotal: { $sum: '$items.totalPrice' },
+          totalDiscount: { $sum: '$items.discountAmount' },
+          total: {
+            $subtract: [{ $sum: '$items.totalPrice' }, { $sum: '$appliedCoupons.discountAmount' }],
+          },
+        },
+      },
+      {
+        $merge: {
+          into: 'carts',
+          whenMatched: 'replace',
+        },
+      },
+    ]);
+  } catch (error) {
+    console.error('Error recalculating cart totals:', error);
+  }
+};
+
+/**
+ * Apply coupon to cart
+ */
+const applyCoupon = async (userId: string, couponCode: string): Promise<CustomResponseType<CartType>> => {
+  try {
+    // Use aggregation to get cart with coupon validation
+    const result = await Cart.aggregate([
+      { $match: { user: new mongoose.Types.ObjectId(userId) } },
+      {
+        $lookup: {
+          from: 'coupons',
+          pipeline: [
+            {
+              $match: {
+                coupon: couponCode.toUpperCase(),
+                active: true,
+                deleted: { $ne: true },
+                startDate: { $lte: new Date() },
+                endDate: { $gte: new Date() },
+              },
+            },
+          ],
+          as: 'couponData',
+        },
+      },
+    ]);
+
+    if (!result.length) {
+      return { message: 'Cart not found', data: null, code: 404 };
+    }
+
+    if (!result[0].couponData.length) {
+      return { message: 'Invalid or expired coupon', data: null, code: 400 };
+    }
+
+    const cart = result[0];
+    const coupon = result[0].couponData[0];
+
+    // Check if coupon already applied
+    const alreadyApplied = (cart.appliedCoupons as Array<{ coupon: mongoose.Types.ObjectId }> | undefined)?.some(
+      (ac) => ac.coupon.toString() === coupon._id.toString()
+    );
+
+    if (alreadyApplied) {
+      return { message: 'Coupon already applied', data: null, code: 400 };
+    }
+
+    // Calculate discount amount based on coupon
+    let discountAmount = 0;
+    const cartSubtotal = (cart.items as Array<{ totalPrice: number }>).reduce(
+      (sum: number, item) => sum + item.totalPrice,
+      0
+    );
+
+    if (coupon.discountType === 'percentage') {
+      discountAmount = (cartSubtotal * coupon.discount) / 100;
+    } else {
+      discountAmount = Math.min(coupon.discount, cartSubtotal);
+    }
+
+    // Check minimum order value
+    if (cartSubtotal < coupon.minOrderValue) {
+      return {
+        message: `Minimum order value of ${coupon.minOrderValue} required`,
+        data: null,
+        code: 400,
+      };
+    }
+
+    // Apply coupon
+    await Cart.findOneAndUpdate(
+      { user: userId },
+      {
+        $push: {
+          appliedCoupons: {
+            coupon: coupon._id,
+            code: couponCode.toUpperCase(),
+            discountAmount,
+            appliedAt: new Date(),
+          },
+        },
+        $set: { lastActivity: new Date() },
+      },
+      { new: true }
+    );
+
+    // Update coupon usage
+    await Coupon.findByIdAndUpdate(coupon._id, {
+      $inc: { timesUsed: 1 },
+      $addToSet: { usedBy: new mongoose.Types.ObjectId(userId) },
+    });
+
+    // Recalculate totals
+    await recalculateCartTotals(userId);
+    const finalCart = await Cart.findOne({ user: userId });
+
+    return { message: 'Coupon applied successfully', data: finalCart, code: 200 };
+  } catch (error) {
+    console.error('Error applying coupon:', error);
+    return { message: 'Failed to apply coupon', data: null, code: 500 };
+  }
+};
+
+/**
+ * Remove coupon from cart
+ */
+const removeCoupon = async (userId: string, couponId: string): Promise<CustomResponseType<CartType>> => {
+  try {
+    const cart = await Cart.findOneAndUpdate(
+      { user: userId },
+      {
+        $pull: { appliedCoupons: { coupon: new mongoose.Types.ObjectId(couponId) } },
+        $set: { lastActivity: new Date() },
+      },
+      { new: true }
+    );
+
+    if (!cart) {
+      return { message: 'Cart not found', data: null, code: 404 };
+    }
+
+    // Recalculate totals
+    await recalculateCartTotals(userId);
+    const updatedCart = await Cart.findOne({ user: userId });
+
+    return { message: 'Coupon removed successfully', data: updatedCart, code: 200 };
+  } catch (error) {
+    console.error('Error removing coupon:', error);
+    return { message: 'Failed to remove coupon', data: null, code: 500 };
+  }
+};
+
+/**
+ * Validates the cart against current sales and discounts using aggregation.
+ */
 export async function validateCartSales(
   userId: string
 ): Promise<{ valid: boolean; message: string; changed: ChangedEntry[] }> {
-  const cart = await Cart.findOne({ user: userId });
-  if (!cart) return { valid: false, message: 'Cart not found', changed: [] };
-  const changed: ChangedEntry[] = [];
-  for (const item of cart.products) {
-    if (!item.product) continue;
-    const sale = await findActiveSaleForProduct(item.product.toString());
-    let currentDiscount = 0;
-    let currentSaleId = undefined as ChangedSaleInfo['sale'];
-    let currentSaleType = undefined as ChangedSaleInfo['saleType'];
-    let currentVariantIndex = undefined as ChangedSaleInfo['saleVariantIndex'];
-    if (sale) {
-      const { available, variantIndex, discount } = checkSaleAvailability(sale, item.attributes);
-      if (available) {
-        currentDiscount = discount || 0;
-        currentSaleId = sale._id as unknown as ChangedSaleInfo['sale'];
-        currentSaleType = sale.type as ChangedSaleInfo['saleType'];
-        currentVariantIndex =
-          typeof variantIndex === 'number' ? (variantIndex as ChangedSaleInfo['saleVariantIndex']) : undefined;
-      }
-    }
-    if (
-      (item.sale && (!currentSaleId || item.sale.toString() !== currentSaleId.toString())) ||
-      item.saleDiscount !== currentDiscount ||
-      item.saleType !== currentSaleType ||
-      item.saleVariantIndex !== currentVariantIndex
-    ) {
-      changed.push({
-        product: item.product,
-        old: {
-          sale: item.sale,
-          saleType: item.saleType,
-          saleDiscount: item.saleDiscount,
-          saleVariantIndex: item.saleVariantIndex,
+  try {
+    const result = await Cart.aggregate([
+      { $match: { user: new mongoose.Types.ObjectId(userId) } },
+      { $unwind: '$items' },
+      {
+        $lookup: {
+          from: 'sales',
+          let: { productId: '$items.product' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$product', '$$productId'] },
+                isActive: true,
+                deleted: { $ne: true },
+              },
+            },
+          ],
+          as: 'currentSales',
         },
-        current: {
-          sale: currentSaleId,
-          saleType: currentSaleType,
-          saleDiscount: currentDiscount,
-          saleVariantIndex: currentVariantIndex,
+      },
+      {
+        $addFields: {
+          currentSale: { $arrayElemAt: ['$currentSales', 0] },
+          hasChanges: {
+            $or: [
+              {
+                $and: [{ $ne: ['$items.sale', null] }, { $eq: [{ $size: '$currentSales' }, 0] }],
+              },
+              {
+                $and: [{ $gt: [{ $size: '$currentSales' }, 0] }, { $ne: ['$items.sale', '$currentSale._id'] }],
+              },
+            ],
+          },
         },
-      });
-    }
+      },
+      { $match: { hasChanges: true } },
+      {
+        $project: {
+          itemId: '$items._id',
+          product: '$items.product',
+          old: {
+            sale: '$items.sale',
+            saleVariantIndex: '$items.saleVariantIndex',
+            appliedDiscount: '$items.appliedDiscount',
+            discountAmount: '$items.discountAmount',
+          },
+          current: {
+            sale: '$currentSale._id',
+            saleVariantIndex: 0,
+            appliedDiscount: 0,
+            discountAmount: 0,
+          },
+        },
+      },
+    ]);
+
+    const changed: ChangedEntry[] = result.map((item) => ({
+      itemId: item.itemId,
+      product: item.product,
+      old: item.old,
+      current: item.current,
+    }));
+
+    return {
+      valid: changed.length === 0,
+      message: changed.length === 0 ? 'Cart sales are valid' : 'Some sales have changed or expired',
+      changed,
+    };
+  } catch (error) {
+    console.error('Error validating cart sales:', error);
+    return { valid: false, message: 'Error validating cart sales', changed: [] };
   }
-  return {
-    valid: changed.length === 0,
-    message: changed.length === 0 ? 'Cart sales are valid' : 'Some sales have changed or expired',
-    changed,
-  };
 }
 
-// Fetch cart items
-type PopulatedProduct = {
-  product: { name: string; price: number };
-  qty: number;
-  price: number;
-  attributes: { name: string; value: string }[];
+/**
+ * Get cart with full details using aggregation pipeline
+ */
+type CartItemType = CartType['items'][number];
+type AppliedCoupon = CartType['appliedCoupons'][number];
+export type CartWithDetails = Omit<CartType, 'items' | 'appliedCoupons'> & {
+  items: Array<CartItemType & { productDetails?: ProductType | null }>;
+  appliedCoupons: Array<AppliedCoupon & { couponDetails?: CouponType | null }>;
 };
-type PopulatedCartType = Omit<CartType, 'products'> & { products: PopulatedProduct[] };
 
-const getCartItems = async (userId: string): Promise<CustomResponseType<PopulatedCartType>> => {
+const getCartItems = async (userId: string): Promise<CustomResponseType<CartWithDetails>> => {
   try {
-    const cartItems = (await Cart.findOne({ user: userId }).populate({
-      path: 'products.product',
-      select: 'name price',
-    })) as unknown as PopulatedCartType;
-    return { message: 'Cart items retrieved successfully', data: cartItems, code: 200 };
+    const result = await Cart.aggregate([
+      { $match: { user: new mongoose.Types.ObjectId(userId) } },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'items.product',
+          foreignField: '_id',
+          as: 'productDetails',
+        },
+      },
+      {
+        $lookup: {
+          from: 'sales',
+          localField: 'items.sale',
+          foreignField: '_id',
+          as: 'salesDetails',
+        },
+      },
+      {
+        $lookup: {
+          from: 'coupons',
+          localField: 'appliedCoupons.coupon',
+          foreignField: '_id',
+          as: 'couponDetails',
+        },
+      },
+      {
+        $addFields: {
+          items: {
+            $map: {
+              input: '$items',
+              as: 'item',
+              in: {
+                $mergeObjects: [
+                  '$$item',
+                  {
+                    productDetails: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: '$productDetails',
+                            cond: { $eq: ['$$this._id', '$$item.product'] },
+                          },
+                        },
+                        0,
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+          appliedCoupons: {
+            $map: {
+              input: '$appliedCoupons',
+              as: 'coupon',
+              in: {
+                $mergeObjects: [
+                  '$$coupon',
+                  {
+                    couponDetails: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: '$couponDetails',
+                            cond: { $eq: ['$$this._id', '$$coupon.coupon'] },
+                          },
+                        },
+                        0,
+                      ],
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          productDetails: 0,
+          salesDetails: 0,
+          couponDetails: 0,
+        },
+      },
+    ]);
+
+    const cartData = result.length > 0 ? result[0] : [];
+    return {
+      message: 'Cart items retrieved successfully',
+      data: cartData,
+      code: 200,
+    };
   } catch (error) {
     console.error('Error fetching cart items:', error);
     return { message: 'Failed to fetch cart items', data: null, code: 500 };
   }
 };
 
-const CartService = { getCartItems, addToCart, removeFromCart, clearCart, updateCartItem, validateCartSales };
+const CartService = {
+  getCartItems,
+  addToCart,
+  removeFromCart,
+  clearCart,
+  updateCartItem,
+  validateCartSales,
+  applyCoupon,
+  removeCoupon,
+  recalculateCartTotals,
+};
+
 export default CartService;

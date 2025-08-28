@@ -1,61 +1,46 @@
 import type { NextFunction, Request, Response } from 'express';
 import { checkSchema, validationResult } from 'express-validator';
 
-const createCampaignValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    name: {
+const createCampaignValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
+    image: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'image is required' },
+    title: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'title is required' },
+    description: { in: ['body'], optional: true, isString: true },
+    status: {
       in: ['body'],
-      isString: true,
-      notEmpty: true,
-      errorMessage: 'Campaign name is required and should be a string',
-    },
-    description: {
-      in: ['body'],
-      isString: true,
       optional: true,
-      errorMessage: 'Description should be a string',
+      isIn: { options: [['active', 'inactive', 'draft']], errorMessage: 'status must be active|inactive|draft' },
     },
     startDate: {
       in: ['body'],
-      isISO8601: true,
-      errorMessage: 'Start date must be a valid ISO 8601 date',
+      optional: true,
+      isISO8601: { errorMessage: 'startDate must be ISO8601 if provided' },
+      custom: {
+        options: (value, { req }) => {
+          if (value && !req.body.endDate) return false;
+          return true;
+        },
+        errorMessage: 'Both startDate and endDate must be provided together',
+      },
     },
     endDate: {
       in: ['body'],
-      isISO8601: true,
-      errorMessage: 'End date must be a valid ISO 8601 date',
-    },
-    isActive: {
-      in: ['body'],
-      isBoolean: true,
       optional: true,
-      errorMessage: 'isActive should be a boolean',
-    },
-    discountType: {
-      in: ['body'],
-      isString: true,
-      isIn: {
-        options: [['percentage', 'fixed']],
-        errorMessage: 'Discount type must be either percentage or fixed',
+      isISO8601: { errorMessage: 'endDate must be ISO8601 if provided' },
+      custom: {
+        options: (value, { req }) => {
+          if (value && !req.body.startDate) return false;
+          return true;
+        },
+        errorMessage: 'Both startDate and endDate must be provided together',
       },
     },
-    discountValue: {
-      in: ['body'],
-      isNumeric: true,
-      errorMessage: 'Discount value must be a number',
-    },
-    products: {
-      in: ['body'],
-      isArray: true,
-      optional: true,
-      errorMessage: 'Products should be an array',
-    },
-    'products.*': {
-      in: ['body'],
-      isMongoId: true,
-      errorMessage: 'Each product ID must be a valid MongoDB ID',
-    },
-  });
+    products: { in: ['body'], optional: true, isArray: true },
+    'products.*': { in: ['body'], isMongoId: true, errorMessage: 'each product must be a valid id' },
+    sales: { in: ['body'], optional: true, isArray: true },
+    'sales.*': { in: ['body'], isMongoId: true, errorMessage: 'each sale must be a valid id' },
+  }).run(req);
+
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -63,70 +48,25 @@ const createCampaignValidator = (req: Request, res: Response, next: NextFunction
   next();
 };
 
-const updateCampaignValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    campaignId: {
-      in: ['params'],
-      isMongoId: true,
-      errorMessage: 'Campaign ID must be a valid MongoDB ID',
-    },
-    name: {
+const updateCampaignValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
+    campaignId: { in: ['params'], isMongoId: true, errorMessage: 'Campaign ID must be a valid MongoDB ID' },
+    image: { in: ['body'], optional: true, isString: true },
+    title: { in: ['body'], optional: true, isString: true },
+    description: { in: ['body'], optional: true, isString: true },
+    status: {
       in: ['body'],
-      isString: true,
       optional: true,
-      errorMessage: 'Campaign name should be a string',
+      isIn: { options: [['active', 'inactive', 'draft']], errorMessage: 'status must be active|inactive|draft' },
     },
-    description: {
-      in: ['body'],
-      isString: true,
-      optional: true,
-      errorMessage: 'Description should be a string',
-    },
-    startDate: {
-      in: ['body'],
-      isISO8601: true,
-      optional: true,
-      errorMessage: 'Start date must be a valid ISO 8601 date',
-    },
-    endDate: {
-      in: ['body'],
-      isISO8601: true,
-      optional: true,
-      errorMessage: 'End date must be a valid ISO 8601 date',
-    },
-    isActive: {
-      in: ['body'],
-      isBoolean: true,
-      optional: true,
-      errorMessage: 'isActive should be a boolean',
-    },
-    discountType: {
-      in: ['body'],
-      isString: true,
-      optional: true,
-      isIn: {
-        options: [['percentage', 'fixed']],
-        errorMessage: 'Discount type must be either percentage or fixed',
-      },
-    },
-    discountValue: {
-      in: ['body'],
-      isNumeric: true,
-      optional: true,
-      errorMessage: 'Discount value must be a number',
-    },
-    products: {
-      in: ['body'],
-      isArray: true,
-      optional: true,
-      errorMessage: 'Products should be an array',
-    },
-    'products.*': {
-      in: ['body'],
-      isMongoId: true,
-      errorMessage: 'Each product ID must be a valid MongoDB ID',
-    },
-  });
+    startDate: { in: ['body'], optional: true, isISO8601: { errorMessage: 'startDate must be ISO8601' } },
+    endDate: { in: ['body'], optional: true, isISO8601: { errorMessage: 'endDate must be ISO8601' } },
+    products: { in: ['body'], optional: true, isArray: true },
+    'products.*': { in: ['body'], optional: true, isMongoId: true },
+    sales: { in: ['body'], optional: true, isArray: true },
+    'sales.*': { in: ['body'], optional: true, isMongoId: true },
+  }).run(req);
+
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -134,14 +74,10 @@ const updateCampaignValidator = (req: Request, res: Response, next: NextFunction
   next();
 };
 
-const campaignIdValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    campaignId: {
-      in: ['params'],
-      isMongoId: true,
-      errorMessage: 'Campaign ID must be a valid MongoDB ID',
-    },
-  });
+const campaignIdValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
+    campaignId: { in: ['params'], isMongoId: true, errorMessage: 'Campaign ID must be a valid MongoDB ID' },
+  }).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -149,19 +85,14 @@ const campaignIdValidator = (req: Request, res: Response, next: NextFunction) =>
   next();
 };
 
-const toggleStatusValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    campaignId: {
-      in: ['params'],
-      isMongoId: true,
-      errorMessage: 'Campaign ID must be a valid MongoDB ID',
-    },
-    isActive: {
+const toggleStatusValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
+    campaignId: { in: ['params'], isMongoId: true, errorMessage: 'Campaign ID must be a valid MongoDB ID' },
+    status: {
       in: ['body'],
-      isBoolean: true,
-      errorMessage: 'isActive must be a boolean',
+      isIn: { options: [['active', 'inactive']], errorMessage: 'status must be active or inactive' },
     },
-  });
+  }).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -169,19 +100,11 @@ const toggleStatusValidator = (req: Request, res: Response, next: NextFunction) 
   next();
 };
 
-const addProductValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    campaignId: {
-      in: ['params'],
-      isMongoId: true,
-      errorMessage: 'Campaign ID must be a valid MongoDB ID',
-    },
-    productId: {
-      in: ['body'],
-      isMongoId: true,
-      errorMessage: 'Product ID must be a valid MongoDB ID',
-    },
-  });
+const addProductValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
+    campaignId: { in: ['params'], isMongoId: true, errorMessage: 'Campaign ID must be a valid MongoDB ID' },
+    productId: { in: ['body'], isMongoId: true, errorMessage: 'Product ID must be a valid MongoDB ID' },
+  }).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -189,19 +112,11 @@ const addProductValidator = (req: Request, res: Response, next: NextFunction) =>
   next();
 };
 
-const removeProductValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    campaignId: {
-      in: ['params'],
-      isMongoId: true,
-      errorMessage: 'Campaign ID must be a valid MongoDB ID',
-    },
-    productId: {
-      in: ['params'],
-      isMongoId: true,
-      errorMessage: 'Product ID must be a valid MongoDB ID',
-    },
-  });
+const removeProductValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
+    campaignId: { in: ['params'], isMongoId: true, errorMessage: 'Campaign ID must be a valid MongoDB ID' },
+    productId: { in: ['params'], isMongoId: true, errorMessage: 'Product ID must be a valid MongoDB ID' },
+  }).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });

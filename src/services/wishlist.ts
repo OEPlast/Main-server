@@ -1,6 +1,6 @@
-import Product, { ProductType } from '@/models/Product';
+import Product from '@/models/Product';
 import Wishlist, { WishlistType } from '../models/wishlist';
-import { CustomResponseType } from '@/types';
+import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 
 /**
  * Creates a new wishlist item.
@@ -25,11 +25,15 @@ const createWishlist = async ({
         code: 404,
       };
     }
-    const wishlist = new Wishlist({ product, user });
-    await wishlist.save();
+    await Wishlist.updateOne(
+      { user: user, product: product },
+      { $setOnInsert: { user: user, product: product } },
+      { upsert: true }
+    );
+    // Return a consistent response even if it already existed
     return {
       message: 'Wishlist item created successfully',
-      data: wishlist,
+      data: null,
       code: 200,
     };
   } catch (error) {
@@ -59,19 +63,39 @@ const getAllWishlists = async ({
   user: string;
   page: number;
   limit: number;
-}): Promise<CustomResponseType<{ wishlists: ProductType[]; total: number }>> => {
+}): Promise<
+  CustomResponseTypeWithMeta<
+    WishlistType[],
+    { total: number; page: number; limit: number; pages: number; hasNext: boolean; hasPrev: boolean }
+  >
+> => {
   try {
-    const skip = (page - 1) * limit;
-    const wishlists = (await Wishlist.find({ user })
-      .populate('product')
-      .skip(skip)
-      .limit(limit)) as unknown as ProductType[];
-    // TODO: look into this above
-    const total = await Wishlist.countDocuments();
+    const safePage = Math.max(1, Number.isFinite(page) ? Math.floor(page) : 1);
+    const maxLimit = 100;
+    const safeLimit = Math.max(1, Math.min(maxLimit, Number.isFinite(limit) ? Math.floor(limit) : 50));
+    const skip = (safePage - 1) * safeLimit;
+
+    const [rawItems, total] = await Promise.all([
+      Wishlist.find({ user })
+        .sort({ createdAt: -1 })
+        .populate({
+          path: 'product',
+          select: '_id name price sku tags slug attributes description_images category',
+          populate: { path: 'category', select: '_id name image slug' },
+        })
+        .skip(skip)
+        .limit(safeLimit),
+      Wishlist.countDocuments({ user }),
+    ]);
+
+    const totalPages = Math.max(1, Math.ceil(total / safeLimit));
+    const hasNext = safePage < totalPages;
+    const hasPrev = safePage > 1;
     return {
       message: 'Wishlists retrieved successfully',
-      data: { wishlists, total },
+      data: rawItems,
       code: 200,
+      meta: { total, page: safePage, limit: safeLimit, pages: totalPages, hasNext, hasPrev },
     };
   } catch (error) {
     console.log(error);

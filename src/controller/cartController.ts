@@ -23,7 +23,7 @@ export const getCart = async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   try {
-    const userId = (req as AuthenticatedRequest).userId;
+    const userId = req.userId;
     const { data, message, code } = await CartService.getCartItems(userId);
     return res.status(code).json({ message, data });
   } catch (error) {
@@ -55,8 +55,8 @@ export const removeFromCart = async (req: Request, res: Response) => {
   }
   try {
     const userId = (req as AuthenticatedRequest).userId;
-    const { productId } = req.params;
-    const { data, message, code } = await CartService.removeFromCart(userId, productId);
+    const { itemId } = req.params;
+    const { data, message, code } = await CartService.removeFromCart(userId, itemId);
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in removeFromCart:', error);
@@ -79,18 +79,54 @@ export const clearUserCart = async (req: Request, res: Response) => {
   }
 };
 
-// Update the quantity of an item in the cart
-export const updateCartItemQuantity = async (req: Request, res: Response) => {
+// Update a cart item
+export const updateCartItem = async (req: Request, res: Response) => {
   if (!isAuthenticatedRequest(req)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   try {
     const userId = (req as AuthenticatedRequest).userId;
-    const { productId, qty } = req.body;
-    const { message, data, code } = await CartService.updateCartItem(userId, productId, qty);
+    const { itemId } = req.params;
+    const { qty, selectedAttributes } = req.body;
+    const { message, data, code } = await CartService.updateCartItem(userId, itemId, {
+      qty,
+      selectedAttributes,
+    });
     return res.status(code).json({ message, data });
   } catch (error) {
-    console.error('Error in updateCartItemQuantity:', error);
+    console.error('Error in updateCartItem:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Apply coupon to cart
+export const applyCoupon = async (req: Request, res: Response) => {
+  if (!isAuthenticatedRequest(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const userId = (req as AuthenticatedRequest).userId;
+    const { couponCode } = req.body;
+    const { message, data, code } = await CartService.applyCoupon(userId, couponCode);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in applyCoupon:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Remove coupon from cart
+export const removeCoupon = async (req: Request, res: Response) => {
+  if (!isAuthenticatedRequest(req)) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  try {
+    const userId = (req as AuthenticatedRequest).userId;
+    const { couponId } = req.params;
+    const { message, data, code } = await CartService.removeCoupon(userId, couponId);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in removeCoupon:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -100,6 +136,8 @@ export default {
   addToCart,
   removeFromCart,
   clearUserCart,
-  updateCartItemQuantity,
+  updateCartItem,
   validateCart,
+  applyCoupon,
+  removeCoupon,
 };

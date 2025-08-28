@@ -17,7 +17,20 @@ const variantSchema = new mongoose.Schema({
       message: 'attributeName and attributeValue must both be null or both be strings.',
     },
   },
-  discount: { type: Number, default: 10, required: true },
+  discount: { type: Number, default: 0 },
+  amountOff: {
+    type: Number,
+    default: 0,
+    validate: {
+      validator: function (this: { discount: number }, value: number) {
+        const discount = typeof this.discount === 'number' ? this.discount : 0;
+        const amountOff = typeof value === 'number' ? value : 0;
+        // Exactly one of discount or amountOff must be a positive number
+        return discount > 0 !== amountOff > 0;
+      },
+      message: 'Exactly one of discount or amountOff must be a positive number (not both).',
+    },
+  },
   maxBuys: { type: Number, default: 0 },
   boughtCount: { type: Number, default: 0 },
 });
@@ -32,7 +45,7 @@ const salesSchema = new mongoose.Schema(
     },
     isActive: {
       type: Boolean,
-      default: true,
+      default: false,
     },
     createdBy: {
       type: mongoose.Schema.ObjectId,
@@ -52,10 +65,6 @@ const salesSchema = new mongoose.Schema(
     campaign: {
       type: mongoose.Schema.ObjectId,
       ref: 'Campaign',
-    },
-    limit: {
-      type: Number,
-      default: 1,
     },
     startDate: {
       type: Date,

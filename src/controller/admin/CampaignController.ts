@@ -14,8 +14,8 @@ const createCampaign = async (req: Request, res: Response) => {
 
 const getAllCampaigns = async (req: Request, res: Response) => {
   try {
-    const { page = 1, limit = 20, status } = req.query;
-    const result = await CampaignService.getAllCampaigns(Number(page), Number(limit), status as string);
+    const { status } = req.query;
+    const result = await CampaignService.getAllCampaigns(status as string);
     return res.status(result.code).json({ message: result.message, data: result.data });
   } catch (error) {
     console.error('Error in getAllCampaigns:', error);
@@ -72,8 +72,8 @@ const toggleCampaignStatus = async (req: Request, res: Response) => {
 const addProductToCampaign = async (req: Request, res: Response) => {
   try {
     const { campaignId } = req.params;
-    const productData = req.body;
-    const result = await CampaignService.addProductToCampaign(campaignId, productData);
+    const { productId } = req.body as { productId: string };
+    const result = await CampaignService.addProductToCampaign(campaignId, productId);
     return res.status(result.code).json({ message: result.message, data: result.data });
   } catch (error) {
     console.error('Error in addProductToCampaign:', error);

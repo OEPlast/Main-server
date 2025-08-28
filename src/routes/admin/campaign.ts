@@ -10,12 +10,12 @@ router.use(authenticateUser, isAdmin);
 
 // Campaign CRUD operations
 router.post(
-  '/',
+  '/create',
   requirePermission('campaigns', 'create'),
   CampaignValidator.createCampaignValidator,
   CampaignController.createCampaign
 );
-router.get('/', requirePermission('campaigns', 'read'), CampaignController.getAllCampaigns);
+router.get('/all', requirePermission('campaigns', 'read'), CampaignController.getAllCampaigns);
 router.get(
   '/:campaignId',
   requirePermission('campaigns', 'read'),
@@ -41,20 +41,6 @@ router.patch(
   requirePermission('campaigns', 'update'),
   CampaignValidator.toggleStatusValidator,
   CampaignController.toggleCampaignStatus
-);
-
-// Campaign product management
-router.post(
-  '/:campaignId/products',
-  requirePermission('campaigns', 'update'),
-  CampaignValidator.addProductValidator,
-  CampaignController.addProductToCampaign
-);
-router.delete(
-  '/:campaignId/products/:productId',
-  requirePermission('campaigns', 'update'),
-  CampaignValidator.removeProductValidator,
-  CampaignController.removeProductFromCampaign
 );
 
 export default router;

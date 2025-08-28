@@ -1,11 +1,5 @@
 import { Router } from 'express';
-import {
-  validateSalesCreate,
-  validateSalesUpdate,
-  validateSalesId,
-  validateSalesType,
-  validateSalesVariantUpdate,
-} from '@/validators/admin/SalesValidator';
+import SalesValidator from '@/validators/admin/SalesValidator';
 import SalesController from '@/controller/admin/SalesController';
 import { authenticateUser, isAdmin, requirePermission } from '@/middleware/auth';
 
@@ -15,31 +9,38 @@ const router = Router();
 router.use(authenticateUser, isAdmin);
 
 // CRUD for admin
-router.post('/', requirePermission('sales', 'create'), validateSalesCreate, SalesController.createSale);
+router.post('/', requirePermission('sales', 'create'), SalesValidator.createSaleValidator, SalesController.createSale);
 router.get('/', requirePermission('sales', 'read'), SalesController.getAllSales);
-router.get('/:id', requirePermission('sales', 'read'), validateSalesId, SalesController.getSaleById);
-router.put('/:id', requirePermission('sales', 'update'), validateSalesUpdate, SalesController.updateSale);
-router.delete('/:id', requirePermission('sales', 'delete'), validateSalesId, SalesController.deleteSale);
+router.get('/:id', requirePermission('sales', 'read'), SalesValidator.saleIdValidator, SalesController.getSaleById);
+router.put(
+  '/:id',
+  requirePermission('sales', 'update'),
+  SalesValidator.updateSaleValidator,
+  SalesController.updateSale
+);
+router.delete('/:id', requirePermission('sales', 'delete'), SalesValidator.saleIdValidator, SalesController.deleteSale);
 
 // Get by type
-router.get('/type/:type', requirePermission('sales', 'read'), validateSalesType, SalesController.getSalesByType);
-
-// Variant mutation
-router.patch(
-  '/:id/variant',
-  requirePermission('sales', 'update'),
-  validateSalesVariantUpdate,
-  SalesController.updateSaleVariant
+router.get(
+  '/type/:type',
+  requirePermission('sales', 'read'),
+  SalesValidator.salesTypeValidator,
+  SalesController.getSalesByType
 );
 
 // Usage analysis
-router.get('/:id/usage', requirePermission('sales', 'read'), validateSalesId, SalesController.getSaleUsage);
+router.get(
+  '/:id/usage',
+  requirePermission('sales', 'read'),
+  SalesValidator.saleIdValidator,
+  SalesController.getSaleUsage
+);
 
 // Decrement limit and mark inactive if needed
 router.post(
   '/:id/decrement',
   requirePermission('sales', 'update'),
-  validateSalesId,
+  SalesValidator.saleIdValidator,
   SalesController.decrementSaleLimit
 );
 

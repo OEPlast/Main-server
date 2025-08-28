@@ -1,6 +1,7 @@
 import Sales, { SalesType } from '@/models/Sales';
 import { Types } from 'mongoose';
 import { CustomResponsePromise } from '@/types';
+import { isDuplicateKeyError } from '@/middleware/mongodb';
 
 // Lightweight projection result types
 interface AggregatedUserRef {
@@ -21,7 +22,6 @@ export interface AggregatedSale {
   title?: string;
   type: SalesType['type'];
   isActive: boolean;
-  limit: number;
   startDate?: Date;
   endDate?: Date;
   createdAt: Date;
@@ -37,9 +37,9 @@ export type PaginatedSales = { sales: AggregatedSale[]; page: number; total: num
 /**
  * Creates a new sale.
  */
-export const createSale = async (data: Partial<SalesType>): CustomResponsePromise<SalesType> => {
+export const createSale = async (data: Partial<SalesType>, userId: string): CustomResponsePromise<SalesType> => {
   try {
-    const sale = await Sales.create(data);
+    const sale = await Sales.create({ ...data, createdBy: userId, updatedBy: userId });
     return { message: 'Sale created successfully', data: sale, code: 201 };
   } catch (error) {
     console.error(error);
@@ -78,7 +78,6 @@ export const getAllSales = async (page = 1, limit = 20): CustomResponsePromise<P
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           createdAt: 1,
@@ -100,6 +99,9 @@ export const getAllSales = async (page = 1, limit = 20): CustomResponsePromise<P
 
     return { message: 'Sales retrieved successfully', data: { sales, page, total }, code: 200 };
   } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      return { message: 'Sales on this product already exist', data: null, code: 404 };
+    }
     console.error(error);
     return { message: 'Something went wrong', data: null, code: 500 };
   }
@@ -136,7 +138,6 @@ export const getSaleById = async (id: string): CustomResponsePromise<AggregatedS
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           deleted: 1,
@@ -164,9 +165,13 @@ export const getSaleById = async (id: string): CustomResponsePromise<AggregatedS
 /**
  * Updates a sale.
  */
-export const updateSale = async (id: string, data: Partial<SalesType>): CustomResponsePromise<SalesType> => {
+export const updateSale = async (
+  id: string,
+  data: Partial<SalesType>,
+  userId: string
+): CustomResponsePromise<SalesType> => {
   try {
-    const sale = await Sales.findByIdAndUpdate(id, data, { new: true });
+    const sale = await Sales.findByIdAndUpdate(id, { ...data, updatedBy: userId }, { new: true });
     return { message: sale ? 'Sale updated successfully' : 'Sale not found', data: sale, code: sale ? 200 : 404 };
   } catch (error) {
     console.error(error);
@@ -180,7 +185,12 @@ export const updateSale = async (id: string, data: Partial<SalesType>): CustomRe
 export const deleteSale = async (id: string): CustomResponsePromise<null> => {
   try {
     const sale = await Sales.findByIdAndDelete(id);
-    return { message: sale ? 'Sale deleted successfully' : 'Sale not found', data: null, code: sale ? 200 : 404 };
+    console.log(sale);
+    return {
+      message: sale !== null ? 'Sale deleted successfully' : 'Sale not found',
+      data: null,
+      code: sale ? 200 : 404,
+    };
   } catch (error) {
     console.error(error);
     return { message: 'Something went wrong', data: null, code: 500 };
@@ -210,7 +220,6 @@ export const getSalesByType = async (type: string, page = 1, limit = 20): Custom
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           deleted: 1,
@@ -233,38 +242,17 @@ export const getSalesByType = async (type: string, page = 1, limit = 20): Custom
 };
 
 /**
- * Updates a sale variant.
+ * Deletes a sale variant.
  */
-export const updateSaleVariant = async (
+export const deleteSaleVariant = async (
   id: string,
   variantIndex: number,
-  variantData: SalesType['variants'][number]
+  userId: string
 ): CustomResponsePromise<SalesType> => {
   try {
     const sale = await Sales.findOneAndUpdate(
       { _id: id, [`variants.${variantIndex}`]: { $exists: true } },
-      { $set: { [`variants.${variantIndex}`]: variantData } },
-      { new: true }
-    );
-    return {
-      message: sale ? 'Variant updated successfully' : 'Sale or variant not found',
-      data: sale,
-      code: sale ? 200 : 404,
-    };
-  } catch (error) {
-    console.error(error);
-    return { message: 'Something went wrong', data: null, code: 500 };
-  }
-};
-
-/**
- * Deletes a sale variant.
- */
-export const deleteSaleVariant = async (id: string, variantIndex: number): CustomResponsePromise<SalesType> => {
-  try {
-    const sale = await Sales.findOneAndUpdate(
-      { _id: id, [`variants.${variantIndex}`]: { $exists: true } },
-      { $unset: { [`variants.${variantIndex}`]: '' } },
+      { $unset: { [`variants.${variantIndex}`]: '' }, updatedBy: userId },
       { new: true }
     );
     return {
@@ -284,7 +272,6 @@ export const deleteSaleVariant = async (id: string, variantIndex: number): Custo
 export const getSaleUsage = async (
   id: string
 ): CustomResponsePromise<{
-  limit: number;
   variants: Array<{ maxBuys: number; boughtCount: number }>;
   isActive: boolean;
   endDate?: Date | null;
@@ -296,7 +283,6 @@ export const getSaleUsage = async (
     return {
       message: 'Sale usage retrieved successfully',
       data: {
-        limit: sale.limit,
         variants: (sale.variants || []).map((v) => ({ maxBuys: v.maxBuys, boughtCount: v.boughtCount })),
         isActive: sale.isActive,
         endDate: sale.endDate,
@@ -317,27 +303,34 @@ export const decrementSaleLimit = async (id: string, variantIndex?: number): Cus
     const sale = await Sales.findById(id);
     if (!sale) return { message: 'Sale not found', data: null, code: 404 };
     if (!sale.isActive) return { message: 'Sale is not active', data: null, code: 400 };
+    // Deactivate if expired
     if (sale.endDate && sale.endDate < new Date()) {
       sale.isActive = false;
       await sale.save();
       return { message: 'Sale has ended', data: null, code: 400 };
     }
-    if (sale.limit <= 0) {
-      sale.isActive = false;
-      await sale.save();
-      return { message: 'Sale limit reached', data: null, code: 400 };
-    }
-    if (typeof variantIndex === 'number') {
+
+    if (Array.isArray(sale.variants) && sale.variants.length > 0) {
+      if (typeof variantIndex !== 'number') {
+        return { message: 'variantIndex is required for sales with variants', data: null, code: 400 };
+      }
       const variant = sale.variants[variantIndex];
       if (!variant) return { message: 'Variant not found', data: null, code: 404 };
-      if (variant.maxBuys > 0 && variant.boughtCount >= variant.maxBuys)
+      if (variant.maxBuys > 0 && variant.boughtCount >= variant.maxBuys) {
         return { message: 'Variant max buys reached', data: null, code: 400 };
+      }
+      // record usage
       variant.boughtCount += 1;
+
+      // If after increment all variants are exhausted, deactivate sale
+      const allReached = sale.variants.every((v) => v.maxBuys > 0 && v.boughtCount >= v.maxBuys);
+      if (allReached) sale.isActive = false;
+    } else {
+      // No variants to track usage; keep sale active unless expired
     }
-    sale.limit -= 1;
-    if (sale.limit <= 0) sale.isActive = false;
+
     await sale.save();
-    return { message: 'Sale decremented successfully', data: sale, code: 200 };
+    return { message: 'Sale usage recorded', data: sale, code: 200 };
   } catch (error) {
     console.error(error);
     return { message: 'Something went wrong', data: null, code: 500 };
@@ -353,7 +346,6 @@ export const checkSaleOnCheckout = async (saleId: string, variantIndex?: number)
     if (!sale) return { message: 'Sale not found', data: null, code: 404 };
     if (!sale.isActive) return { message: 'Sale is not active', data: null, code: 400 };
     if (sale.endDate && sale.endDate < new Date()) return { message: 'Sale has ended', data: null, code: 400 };
-    if (sale.limit <= 0) return { message: 'Sale limit reached', data: null, code: 400 };
 
     if (typeof variantIndex === 'number') {
       const variant = sale.variants[variantIndex];
@@ -409,7 +401,6 @@ export const getAllActiveFlashSales = async (page = 1, limit = 20): CustomRespon
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           createdAt: 1,
@@ -441,10 +432,44 @@ export const getAllActiveFlashSales = async (page = 1, limit = 20): CustomRespon
  */
 export const getAllActiveLimitedSales = async (page = 1, limit = 20): CustomResponsePromise<PaginatedSales> => {
   try {
-    const match = { type: 'Limited', isActive: true, deleted: { $ne: true }, limit: { $gte: 1 } };
-    const total = await Sales.countDocuments(match);
+    const baseMatch = { type: 'Limited', isActive: true, deleted: { $ne: true } } as const;
+    // Count using aggregation to account for hasAvailable variants
+    const countAgg = await Sales.aggregate([
+      { $match: baseMatch },
+      {
+        $addFields: {
+          hasAvailable: {
+            $anyElementTrue: {
+              $map: {
+                input: '$variants',
+                as: 'v',
+                in: { $or: [{ $eq: ['$$v.maxBuys', 0] }, { $lt: ['$$v.boughtCount', '$$v.maxBuys'] }] },
+              },
+            },
+          },
+        },
+      },
+      { $match: { hasAvailable: true } },
+      { $count: 'total' },
+    ]);
+    const total = countAgg[0]?.total || 0;
+
     const sales = (await Sales.aggregate([
-      { $match: match },
+      { $match: baseMatch },
+      {
+        $addFields: {
+          hasAvailable: {
+            $anyElementTrue: {
+              $map: {
+                input: '$variants',
+                as: 'v',
+                in: { $or: [{ $eq: ['$$v.maxBuys', 0] }, { $lt: ['$$v.boughtCount', '$$v.maxBuys'] }] },
+              },
+            },
+          },
+        },
+      },
+      { $match: { hasAvailable: true } },
       {
         $lookup: {
           from: 'products',
@@ -469,7 +494,6 @@ export const getAllActiveLimitedSales = async (page = 1, limit = 20): CustomResp
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           createdAt: 1,
@@ -529,7 +553,6 @@ export const getAllActiveNormalSales = async (page = 1, limit = 20): CustomRespo
           title: 1,
           type: 1,
           isActive: 1,
-          limit: 1,
           startDate: 1,
           endDate: 1,
           createdAt: 1,
@@ -573,11 +596,6 @@ export const isSaleAvailable = async (saleId: string, variantIndex?: number): Cu
       }
     }
 
-    if (sale.type === 'Limited' && sale.limit < 1) {
-      await markSaleInactiveIfNeeded(sale);
-      return { message: 'Limited sale limit reached', data: null, code: 400 };
-    }
-
     if (typeof variantIndex === 'number') {
       const variant = sale.variants[variantIndex];
       if (!variant) return { message: 'Variant not found', data: null, code: 404 };
@@ -615,9 +633,6 @@ export const markSaleInactiveIfNeeded = async (
       sale.isActive = false;
       updated = true;
     }
-  } else if (sale.type === 'Limited' && sale.limit < 1) {
-    sale.isActive = false;
-    updated = true;
   } else if (sale.type === 'Flash') {
     const now = new Date();
     if (!sale.startDate || !sale.endDate || sale.startDate > now || sale.endDate < now) {
@@ -635,6 +650,43 @@ export const markSaleInactiveIfNeeded = async (
   if (updated) await sale.save();
 };
 
+/**
+ * Deactivate a sale. If reason is manual, it will force deactivate.
+ * If reason is expired/exhausted, it will only deactivate when the condition holds.
+ */
+export const deactivateSale = async (
+  id: string,
+  reason: 'manual' | 'expired' | 'exhausted' = 'manual'
+): CustomResponsePromise<SalesType> => {
+  try {
+    const sale = await Sales.findById(id);
+    if (!sale) return { message: 'Sale not found', data: null, code: 404 };
+
+    const now = new Date();
+    if (reason === 'manual') {
+      sale.isActive = false;
+    } else if (reason === 'expired') {
+      if (sale.type === 'Flash' && sale.endDate && sale.endDate < now) sale.isActive = false;
+      else return { message: 'Sale not expired', data: sale, code: 200 };
+    } else if (reason === 'exhausted') {
+      if (Array.isArray(sale.variants) && sale.variants.length > 0) {
+        const allReached = sale.variants.every((v) => v.maxBuys > 0 && v.boughtCount >= v.maxBuys);
+        if (allReached) sale.isActive = false;
+        else return { message: 'Sale not exhausted', data: sale, code: 200 };
+      } else {
+        // No variants means nothing to exhaust; leave active
+        return { message: 'Sale has no exhaustion criteria', data: sale, code: 200 };
+      }
+    }
+
+    await sale.save();
+    return { message: 'Sale deactivated', data: sale, code: 200 };
+  } catch (error) {
+    console.error(error);
+    return { message: 'Something went wrong', data: null, code: 500 };
+  }
+};
+
 const Admin_SalesService = {
   createSale,
   getAllSales,
@@ -642,7 +694,6 @@ const Admin_SalesService = {
   updateSale,
   deleteSale,
   getSalesByType,
-  updateSaleVariant,
   getSaleUsage,
   decrementSaleLimit,
   checkSaleOnCheckout,
@@ -651,6 +702,7 @@ const Admin_SalesService = {
   getAllActiveNormalSales,
   isSaleAvailable,
   markSaleInactiveIfNeeded,
+  deactivateSale,
 };
 
 export default Admin_SalesService;

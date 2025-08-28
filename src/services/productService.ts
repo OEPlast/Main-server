@@ -36,6 +36,7 @@ const getAllProducts = async (
   try {
     const page = params.page && params.page > 0 ? params.page : 1;
     const limit = params.limit && params.limit > 0 ? Math.min(params.limit, 100) : 20;
+
     const sortOrderNum: 1 | -1 = params.sortOrder === 'asc' ? 1 : -1;
 
     const match: Record<string, unknown> = {

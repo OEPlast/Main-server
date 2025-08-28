@@ -20,6 +20,7 @@ import UserRoute from '@/routes/users/user';
 import InventoryRoute from '@/routes/general/inventory';
 import LogisticsPublicRoute from '@/routes/general/logistics';
 import UserShipmentsRoute from '@/routes/users/shipments';
+import UserCampaignsRoute from '@/routes/users/campaigns';
 import { eventPublisher } from '@/events';
 
 import {
@@ -36,7 +37,6 @@ import {
   AdminCampaignRoute,
   AdminSalesRoute,
   AdminInventoryRoute,
-  AdminInvoicesRoute,
   AdminCouponAnalyticsRoute,
   AdminLogisticsRoute,
 } from './routes/admin';
@@ -80,14 +80,15 @@ app.use('/categories', CategoriesRoute);
 app.use('/banners', BannersRoute);
 app.use('/products', ProductsRoute);
 app.use('/logistics', LogisticsPublicRoute);
-
 app.use('/wishlist', WishlistRoute);
+app.use('/campaigns', UserCampaignsRoute);
+app.use('/cart', CartRoute);
+
+app.use('/orders', OrderRoute);
+app.use('/payments', PaymentRoute);
+
 app.use('/reviews/user', UserReviewsRoute);
 app.use('/reviews', ReviewRoute);
-app.use('/carts', CartRoute);
-
-app.use('/payments', PaymentRoute);
-app.use('/orders', OrderRoute);
 app.use('/checkout', CheckoutRoute);
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);
@@ -102,11 +103,8 @@ app.use('/admin/users', AdminUsersRoute);
 app.use('/admin/banners', AdminBannerRoute);
 app.use('/admin/product', AdminProductRoute);
 app.use('/admin/logistics', AdminLogisticsRoute);
-
-app.use('/reviews', ReviewRoute);
-app.use('/admin/campaigns', AdminCampaignRoute);
-app.use('/admin/invoices', AdminInvoicesRoute);
 app.use('/admin/sales', AdminSalesRoute);
+app.use('/admin/campaigns', AdminCampaignRoute);
 
 app.use('/admin/orders', AdminOrderRoute);
 app.use('/admin/shipment', AdminShipmentRoute);
@@ -116,7 +114,7 @@ app.use('/admin/analytics', AdminAnalyticsRoute);
 
 //------------------
 // server Health Check
-app.get('/health-check', (req: Request, res: Response) => {
+app.get('/health-check', (_req: Request, res: Response) => {
   res.status(200).json({ message: 'Server is up and running!' });
 });
 

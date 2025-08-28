@@ -14,5 +14,4 @@ export { default as AdminRolesRoute } from './roles';
 export { default as AdminCampaignRoute } from './campaign';
 export { default as AdminSalesRoute } from './sales';
 export { default as AdminInventoryRoute } from './inventory';
-export { default as AdminInvoicesRoute } from './invoices';
 export { default as AdminLogisticsRoute } from './logistics';

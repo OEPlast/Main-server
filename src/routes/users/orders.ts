@@ -3,7 +3,6 @@ import express from 'express';
 import OrderController from '../../controller/orderController';
 import OrderValidator from '../../validators/OrderValidator';
 import { authenticateUser } from '@/middleware/auth';
-import InvoiceController from '@/controller/InvoiceController';
 
 const router = express.Router();
 
@@ -28,5 +27,4 @@ router.post('/orders/:id/return', authenticateUser, OrderValidator.validateOrder
 // Fetch all returned orders
 router.get('/orders/returns', authenticateUser, OrderController.getAllReturns);
 
-router.get('/orders/:orderId/invoice', authenticateUser, InvoiceController.generateInvoiceForOrder);
 export default router;
