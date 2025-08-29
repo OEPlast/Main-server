@@ -119,6 +119,13 @@ const orderSchema = new mongoose.Schema(
     couponCode: { type: String },
     couponDiscount: { type: Number, default: 0 },
     couponSnapshot: { type: couponSnapshotSchema, default: undefined },
+    // Delivery options
+    deliveryType: {
+      type: String,
+      enum: ['shipping', 'pickup'],
+      default: 'shipping',
+      required: true,
+    },
     shippingPrice: {
       type: Number,
       required: true,

@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Order, { OrderType } from '../models/Order';
 import Product from '@/models/Product';
+import User from '@/models/User';
 import { CustomResponseType } from '@/types';
 import AnalyticsService from './MainAnalyticsService';
 import { findActiveSaleForProduct, checkSaleAvailability } from '@/helpers/salesUtils';
@@ -15,6 +16,7 @@ import {
 } from '@/helpers/pricingUtils';
 import Coupon, { CouponType as CouponSchemaType } from '@/models/Coupon';
 import CouponRedemption from '@/models/CouponRedemption';
+import LogisticsService from '@/services/LogisticsService';
 
 function calculateUnitPrice({
   product,
@@ -35,11 +37,7 @@ function calculateUnitPrice({
   unit = applyPricingTier(unit, qty, variant?.pricingTiers);
   unit = applyPricingTier(unit, qty, product.pricingTiers);
 
-  // Static discounts
-  const variantDiscountPct = typeof variant?.discount === 'number' ? variant.discount : undefined;
-  const productDiscountPct = typeof product.discount === 'number' ? product.discount : 0;
-  const staticDiscountPct = typeof variantDiscountPct === 'number' ? variantDiscountPct : productDiscountPct;
-  if (staticDiscountPct && staticDiscountPct > 0) unit = Math.max(0, unit - (unit * staticDiscountPct) / 100);
+  // No static discounts - all discounts come from Sales only
 
   // Sale discount overrides static precedence (applied on resolved base price, not tiered?)
   const salePct = typeof saleContext?.discount === 'number' ? saleContext.discount : 0;
@@ -48,7 +46,7 @@ function calculateUnitPrice({
     unit = Math.max(0, baseForSale - (baseForSale * salePct) / 100);
   }
 
-  return { unitPrice: unit, base, discountAppliedPct: salePct > 0 ? salePct : staticDiscountPct || 0 };
+  return { unitPrice: unit, base, discountAppliedPct: salePct };
 }
 
 type CouponDoc = CouponSchemaType & { _id: mongoose.Types.ObjectId };
@@ -58,6 +56,124 @@ type PricedItem = {
   qty: number;
   price: number;
 };
+
+async function validateCouponCodes({
+  couponCodes,
+  items,
+  itemsSubtotal,
+  userId,
+  session,
+}: {
+  couponCodes: string[];
+  items: PricedItem[];
+  itemsSubtotal: number;
+  userId: mongoose.Types.ObjectId;
+  session: mongoose.ClientSession;
+}): Promise<{
+  validCoupons: Array<{ code: string; couponDoc: CouponDoc; discount: number }>;
+  invalidCoupons: Array<{ code: string; reason: string }>;
+  totalDiscount: number;
+}> {
+  const validCoupons: Array<{ code: string; couponDoc: CouponDoc; discount: number }> = [];
+  const invalidCoupons: Array<{ code: string; reason: string }> = [];
+  let totalDiscount = 0;
+
+  const now = new Date();
+  const userIdStr = userId.toString();
+
+  // Process each coupon code
+  for (const code of couponCodes) {
+    try {
+      // Find coupon by code
+      const couponDoc = (await Coupon.findOne({
+        coupon: code.toUpperCase(),
+        deleted: { $ne: true },
+      }).session(session)) as CouponDoc | null;
+
+      if (!couponDoc) {
+        invalidCoupons.push({ code, reason: 'Coupon not found' });
+        continue;
+      }
+
+      // Check if coupon is active
+      if (!couponDoc.active) {
+        invalidCoupons.push({ code, reason: 'Coupon is inactive' });
+        continue;
+      }
+
+      // Check date validity
+      if (now < couponDoc.startDate || now > couponDoc.endDate) {
+        invalidCoupons.push({ code, reason: 'Coupon has expired or not yet active' });
+        continue;
+      }
+
+      // Check coupon type constraints
+      if (couponDoc.couponType === 'one-off-user') {
+        const alreadyUsed = await CouponRedemption.countDocuments({
+          coupon: couponDoc._id,
+          user: userId,
+        }).session(session);
+        if (alreadyUsed > 0) {
+          invalidCoupons.push({ code, reason: 'Coupon already used by this user' });
+          continue;
+        }
+      }
+
+      if (couponDoc.couponType === 'one-off-for-one-person') {
+        if (!couponDoc.allowedUser || couponDoc.allowedUser.toString() !== userIdStr) {
+          invalidCoupons.push({ code, reason: 'Coupon not allowed for this user' });
+          continue;
+        }
+        const totalRedemptions = await CouponRedemption.countDocuments({
+          coupon: couponDoc._id,
+        }).session(session);
+        if (totalRedemptions >= 1) {
+          invalidCoupons.push({ code, reason: 'Coupon already used' });
+          continue;
+        }
+      }
+
+      if (typeof couponDoc.maxUsagePerUser === 'number' && couponDoc.maxUsagePerUser >= 0) {
+        const userUsageCount = await CouponRedemption.countDocuments({
+          coupon: couponDoc._id,
+          user: userId,
+        }).session(session);
+        if (userUsageCount >= couponDoc.maxUsagePerUser) {
+          invalidCoupons.push({ code, reason: 'User usage limit reached' });
+          continue;
+        }
+      }
+
+      // Check minimum order value
+      if (typeof couponDoc.minOrderValue === 'number' && itemsSubtotal < couponDoc.minOrderValue) {
+        invalidCoupons.push({
+          code,
+          reason: `Minimum order value of ₦${couponDoc.minOrderValue.toLocaleString()} required`,
+        });
+        continue;
+      }
+
+      // Calculate discount for this coupon
+      const { discount } = computeCouponDiscount({
+        coupon: couponDoc,
+        items,
+        itemsSubtotal: Math.max(0, itemsSubtotal - totalDiscount), // Apply on remaining amount
+      });
+
+      if (discount > 0) {
+        validCoupons.push({ code, couponDoc, discount });
+        totalDiscount += discount;
+      } else {
+        invalidCoupons.push({ code, reason: 'No discount applicable' });
+      }
+    } catch (error) {
+      console.error(`Error validating coupon ${code}:`, error);
+      invalidCoupons.push({ code, reason: 'Error validating coupon' });
+    }
+  }
+
+  return { validCoupons, invalidCoupons, totalDiscount };
+}
 
 function computeCouponDiscount({
   coupon,
@@ -160,9 +276,20 @@ type OrderDataInput = Omit<OrderType, 'createdAt' | 'updatedAt' | 'user' | 'ship
   user: string | mongoose.Types.ObjectId;
   shippingProgress?: OrderType['shippingProgress'];
   flashSaleApplied?: OrderType['flashSaleApplied'];
+  couponCodes?: string[]; // Add support for coupon codes array
 };
 
-const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise<CustomResponseType<OrderType>> => {
+// Enhanced order response type that includes additional order creation details
+type PlaceOrderResponse = {
+  order: OrderType;
+  couponResults: Array<{ code: string; applied: boolean; reason?: string; discount?: number }>;
+  appliedCoupons: number;
+  totalCouponDiscount: number;
+};
+
+const placeOrderWithStockValidation = async (
+  orderData: OrderDataInput
+): Promise<CustomResponseType<PlaceOrderResponse>> => {
   const session = await mongoose.startSession();
   session.startTransaction();
 
@@ -215,8 +342,17 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
       if (item.sale) {
         const sale = (await findActiveSaleForProduct(item.product!.toString())) as unknown as SalesType | null;
         if (sale) {
-          const { available, discount } = checkSaleAvailability(sale, item.attributes);
-          if (available) saleDiscount = typeof discount === 'number' ? discount : 0;
+          const { available, discount, amountOff } = checkSaleAvailability(sale, item.attributes);
+          if (available) {
+            // Use amountOff if available, otherwise use percentage discount
+            if (amountOff && amountOff > 0) {
+              // For amountOff, we need to convert it to a percentage for the existing pricing logic
+              const basePrice = productDoc.price;
+              saleDiscount = Math.min((amountOff / basePrice) * 100, 100);
+            } else {
+              saleDiscount = typeof discount === 'number' ? discount : 0;
+            }
+          }
         }
       }
 
@@ -239,10 +375,43 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
       itemsBaseSubtotal += pricing.base * qty;
     }
 
-    // Coupon handling
+    // Handle coupon codes validation and application
+    let totalCouponDiscount = 0;
+    let appliedCouponDocs: CouponDoc[] = [];
+    let couponResults: Array<{ code: string; applied: boolean; reason?: string; discount?: number }> = [];
+
+    if (orderData.couponCodes && orderData.couponCodes.length > 0) {
+      const couponValidation = await validateCouponCodes({
+        couponCodes: orderData.couponCodes,
+        items: products as PricedItem[],
+        itemsSubtotal,
+        userId: orderData.user as mongoose.Types.ObjectId,
+        session,
+      });
+
+      totalCouponDiscount = couponValidation.totalDiscount;
+      appliedCouponDocs = couponValidation.validCoupons.map((v) => v.couponDoc);
+
+      // Prepare results for response
+      couponResults = [
+        ...couponValidation.validCoupons.map((v) => ({
+          code: v.code,
+          applied: true,
+          discount: v.discount,
+        })),
+        ...couponValidation.invalidCoupons.map((v) => ({
+          code: v.code,
+          applied: false,
+          reason: v.reason,
+        })),
+      ];
+    }
+
+    // Legacy support for single coupon (if still used elsewhere)
     let couponDoc: CouponDoc | null = null;
     let couponDiscount = 0;
     let couponSnapshot: OrderType['couponSnapshot'] | undefined;
+
     if (orderData.couponApplied) {
       const now = new Date();
       const found = await Coupon.findOne({
@@ -261,39 +430,6 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
         throw new Error('Order total does not meet coupon minimum.');
       }
 
-      // Enforce max usages
-      if (typeof couponDoc.maxUsage === 'number' && couponDoc.maxUsage >= 0) {
-        const totalRedemptions = await CouponRedemption.countDocuments({ coupon: couponDoc._id }).session(session);
-        if (totalRedemptions >= couponDoc.maxUsage) throw new Error('Coupon usage limit reached.');
-      }
-
-      // Enforce type and per-user limits
-      const userIdStr = orderData.user.toString();
-      if (couponDoc.couponType === 'one-off') {
-        const totalRedemptions = await CouponRedemption.countDocuments({ coupon: couponDoc._id }).session(session);
-        if (totalRedemptions >= 1) throw new Error('Coupon already used.');
-      }
-      if (couponDoc.couponType === 'one-off-user') {
-        const already = await CouponRedemption.findOne({ coupon: couponDoc._id, user: orderData.user })
-          .session(session)
-          .lean();
-        if (already) throw new Error('Coupon already used by this user.');
-      }
-      if (couponDoc.couponType === 'one-off-for-one-person') {
-        if (!couponDoc.allowedUser || couponDoc.allowedUser.toString() !== userIdStr)
-          throw new Error('Coupon not allowed for this user.');
-        const totalRedemptions = await CouponRedemption.countDocuments({ coupon: couponDoc._id }).session(session);
-        if (totalRedemptions >= 1) throw new Error('Coupon already used.');
-      }
-
-      if (typeof couponDoc.maxUsagePerUser === 'number' && couponDoc.maxUsagePerUser >= 0) {
-        const userCount = await CouponRedemption.countDocuments({
-          coupon: couponDoc._id,
-          user: orderData.user,
-        }).session(session);
-        if (userCount >= couponDoc.maxUsagePerUser) throw new Error('Coupon user usage limit reached.');
-      }
-
       // Compute discount
       const { discount } = computeCouponDiscount({ coupon: couponDoc, items: products as PricedItem[], itemsSubtotal });
       couponDiscount = Math.min(discount, itemsSubtotal);
@@ -305,6 +441,9 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
         } as OrderType['couponSnapshot'];
       }
     }
+
+    // Use multiple coupon discount if available, otherwise legacy single coupon
+    const finalCouponDiscount = totalCouponDiscount > 0 ? totalCouponDiscount : couponDiscount;
 
     // Check stock and prepare updates
     const bulkUpdates = products.map((item) => {
@@ -336,31 +475,108 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
     // Atomically update sale counters (limit, boughtCount, etc.)
     await updateSaleCountersOnOrder(products as SaleOrderProduct[], session);
 
-    // Compute final totals
-    const shipping = Number(orderData.shippingPrice || 0);
+    // Calculate shipping cost using LogisticsService
+    let calculatedShipping = 0;
+    try {
+      if (orderData.shippingAddress) {
+        // Prepare cart items for logistics calculation
+        const cartItems = products.map((item) => ({
+          productId: item.product!.toString(),
+          quantity: item.qty!,
+        }));
+
+        // Prepare destination from shipping address
+        const destination = {
+          countryName: orderData.shippingAddress.country || 'Nigeria', // Default to Nigeria if not provided
+          stateCode: orderData.shippingAddress.state || 'LA', // Default to Lagos if not provided
+          lgaName: 'Default', // LGA not provided in shipping address, use default
+        };
+
+        // Calculate progressive shipping cost
+        calculatedShipping = await LogisticsService.calculateProgressiveShipping(cartItems, destination);
+
+        console.log(`[OrderService] Calculated shipping: ₦${calculatedShipping} for destination:`, destination);
+      } else {
+        console.warn('[OrderService] No shipping address provided, using fallback shipping cost');
+        calculatedShipping = Number(orderData.shippingPrice || 0);
+      }
+    } catch (shippingError) {
+      console.error('[OrderService] Shipping calculation failed, using provided/fallback value:', shippingError);
+      calculatedShipping = Number(orderData.shippingPrice || 0);
+    }
+
+    // Compute final totals with calculated shipping
+    const shipping = calculatedShipping;
     const tax = Number(orderData.taxPrice || 0);
-    const subtotalAfterCoupon = Math.max(0, itemsSubtotal - couponDiscount);
+    const subtotalAfterCoupon = Math.max(0, itemsSubtotal - finalCouponDiscount);
 
     // Create the order with recomputed totals
     const order = new Order({
       ...orderData,
       total: subtotalAfterCoupon + shipping + tax,
       totalBeforeDiscount: itemsBaseSubtotal,
+      shippingPrice: shipping, // Use calculated shipping price
       products,
-      ...(couponDoc
+      // Handle multiple coupons if applied
+      ...(appliedCouponDocs.length > 0
         ? {
-            coupon: couponDoc._id,
-            couponCode: couponDoc.coupon,
-            couponDiscount,
-            couponSnapshot,
-            couponApplied: couponDoc.coupon,
+            coupon: appliedCouponDocs[0]._id, // Legacy single coupon field
+            couponCode: appliedCouponDocs[0].coupon,
+            couponDiscount: finalCouponDiscount,
+            couponApplied: appliedCouponDocs.map((c) => c.coupon).join(', '),
+            couponSnapshot: {
+              discount: appliedCouponDocs[0].discount,
+              discountType: appliedCouponDocs[0].discountType || 'percentage',
+              appliesTo: appliedCouponDocs[0].appliesTo || { scope: 'order' },
+            } as OrderType['couponSnapshot'],
           }
-        : {}),
+        : couponDoc
+          ? {
+              coupon: couponDoc._id,
+              couponCode: couponDoc.coupon,
+              couponDiscount: finalCouponDiscount,
+              couponSnapshot,
+              couponApplied: couponDoc.coupon,
+            }
+          : {}),
     });
     await order.save({ session });
 
-    // Record coupon redemption
-    if (couponDoc && couponDiscount > 0) {
+    // Record coupon redemptions for all applied coupons
+    if (appliedCouponDocs.length > 0) {
+      const redemptions = appliedCouponDocs.map((coupon, index) => ({
+        coupon: coupon._id,
+        user: orderData.user as mongoose.Types.ObjectId,
+        order: order._id as mongoose.Types.ObjectId,
+        amountDiscounted: couponResults.find((r) => r.applied && r.discount && appliedCouponDocs[index])?.discount || 0,
+        couponType: coupon.couponType,
+      }));
+
+      await CouponRedemption.create(redemptions, { session });
+
+      // Update coupon usage counters
+      for (const coupon of appliedCouponDocs) {
+        const update: mongoose.UpdateQuery<CouponSchemaType> = {
+          $inc: { timesUsed: 1 },
+          ...(coupon.couponType === 'one-off-user'
+            ? { $addToSet: { usedBy: orderData.user as mongoose.Types.ObjectId } }
+            : {}),
+        } as unknown as mongoose.UpdateQuery<CouponSchemaType>;
+
+        await Coupon.updateOne({ _id: coupon._id }, update, { session });
+
+        // Emit coupon redeemed event
+        await eventPublisher.publishCouponRedeemed({
+          couponId: coupon._id.toString(),
+          userId: orderData.user.toString(),
+          orderId: order._id.toString(),
+          amountDiscounted:
+            couponResults.find((r) => r.applied && appliedCouponDocs.find((c) => c.coupon === r.code))?.discount || 0,
+          code: coupon.coupon,
+        });
+      }
+    } else if (couponDoc && couponDiscount > 0) {
+      // Legacy single coupon handling
       await CouponRedemption.create(
         [
           {
@@ -397,6 +613,37 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
     await session.commitTransaction();
     session.endSession();
 
+    // Fetch user details for order created event
+    try {
+      const userDoc = await User.findById(orderData.user).select('firstName lastName email');
+      if (userDoc) {
+        const customerInfo = {
+          email: userDoc.email,
+          name: `${userDoc.firstName} ${userDoc.lastName}`.trim(),
+          phone: orderData.shippingAddress?.phoneNumber || undefined,
+        };
+
+        // Publish ORDER_CREATED event for email notifications and other processing
+        await eventPublisher.publishOrderCreated({
+          orderId: order._id.toString(),
+          userId: orderData.user.toString(),
+          orderNumber: order._id.toString(), // Using order ID as order number since no orderNumber field exists
+          totalAmount: order.total,
+          items: order.products
+            .filter((item) => item.product && typeof item.qty === 'number' && typeof item.price === 'number')
+            .map((item) => ({
+              productId: item.product!.toString(),
+              quantity: item.qty!,
+              price: item.price!,
+            })),
+          customerInfo,
+        });
+      }
+    } catch (eventError) {
+      console.error('Failed to publish ORDER_CREATED event:', eventError);
+      // Don't fail the order creation if event publishing fails
+    }
+
     // Track order analytics after successful transaction
     AnalyticsService.trackOrderPlaced(order._id.toString(), order.total).catch((err) =>
       console.error('Failed to track order analytics:', err)
@@ -404,7 +651,12 @@ const placeOrderWithStockValidation = async (orderData: OrderDataInput): Promise
 
     return {
       message: 'Order placed successfully',
-      data: order,
+      data: {
+        order,
+        couponResults, // Include coupon application results in response
+        appliedCoupons: appliedCouponDocs.length,
+        totalCouponDiscount: finalCouponDiscount,
+      },
       code: 201,
     };
   } catch (error) {

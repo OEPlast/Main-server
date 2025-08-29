@@ -84,12 +84,12 @@ app.use('/wishlist', WishlistRoute);
 app.use('/campaigns', UserCampaignsRoute);
 app.use('/cart', CartRoute);
 
+app.use('/checkout', CheckoutRoute);
 app.use('/orders', OrderRoute);
 app.use('/payments', PaymentRoute);
 
 app.use('/reviews/user', UserReviewsRoute);
 app.use('/reviews', ReviewRoute);
-app.use('/checkout', CheckoutRoute);
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);
 

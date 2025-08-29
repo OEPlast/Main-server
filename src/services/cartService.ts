@@ -79,16 +79,10 @@ function calculateItemPricing({
     }
   }
 
-  // 3) Static discounts (prefer variant discount if present)
-  const variantDiscountPct = typeof variant?.discount === 'number' ? variant.discount : undefined;
-  const productDiscountPct = typeof product.discount === 'number' ? product.discount : 0;
-  const staticDiscountPct = typeof variantDiscountPct === 'number' ? variantDiscountPct : productDiscountPct;
-  if (staticDiscountPct && staticDiscountPct > 0) {
-    unitPrice = Math.max(0, unitPrice - (unitPrice * staticDiscountPct) / 100);
-  }
+  // 3) No static discounts - all discounts come from Sales only
 
-  // 4) Sale discount (overrides static discount precedence)
-  let appliedDiscountPct = staticDiscountPct || 0;
+  // 4) Sale discount
+  let appliedDiscountPct = 0;
   let discountAmount = 0;
 
   if (saleContext?.discount && saleContext.discount > 0) {
@@ -174,21 +168,14 @@ const addToCart = async (
         };
 
         if (activeSale.variants && variantIndex !== undefined && activeSale.variants[variantIndex]) {
-          const variant = activeSale.variants[variantIndex];
+          const saleVariant = activeSale.variants[variantIndex];
           saleContext = {
-            discount: variant.discount || 0,
-            amountOff: variant.amountOff || 0,
+            discount: saleVariant.discount || 0,
+            amountOff: saleVariant.amountOff || 0,
           };
         }
       }
     }
-
-    const pricing = calculateItemPricing({
-      product: product as unknown as ProductPricingShape,
-      variant,
-      qty,
-      saleContext,
-    });
 
     // Create product snapshot
     const productSnapshot = {
@@ -202,13 +189,7 @@ const addToCart = async (
       qty,
       productSnapshot,
       selectedAttributes: attributes,
-      unitPrice: pricing.unitPrice,
-      totalPrice: pricing.totalPrice,
-      appliedDiscount: pricing.appliedDiscount,
-      discountAmount: pricing.discountAmount,
-      pricingTier: pricing.pricingTier,
       addedAt: new Date(),
-      ...saleInfo,
     };
 
     // Use aggregation pipeline to check if item already exists and update or insert
@@ -242,7 +223,7 @@ const addToCart = async (
     ]);
 
     if (result.length > 0 && result[0].existingItemIndex !== -1) {
-      // Item exists, update quantity
+      // Item exists, update quantity only
       await Cart.findOneAndUpdate(
         {
           user: userId,
@@ -252,11 +233,6 @@ const addToCart = async (
         {
           $inc: { 'items.$.qty': qty },
           $set: {
-            'items.$.totalPrice': pricing.totalPrice,
-            'items.$.unitPrice': pricing.unitPrice,
-            'items.$.appliedDiscount': pricing.appliedDiscount,
-            'items.$.discountAmount': pricing.discountAmount,
-            'items.$.pricingTier': pricing.pricingTier,
             lastActivity: new Date(),
           },
         },
@@ -274,9 +250,7 @@ const addToCart = async (
       );
     }
 
-    // Recalculate cart totals using aggregation
-    await recalculateCartTotals(userId);
-
+    // No need to recalculate totals since we don't store them
     const updatedCart = await Cart.findOne({ user: userId });
     return { message: 'Item added to cart successfully', data: updatedCart, code: 200 };
   } catch (error) {
@@ -419,48 +393,13 @@ const updateCartItem = async (
       return { message: 'Insufficient stock', data: null, code: 400 };
     }
 
-    // Recalculate pricing with new quantity/attributes
-    const variant = resolveVariant(product as unknown as ProductPricingShape, newAttributes);
-    const activeSale = cart[0].activeSales.length > 0 ? cart[0].activeSales[0] : null;
-
-    let saleContext: Partial<{ discount: number; amountOff: number }> = {};
-    let saleInfo: Partial<Pick<ChangedSaleInfo, 'sale' | 'saleVariantIndex'>> = {};
-
-    if (activeSale) {
-      const { available, variantIndex } = checkSaleAvailability(activeSale, newAttributes);
-      if (available && activeSale.variants && variantIndex !== undefined && activeSale.variants[variantIndex]) {
-        const saleVariant = activeSale.variants[variantIndex];
-        saleContext = {
-          discount: saleVariant.discount || 0,
-          amountOff: saleVariant.amountOff || 0,
-        };
-        saleInfo = {
-          sale: activeSale._id,
-          saleVariantIndex: variantIndex,
-        };
-      }
-    }
-
-    const pricing = calculateItemPricing({
-      product: product as unknown as ProductPricingShape,
-      variant,
-      qty: newQty,
-      saleContext,
-    });
-
-    // Update the specific item
+    // Update the specific item (only store basic data, no pricing)
     const updatedCart = await Cart.findOneAndUpdate(
       { user: userId, 'items._id': new mongoose.Types.ObjectId(itemId) },
       {
         $set: {
           'items.$.qty': newQty,
           'items.$.selectedAttributes': newAttributes,
-          'items.$.unitPrice': pricing.unitPrice,
-          'items.$.totalPrice': pricing.totalPrice,
-          'items.$.appliedDiscount': pricing.appliedDiscount,
-          'items.$.discountAmount': pricing.discountAmount,
-          'items.$.pricingTier': pricing.pricingTier,
-          ...Object.fromEntries(Object.entries(saleInfo).map(([key, value]) => [`items.$.${key}`, value])),
           lastActivity: new Date(),
         },
       },
@@ -471,8 +410,6 @@ const updateCartItem = async (
       return { message: 'Failed to update cart item', data: null, code: 400 };
     }
 
-    // Recalculate cart totals
-    await recalculateCartTotals(userId);
     const finalCart = await Cart.findOne({ user: userId });
 
     return { message: 'Cart item updated successfully', data: finalCart, code: 200 };
@@ -483,31 +420,12 @@ const updateCartItem = async (
 };
 
 /**
- * Recalculates cart totals using aggregation pipeline
+ * This function is no longer needed since we calculate totals dynamically
+ * Keeping for backward compatibility but it does nothing
  */
 const recalculateCartTotals = async (userId: string): Promise<void> => {
-  try {
-    await Cart.aggregate([
-      { $match: { user: new mongoose.Types.ObjectId(userId) } },
-      {
-        $addFields: {
-          subtotal: { $sum: '$items.totalPrice' },
-          totalDiscount: { $sum: '$items.discountAmount' },
-          total: {
-            $subtract: [{ $sum: '$items.totalPrice' }, { $sum: '$appliedCoupons.discountAmount' }],
-          },
-        },
-      },
-      {
-        $merge: {
-          into: 'carts',
-          whenMatched: 'replace',
-        },
-      },
-    ]);
-  } catch (error) {
-    console.error('Error recalculating cart totals:', error);
-  }
+  // No longer needed - totals are calculated dynamically when fetching cart
+  return;
 };
 
 /**
@@ -557,17 +475,15 @@ const applyCoupon = async (userId: string, couponCode: string): Promise<CustomRe
       return { message: 'Coupon already applied', data: null, code: 400 };
     }
 
-    // Calculate discount amount based on coupon
-    let discountAmount = 0;
-    const cartSubtotal = (cart.items as Array<{ totalPrice: number }>).reduce(
-      (sum: number, item) => sum + item.totalPrice,
-      0
-    );
-
-    if (coupon.discountType === 'percentage') {
-      discountAmount = (cartSubtotal * coupon.discount) / 100;
-    } else {
-      discountAmount = Math.min(coupon.discount, cartSubtotal);
+    // Calculate minimum order value check (need to calculate dynamically)
+    // For now, we'll use a basic price calculation for validation
+    let cartSubtotal = 0;
+    for (const item of cart.items as Array<any>) {
+      const product = await Product.findById(item.product);
+      if (product) {
+        const itemPrice = product.price * item.qty;
+        cartSubtotal += itemPrice;
+      }
     }
 
     // Check minimum order value
@@ -579,7 +495,7 @@ const applyCoupon = async (userId: string, couponCode: string): Promise<CustomRe
       };
     }
 
-    // Apply coupon
+    // Apply coupon (store only coupon reference, not calculated discount)
     await Cart.findOneAndUpdate(
       { user: userId },
       {
@@ -587,7 +503,6 @@ const applyCoupon = async (userId: string, couponCode: string): Promise<CustomRe
           appliedCoupons: {
             coupon: coupon._id,
             code: couponCode.toUpperCase(),
-            discountAmount,
             appliedAt: new Date(),
           },
         },
@@ -602,8 +517,6 @@ const applyCoupon = async (userId: string, couponCode: string): Promise<CustomRe
       $addToSet: { usedBy: new mongoose.Types.ObjectId(userId) },
     });
 
-    // Recalculate totals
-    await recalculateCartTotals(userId);
     const finalCart = await Cart.findOne({ user: userId });
 
     return { message: 'Coupon applied successfully', data: finalCart, code: 200 };
@@ -631,8 +544,6 @@ const removeCoupon = async (userId: string, couponId: string): Promise<CustomRes
       return { message: 'Cart not found', data: null, code: 404 };
     }
 
-    // Recalculate totals
-    await recalculateCartTotals(userId);
     const updatedCart = await Cart.findOne({ user: userId });
 
     return { message: 'Coupon removed successfully', data: updatedCart, code: 200 };
@@ -643,93 +554,69 @@ const removeCoupon = async (userId: string, couponId: string): Promise<CustomRes
 };
 
 /**
- * Validates the cart against current sales and discounts using aggregation.
+ * Validates the cart against current sales and discounts.
+ * Since we calculate pricing dynamically, this function simply checks
+ * if any items in the cart need to be re-evaluated due to sales changes.
  */
 export async function validateCartSales(
   userId: string
 ): Promise<{ valid: boolean; message: string; changed: ChangedEntry[] }> {
   try {
-    const result = await Cart.aggregate([
-      { $match: { user: new mongoose.Types.ObjectId(userId) } },
-      { $unwind: '$items' },
-      {
-        $lookup: {
-          from: 'sales',
-          let: { productId: '$items.product' },
-          pipeline: [
-            {
-              $match: {
-                $expr: { $eq: ['$product', '$$productId'] },
-                isActive: true,
-                deleted: { $ne: true },
-              },
-            },
-          ],
-          as: 'currentSales',
-        },
-      },
-      {
-        $addFields: {
-          currentSale: { $arrayElemAt: ['$currentSales', 0] },
-          hasChanges: {
-            $or: [
-              {
-                $and: [{ $ne: ['$items.sale', null] }, { $eq: [{ $size: '$currentSales' }, 0] }],
-              },
-              {
-                $and: [{ $gt: [{ $size: '$currentSales' }, 0] }, { $ne: ['$items.sale', '$currentSale._id'] }],
-              },
-            ],
-          },
-        },
-      },
-      { $match: { hasChanges: true } },
-      {
-        $project: {
-          itemId: '$items._id',
-          product: '$items.product',
-          old: {
-            sale: '$items.sale',
-            saleVariantIndex: '$items.saleVariantIndex',
-            appliedDiscount: '$items.appliedDiscount',
-            discountAmount: '$items.discountAmount',
-          },
-          current: {
-            sale: '$currentSale._id',
-            saleVariantIndex: 0,
-            appliedDiscount: 0,
-            discountAmount: 0,
-          },
-        },
-      },
-    ]);
+    // Since we calculate pricing dynamically, cart is always "valid"
+    // but we can still check for product availability and basic validation
+    const cart = await Cart.findOne({ user: userId }).populate('items.product');
+    
+    if (!cart) {
+      return { valid: true, message: 'Cart not found', changed: [] };
+    }
 
-    const changed: ChangedEntry[] = result.map((item) => ({
-      itemId: item.itemId,
-      product: item.product,
-      old: item.old,
-      current: item.current,
-    }));
+    const changed: ChangedEntry[] = [];
+    
+    // Check for basic product availability (products that might have been deleted)
+    for (const item of cart.items) {
+      if (!item.product) {
+        changed.push({
+          itemId: item._id,
+          product: item.product,
+          old: {},
+          current: {},
+        });
+      }
+    }
 
     return {
       valid: changed.length === 0,
-      message: changed.length === 0 ? 'Cart sales are valid' : 'Some sales have changed or expired',
+      message: changed.length === 0 ? 'Cart is valid' : 'Some products are no longer available',
       changed,
     };
   } catch (error) {
-    console.error('Error validating cart sales:', error);
-    return { valid: false, message: 'Error validating cart sales', changed: [] };
+    console.error('Error validating cart:', error);
+    return { valid: false, message: 'Error validating cart', changed: [] };
   }
 }
 
 /**
- * Get cart with full details using aggregation pipeline
+ * Get cart with full details and dynamically calculated pricing using aggregation pipeline
  */
 type CartItemType = CartType['items'][number];
 type AppliedCoupon = CartType['appliedCoupons'][number];
+
+export type CartItemWithPricing = CartItemType & {
+  productDetails?: ProductType | null;
+  unitPrice: number;
+  totalPrice: number;
+  appliedDiscount: number;
+  discountAmount: number;
+  pricingTier?: AppliedPricingTier;
+};
+
 export type CartWithDetails = Omit<CartType, 'items' | 'appliedCoupons'> & {
-  items: Array<CartItemType & { productDetails?: ProductType | null }>;
-  appliedCoupons: Array<AppliedCoupon & { couponDetails?: CouponType | null }>;
+  items: CartItemWithPricing[];
+  appliedCoupons: Array<AppliedCoupon & { couponDetails?: CouponType | null; discountAmount: number }>;
+  subtotal: number;
+  totalDiscount: number;
+  couponDiscount: number;
+  total: number;
 };
 
 const getCartItems = async (userId: string): Promise<CustomResponseType<CartWithDetails>> => {
@@ -747,8 +634,16 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
       {
         $lookup: {
           from: 'sales',
-          localField: 'items.sale',
-          foreignField: '_id',
+          let: { productIds: '$items.product' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $in: ['$product', '$$productIds'] },
+                isActive: true,
+                deleted: { $ne: true },
+              },
+            },
+          ],
           as: 'salesDetails',
         },
       },
@@ -760,71 +655,100 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
           as: 'couponDetails',
         },
       },
-      {
-        $addFields: {
-          items: {
-            $map: {
-              input: '$items',
-              as: 'item',
-              in: {
-                $mergeObjects: [
-                  '$$item',
-                  {
-                    productDetails: {
-                      $arrayElemAt: [
-                        {
-                          $filter: {
-                            input: '$productDetails',
-                            cond: { $eq: ['$$this._id', '$$item.product'] },
-                          },
-                        },
-                        0,
-                      ],
-                    },
-                  },
-                ],
-              },
-            },
-          },
-          appliedCoupons: {
-            $map: {
-              input: '$appliedCoupons',
-              as: 'coupon',
-              in: {
-                $mergeObjects: [
-                  '$$coupon',
-                  {
-                    couponDetails: {
-                      $arrayElemAt: [
-                        {
-                          $filter: {
-                            input: '$couponDetails',
-                            cond: { $eq: ['$$this._id', '$$coupon.coupon'] },
-                          },
-                        },
-                        0,
-                      ],
-                    },
-                  },
-                ],
-              },
-            },
-          },
-        },
-      },
-      {
-        $project: {
-          productDetails: 0,
-          salesDetails: 0,
-          couponDetails: 0,
-        },
-      },
     ]);
 
-    const cartData = result.length > 0 ? result[0] : [];
+    if (!result.length) {
+      return { message: 'Cart not found', data: null, code: 404 };
+    }
+
+    const cartData = result[0];
+    const items: CartItemWithPricing[] = [];
+    let subtotal = 0;
+    let totalDiscount = 0;
+
+    // Process each cart item and calculate pricing dynamically
+    for (const item of cartData.items) {
+      const product = cartData.productDetails.find((p: any) => p._id.toString() === item.product.toString());
+      
+      if (!product) continue;
+
+      // Find active sale for this product
+      const activeSale = cartData.salesDetails.find((s: any) => s.product.toString() === item.product.toString());
+      
+      let saleContext: Partial<{ discount: number; amountOff: number }> = {};
+      
+      if (activeSale) {
+        const { available, variantIndex, discount, amountOff } = checkSaleAvailability(activeSale, item.selectedAttributes || []);
+        if (available && variantIndex !== undefined) {
+          saleContext = {
+            discount: discount || 0,
+            amountOff: amountOff || 0,
+          };
+        }
+      }
+
+      // Resolve variant
+      const variant = resolveVariant(product as unknown as ProductPricingShape, item.selectedAttributes || []);
+
+      // Calculate pricing dynamically
+      const pricing = calculateItemPricing({
+        product: product as unknown as ProductPricingShape,
+        variant,
+        qty: item.qty,
+        saleContext,
+      });
+
+      const itemWithPricing: CartItemWithPricing = {
+        ...item,
+        productDetails: product,
+        unitPrice: pricing.unitPrice,
+        totalPrice: pricing.totalPrice,
+        appliedDiscount: pricing.appliedDiscount,
+        discountAmount: pricing.discountAmount,
+        pricingTier: pricing.pricingTier,
+      };
+
+      items.push(itemWithPricing);
+      subtotal += pricing.totalPrice;
+      totalDiscount += pricing.discountAmount;
+    }
+
+    // Calculate coupon discounts dynamically
+    const appliedCoupons = cartData.appliedCoupons?.map((coupon: any) => {
+      const couponDetails = cartData.couponDetails.find((c: any) => c._id.toString() === coupon.coupon.toString());
+      
+      let discountAmount = 0;
+      if (couponDetails) {
+        if (couponDetails.discountType === 'percentage') {
+          discountAmount = (subtotal * couponDetails.discount) / 100;
+        } else {
+          discountAmount = Math.min(couponDetails.discount, subtotal);
+        }
+      }
+
+      return {
+        ...coupon,
+        couponDetails,
+        discountAmount,
+      };
+    }) || [];
+
+    const couponDiscount = appliedCoupons.reduce((sum: number, coupon: any) => sum + coupon.discountAmount, 0);
+    const total = Math.max(0, subtotal - couponDiscount);
+
+    const cartWithDetails: CartWithDetails = {
+      ...cartData,
+      items,
+      appliedCoupons,
+      subtotal,
+      totalDiscount,
+      couponDiscount,
+      total,
+    };
+
     return {
       message: 'Cart items retrieved successfully',
-      data: cartData,
+      data: cartWithDetails,
       code: 200,
     };
   } catch (error) {

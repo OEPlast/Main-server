@@ -54,7 +54,6 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
       'attributes.*.children': { optional: true, isArray: true },
       'attributes.*.children.*.name': { optional: true, isString: true, notEmpty: true },
       'attributes.*.children.*.price': { optional: true, isNumeric: true },
-      'attributes.*.children.*.discount': { optional: true, isNumeric: true },
       'attributes.*.children.*.stock': { optional: true, isNumeric: true },
       'attributes.*.children.*.image': { optional: true, isString: true, notEmpty: true },
 
@@ -75,7 +74,6 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
 
       stock: { isNumeric: true, errorMessage: 'stock must be a number' },
       lowStockThreshold: { optional: true, isNumeric: true },
-      discount: { optional: true, isNumeric: true },
       status: { optional: true, isIn: { options: [['active', 'inactive', 'archived']] } },
     })
   ).run(req);
@@ -128,7 +126,6 @@ const updateProductValidator = async (req: Request, res: Response, next: NextFun
       'attributes.*.children': { optional: true, isArray: true },
       'attributes.*.children.*.name': { optional: true, isString: true },
       'attributes.*.children.*.price': { optional: true, isNumeric: true },
-      'attributes.*.children.*.discount': { optional: true, isNumeric: true },
       'attributes.*.children.*.stock': { optional: true, isNumeric: true },
       'attributes.*.children.*.image': { optional: true, isString: true },
 
@@ -149,7 +146,6 @@ const updateProductValidator = async (req: Request, res: Response, next: NextFun
 
       stock: { optional: true, isNumeric: true },
       lowStockThreshold: { optional: true, isNumeric: true },
-      discount: { optional: true, isNumeric: true },
       status: { optional: true, isIn: { options: [['active', 'inactive', 'archived']] } },
       slug: { optional: true, isString: true },
     })
@@ -294,11 +290,6 @@ const addSubProductValidator = async (req: Request, res: Response, next: NextFun
         isArray: true,
         errorMessage: 'Sizes is required and should be an array of objects with size, qty, and price properties',
       },
-      discount: {
-        notEmpty: true,
-        isNumeric: true,
-        errorMessage: 'Discount is required and should be a number',
-      },
     })
   ).run(req);
 
@@ -349,11 +340,6 @@ const updateSubProductValidator = async (req: Request, res: Response, next: Next
         optional: true,
         isArray: true,
         errorMessage: 'Sizes should be an array of objects with size, qty, and price properties',
-      },
-      discount: {
-        optional: true,
-        isNumeric: true,
-        errorMessage: 'Discount should be a number',
       },
     })
   ).run(req);

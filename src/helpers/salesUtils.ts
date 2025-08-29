@@ -22,12 +22,12 @@ export async function findActiveSaleForProduct(productId: string, options?: { ty
 
 /**
  * Checks if a sale or its variant is available for use (for Limited/Flash sales).
- * Returns { available, variantIndex, discount }
+ * Returns { available, variantIndex, discount, amountOff }
  */
 export function checkSaleAvailability(
   sale: SalesType | null,
   attributes?: { name: string; value: string }[]
-): { available: boolean; variantIndex?: number; discount?: number } {
+): { available: boolean; variantIndex?: number; discount?: number; amountOff?: number } {
   if (!sale) return { available: false };
   if (sale.type === 'Flash') {
     const now = new Date();
@@ -35,40 +35,87 @@ export function checkSaleAvailability(
       return { available: false };
     }
   }
+  
   // If sale has variants, try to match attributes
-  if (Array.isArray(sale.variants) && sale.variants.length > 0 && attributes) {
-    const idx = sale.variants.findIndex(
+  if (Array.isArray(sale.variants) && sale.variants.length > 0) {
+    // First, try to find exact attribute match if attributes are provided
+    if (attributes && attributes.length > 0) {
+      const exactMatchIdx = sale.variants.findIndex(
+        (v) =>
+          v.attributeName === attributes[0]?.name &&
+          v.attributeValue === attributes[0]?.value &&
+          (v.maxBuys === 0 || v.boughtCount < v.maxBuys)
+      );
+      if (exactMatchIdx !== -1) {
+        const variant = sale.variants[exactMatchIdx]!;
+        return {
+          available: variant.maxBuys === 0 || variant.boughtCount < variant.maxBuys,
+          variantIndex: exactMatchIdx,
+          discount: variant.discount,
+          amountOff: variant.amountOff,
+        };
+      }
+    }
+    
+    // If no exact match, look for general sales (null attributeName and attributeValue)
+    const generalSaleIdx = sale.variants.findIndex(
       (v) =>
-        v.attributeName === attributes[0]?.name &&
-        v.attributeValue === attributes[0]?.value &&
+        v.attributeName === null &&
+        v.attributeValue === null &&
         (v.maxBuys === 0 || v.boughtCount < v.maxBuys)
     );
-    if (idx !== -1) {
-      const variant = sale.variants[idx]!;
+    
+    if (generalSaleIdx !== -1) {
+      const variant = sale.variants[generalSaleIdx]!;
       return {
         available: variant.maxBuys === 0 || variant.boughtCount < variant.maxBuys,
-        variantIndex: idx,
+        variantIndex: generalSaleIdx,
         discount: variant.discount,
+        amountOff: variant.amountOff,
       };
     }
+    
     return { available: false };
   }
+  
   // No variants, check sale-wide limits
   // With current schema, there is no top-level limit/discount; availability is based on active flag and Flash window
-  return { available: true, discount: 0 };
+  return { available: true, discount: 0, amountOff: 0 };
 }
 
 /**
  * Returns the discount to apply for a product (and variant if matched).
+ * Returns { discount, amountOff } - use discount for percentage, amountOff for fixed amount
  */
-export function getSaleDiscount(sale: SalesType | null, attributes?: { name: string; value: string }[]) {
-  if (!sale) return 0;
-  if (Array.isArray(sale.variants) && sale.variants.length > 0 && attributes) {
-    const variant = sale.variants.find(
-      (v) => v.attributeName === attributes[0]?.name && v.attributeValue === attributes[0]?.value
+export function getSaleDiscount(sale: SalesType | null, attributes?: { name: string; value: string }[]): { discount: number; amountOff: number } {
+  if (!sale) return { discount: 0, amountOff: 0 };
+  
+  if (Array.isArray(sale.variants) && sale.variants.length > 0) {
+    // First, try to find exact attribute match if attributes are provided
+    if (attributes && attributes.length > 0) {
+      const exactMatch = sale.variants.find(
+        (v) => v.attributeName === attributes[0]?.name && v.attributeValue === attributes[0]?.value
+      );
+      if (exactMatch) {
+        return { 
+          discount: exactMatch.discount || 0, 
+          amountOff: exactMatch.amountOff || 0 
+        };
+      }
+    }
+    
+    // If no exact match, look for general sales (null attributeName and attributeValue)
+    const generalSale = sale.variants.find(
+      (v) => v.attributeName === null && v.attributeValue === null
     );
-    return variant ? variant.discount : 0;
+    if (generalSale) {
+      return { 
+        discount: generalSale.discount || 0, 
+        amountOff: generalSale.amountOff || 0 
+      };
+    }
   }
+  
   // No top-level discount in current schema
-  return 0;
+  return { discount: 0, amountOff: 0 };
 }

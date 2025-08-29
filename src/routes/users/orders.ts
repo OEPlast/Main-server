@@ -9,8 +9,8 @@ const router = express.Router();
 // Fetch user orders
 router.get('/orders', authenticateUser, OrderController.getOrders);
 
-// Place a new order
-router.post('/orders', authenticateUser, OrderValidator.validateOrderPlacement, OrderController.placeOrder);
+// Place a new order (secure checkout with comprehensive validation)
+router.post('/orders/secure-checkout', authenticateUser, OrderValidator.validateSecureCheckout, OrderController.secureCheckout);
 
 // Get order by ID
 router.get('/orders/:id', authenticateUser, OrderValidator.validateOrderId, OrderController.getOrderById);

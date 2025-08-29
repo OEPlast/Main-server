@@ -10,7 +10,6 @@ export interface PricingTier {
 export interface VariantOption {
   name: string;
   price?: number;
-  discount?: number;
   stock: number;
   image: string;
   pricingTiers?: PricingTier[];
@@ -23,7 +22,6 @@ export interface AttributeGroup {
 
 export interface ProductPricingShape {
   price: number;
-  discount?: number;
   pricingTiers?: PricingTier[];
   attributes?: AttributeGroup[];
   stock: number;
@@ -48,7 +46,6 @@ export function resolveBestVariant(
     if (!option) continue;
     if (
       typeof option.price === 'number' ||
-      typeof option.discount === 'number' ||
       (Array.isArray(option.pricingTiers) && option.pricingTiers.length > 0)
     ) {
       return option;

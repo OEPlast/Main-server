@@ -8,10 +8,10 @@ const router = express.Router();
 // All checkout routes require authentication
 router.use(authenticateUser);
 
-// Checkout - create order from cart
-router.post('/', OrderValidator.validateOrderPlacement, OrderController.placeOrder);
+// Calculate shipping cost for checkout preview (supports both shipping and pickup)
+router.post('/calculate-shipping', OrderValidator.validateShippingCalculation, OrderController.calculateShipping);
 
-// Checkout + initialize Paystack payment (returns payment URL)
-router.post('/paystack', OrderValidator.validateOrderPlacement, OrderController.checkoutAndInitPayment);
+// Secure checkout with comprehensive price validation (supports delivery types)
+router.post('/secure', OrderValidator.validateSecureCheckout, OrderController.secureCheckout);
 
 export default router;

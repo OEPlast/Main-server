@@ -281,16 +281,16 @@ type OrderItem = {
 
 // Shipping pricing tuning knobs (change these to adjust growth behavior)
 // Progressive shipping constants
-const PROG_FIRST_INTERVAL = 5; // first N units at full base shipping
-const PROG_INTERVAL_SIZE = 25; // progressive blocks after first interval
-const PROG_FLOOR_RATIO = 0.04; // min fraction of baseShipping per unit at very large quantities
-const PROG_DECAY_RATE = 1.3; // speed of decay per interval towards the floor ratio
+const PROG_FIRST_INTERVAL = 3; // first N units at full base shipping (reduced for higher costs)
+const PROG_INTERVAL_SIZE = 15; // progressive blocks after first interval (smaller intervals for higher costs)
+const PROG_FLOOR_RATIO = 0.15; // min fraction of baseShipping per unit at very large quantities (increased from 0.04)
+const PROG_DECAY_RATE = 0.8; // speed of decay per interval towards the floor ratio (slower decay for higher costs)
 // Cart-level saturation and cap (to avoid runaway totals)
-const PROG_SATURATION_FLOOR = 0.18; // minimum multiplier applied to rawShipping after grouping
-const PROG_SATURATION_LN_COEFF = 0.5; // how fast saturation decreases with ln(qty)
-const PROG_CAP_BASE = 8; // base term for the cap function
-const PROG_CAP_LN_COEFF = 5; // coefficient of ln(qty) in the cap
-const PROG_CAP_MULTIPLIER = 19; // overall multiplier for the cap
+const PROG_SATURATION_FLOOR = 0.55; // minimum multiplier applied to rawShipping after grouping (increased from 0.18)
+const PROG_SATURATION_LN_COEFF = 0.25; // how fast saturation decreases with ln(qty) (slower decrease for higher costs)
+const PROG_CAP_BASE = 15; // base term for the cap function (increased)
+const PROG_CAP_LN_COEFF = 8; // coefficient of ln(qty) in the cap (increased)
+const PROG_CAP_MULTIPLIER = 25; // overall multiplier for the cap (increased)
 
 export async function calculateProgressiveShipping(items: OrderItem[], destination: Destination): Promise<number> {
   if (!items.length) return 0;
@@ -301,12 +301,19 @@ export async function calculateProgressiveShipping(items: OrderItem[], destinati
   const logisticsConfig: LogisticsConfigType | null = await LogisticsConfigModel.findOne({
     countryName: destination.countryName,
   });
-  if (!logisticsConfig) throw new Error('Logistics config not found');
 
-  const stateConfig = logisticsConfig.states.find((s) => s.code?.toUpperCase() === destination.stateCode.toUpperCase());
-  const lgaConfig = stateConfig?.lgas.find((l) => l.name?.toLowerCase() === destination.lgaName.toLowerCase());
+  // If no logistics config found, use reasonable defaults for Nigeria
+  let fallbackPrice = 1200; // Default minimum shipping cost (increased from 500)
 
-  const fallbackPrice = lgaConfig?.price ?? stateConfig?.fallbackPrice ?? 0;
+  if (logisticsConfig) {
+    const stateConfig = logisticsConfig.states.find(
+      (s) => s.code?.toUpperCase() === destination.stateCode.toUpperCase()
+    );
+    const lgaConfig = stateConfig?.lgas.find((l) => l.name?.toLowerCase() === destination.lgaName.toLowerCase());
+
+    // Use configured price, or fall back to minimum
+    fallbackPrice = lgaConfig?.price ?? stateConfig?.fallbackPrice ?? 1200;
+  }
 
   // Use tuning constants
   const FIRST_INTERVAL = PROG_FIRST_INTERVAL;
@@ -454,14 +461,19 @@ export async function calculateProgressiveShipping(items: OrderItem[], destinati
             },
           ],
         },
-        // Cap grows sublinearly with total qty
+        // Cap grows sublinearly with total qty - ensure reasonable minimum cap
         capLimit: {
-          $multiply: [
-            fallbackPrice,
+          $max: [
+            { $multiply: [fallbackPrice, 2] }, // Minimum cap of 2x fallback price
             {
-              $add: [PROG_CAP_BASE, { $multiply: [PROG_CAP_LN_COEFF, { $ln: { $add: ['$qtyTotal', 1] } }] }],
+              $multiply: [
+                fallbackPrice,
+                {
+                  $add: [PROG_CAP_BASE, { $multiply: [PROG_CAP_LN_COEFF, { $ln: { $add: ['$qtyTotal', 1] } }] }],
+                },
+                PROG_CAP_MULTIPLIER,
+              ],
             },
-            PROG_CAP_MULTIPLIER,
           ],
         },
       },
@@ -472,6 +484,14 @@ export async function calculateProgressiveShipping(items: OrderItem[], destinati
       },
     },
   ]);
+
+  console.log('Shipping calculation details:', {
+    destination,
+    fallbackPrice,
+    itemsCount: items.length,
+    totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
+    aggregationResult: aggregationResult[0],
+  });
 
   return aggregationResult[0]?.flatShipping ?? 0;
 }

@@ -40,7 +40,6 @@ type CreateProductData = {
     children: {
       name: string;
       price?: number;
-      discount?: number;
       stock: number;
       image: string;
       pricingTiers?: PricingTier[];
@@ -49,7 +48,6 @@ type CreateProductData = {
   pricingTiers?: PricingTier[];
   stock: number;
   lowStockThreshold?: number;
-  discount?: number;
   status?: 'active' | 'inactive' | 'archived';
 };
 
@@ -188,19 +186,16 @@ const updateProduct = async (
       };
     }
 
-    // Emit price-change events when base price or discount changes
+    // Emit price-change events when base price changes
     const oldPrice = Number(existing.price);
     const newPrice = Number(data.price ?? existing.price);
-    const oldDiscount = Number(existing.discount || 0);
-    const newDiscount = Number(data.discount ?? existing.discount ?? 0);
 
-    if (oldPrice !== newPrice || oldDiscount !== newDiscount) {
+    if (oldPrice !== newPrice) {
       try {
         await eventPublisher.publishPriceChanged(
           id,
           oldPrice,
-          newPrice,
-          newDiscount !== oldDiscount ? newDiscount : undefined
+          newPrice
         );
       } catch (e) {
         console.warn('Failed to publish price change event:', e);
