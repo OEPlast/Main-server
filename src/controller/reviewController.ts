@@ -18,7 +18,7 @@ const getReviews = async (req: Request, res: Response) => {
 // Create a new review
 const createReview = async (req: Request, res: Response) => {
   try {
-    const { product, rating, review, size, style, fit, images } = req.body;
+    const { product, rating, review, title, size, style, fit, images } = req.body;
     if (!isAuthenticatedRequest(req)) {
       return res.status(401).json({ error: 'Unauthenticated' });
     }
@@ -28,10 +28,14 @@ const createReview = async (req: Request, res: Response) => {
       product,
       rating,
       review,
+      title,
       size,
       style,
       fit,
       images,
+      // Note: transactionId and orderId will be determined by the service
+      transactionId: '', // Will be populated by service
+      orderId: '', // Will be populated by service
     });
     // Logic to create a new review
     res.status(code).json({ message, data });
@@ -45,8 +49,8 @@ const createReview = async (req: Request, res: Response) => {
 const updateReview = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { review, rating } = req.body;
-    const { data, message, code } = await ReviewService.updateReview(id, { review, rating });
+    const { review, rating, title } = req.body;
+    const { data, message, code } = await ReviewService.updateReview(id, { review, rating, title });
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in updateReview:', error);
@@ -175,6 +179,22 @@ const getUserProductReview = async (req: Request, res: Response) => {
   }
 };
 
+const getOneProductReview = async (req: Request, res: Response) => {
+  try {
+    // Optional authentication - get userId if authenticated, otherwise undefined
+    const userId = isAuthenticatedRequest(req) ? req.userId : undefined;
+    const { productId } = req.params;
+    const page = Number(req.query.page || 1);
+    const limit = Number(req.query.limit || 30);
+    const { data, message, code, meta } = await ReviewService.allReviews(productId, page, limit, userId);
+    return res.status(code).json({ data, message, code, meta });
+  } catch (error) {
+    console.error('Error in getOneProductReview:', error);
+    return res.status(404).json({ error: 'Something went wrong' });
+  }
+};
+
+
 const ReviewController = {
   getReviews,
   createReview,
@@ -187,6 +207,7 @@ const ReviewController = {
   deleteReply,
   getUserReviews,
   getUserProductReview,
+  getOneProductReview
 };
 
 export default ReviewController;

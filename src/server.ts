@@ -8,7 +8,7 @@ import connectDB from './lib/db';
 import ProductsRoute from '@/routes/general/products';
 import ReviewRoute from './routes/general/review';
 import CategoriesRoute from '@/routes/general/categories';
-import PaymentRoute from '@/routes/general/payment';
+import TransactionRoute from '@/routes/general/transaction';
 import AuthRoute from '@/routes/auth/user';
 import OrderRoute from '@/routes/users/orders';
 import CartRoute from '@/routes/users/cart';
@@ -39,6 +39,8 @@ import {
   AdminInventoryRoute,
   AdminCouponAnalyticsRoute,
   AdminLogisticsRoute,
+  AdminTransactionRoute,
+  AdminReviewRoute,
 } from './routes/admin';
 import FileUploadRoute from '@/routes/general/fileUpload';
 import EmailProcessor from './services/EmailProcessor';
@@ -83,13 +85,12 @@ app.use('/logistics', LogisticsPublicRoute);
 app.use('/wishlist', WishlistRoute);
 app.use('/campaigns', UserCampaignsRoute);
 app.use('/cart', CartRoute);
-
 app.use('/checkout', CheckoutRoute);
-app.use('/orders', OrderRoute);
-app.use('/payments', PaymentRoute);
-
+app.use('/myorder', OrderRoute);
+app.use('/payments', TransactionRoute);
 app.use('/reviews/user', UserReviewsRoute);
 app.use('/reviews', ReviewRoute);
+
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);
 
@@ -105,11 +106,13 @@ app.use('/admin/product', AdminProductRoute);
 app.use('/admin/logistics', AdminLogisticsRoute);
 app.use('/admin/sales', AdminSalesRoute);
 app.use('/admin/campaigns', AdminCampaignRoute);
-
 app.use('/admin/orders', AdminOrderRoute);
-app.use('/admin/shipment', AdminShipmentRoute);
 app.use('/admin/inventory', AdminInventoryRoute);
 app.use('/admin/coupon-analytics', AdminCouponAnalyticsRoute);
+app.use('/admin/transactions', AdminTransactionRoute);
+app.use('/admin/reviews', AdminReviewRoute);
+
+app.use('/admin/shipment', AdminShipmentRoute);
 app.use('/admin/analytics', AdminAnalyticsRoute);
 
 //------------------

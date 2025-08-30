@@ -1,8 +1,9 @@
 import mongoose from 'mongoose';
 import Order, { OrderType } from '../models/Order';
+import { TransactionStatus } from '../models/Transaction';
 import Product from '@/models/Product';
 import User from '@/models/User';
-import { CustomResponseType } from '@/types';
+import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import AnalyticsService from './MainAnalyticsService';
 import { findActiveSaleForProduct, checkSaleAvailability } from '@/helpers/salesUtils';
 import { SaleOrderProduct, updateSaleCountersOnOrder } from '@/helpers/saleOrderUtils';
@@ -45,6 +46,9 @@ function calculateUnitPrice({
     const baseForSale = typeof variantPrice === 'number' ? variantPrice : product.price;
     unit = Math.max(0, baseForSale - (baseForSale * salePct) / 100);
   }
+
+  // Round unit price to 2 decimal places
+  unit = Math.round(unit * 100) / 100;
 
   return { unitPrice: unit, base, discountAppliedPct: salePct };
 }
@@ -161,8 +165,9 @@ async function validateCouponCodes({
       });
 
       if (discount > 0) {
-        validCoupons.push({ code, couponDoc, discount });
-        totalDiscount += discount;
+        const roundedDiscount = Math.round(discount * 100) / 100;
+        validCoupons.push({ code, couponDoc, discount: roundedDiscount });
+        totalDiscount += roundedDiscount;
       } else {
         invalidCoupons.push({ code, reason: 'No discount applicable' });
       }
@@ -172,7 +177,7 @@ async function validateCouponCodes({
     }
   }
 
-  return { validCoupons, invalidCoupons, totalDiscount };
+  return { validCoupons, invalidCoupons, totalDiscount: Math.round(totalDiscount * 100) / 100 };
 }
 
 function computeCouponDiscount({
@@ -190,7 +195,7 @@ function computeCouponDiscount({
   if (type === 'fixed') {
     // Fixed amount on eligible scope
     if (appliesTo.scope === 'order') {
-      return { discount: Math.min(coupon.discount || 0, itemsSubtotal) };
+      return { discount: Math.round(Math.min(coupon.discount || 0, itemsSubtotal) * 100) / 100 };
     }
     let eligibleSum = 0;
     if (appliesTo.scope === 'product' && Array.isArray(appliesTo.productIds)) {
@@ -201,7 +206,7 @@ function computeCouponDiscount({
       // Requires item categories; fallback to whole order for now
       eligibleSum = itemsSubtotal;
     }
-    return { discount: Math.min(coupon.discount || 0, eligibleSum) };
+    return { discount: Math.round(Math.min(coupon.discount || 0, eligibleSum) * 100) / 100 };
   } else {
     // percentage
     let base = itemsSubtotal;
@@ -214,12 +219,12 @@ function computeCouponDiscount({
       base = itemsSubtotal; // fallback
     }
     const pct = (coupon.discount || 0) / 100;
-    return { discount: Math.max(0, Math.min(itemsSubtotal, base * pct)) };
+    return { discount: Math.round(Math.max(0, Math.min(itemsSubtotal, base * pct)) * 100) / 100 };
   }
 }
 
 /**
- * Fetches paginated orders for user with optional filters.
+ * Fetches paginated orders for user with optional filters including transaction status.
  * @param page - Current page number.
  * @param limit - Number of orders per page.
  * @param filters - Filters for searching orders.
@@ -227,32 +232,89 @@ function computeCouponDiscount({
 const getOrderHistory = async (
   page: number,
   limit: number,
-  filters: { userId: string; status?: OrderType['status']; deliveryStatus?: OrderType['deliveryStatus'] }
-): Promise<CustomResponseType<{ orders: OrderType[]; totalOrders: number }>> => {
+  filters: {
+    userId: string;
+    status?: OrderType['status'];
+    deliveryStatus?: OrderType['deliveryStatus'];
+    transactionStatus?: TransactionStatus | 'all';
+  }
+): CustomResponseTypeWithMeta<{
+  orders: OrderType[];
+  totalOrders: number;
+  meta: { page: number; limit: number; total: number };
+}> => {
   try {
-    const query: Record<string, unknown> = {};
+    const pipeline: mongoose.PipelineStage[] = [];
 
-    if (filters.userId) {
-      query.user = filters.userId;
-    }
+    // Base match stage for user
+    const matchStage: Record<string, unknown> = { user: filters.userId };
 
+    // Add order filters
     if (filters.status) {
-      query.status = filters.status;
+      matchStage.status = filters.status;
     }
     if (filters.deliveryStatus) {
-      query.deliveryStatus = filters.deliveryStatus;
+      matchStage.deliveryStatus = filters.deliveryStatus;
     }
 
-    const orders = await Order.find(query)
-      .skip((page - 1) * limit)
-      .limit(limit)
-      .sort({ createdAt: -1 });
+    pipeline.push({ $match: matchStage });
 
-    const totalOrders = await Order.countDocuments(query);
+    // Handle transaction status filtering
+    if (filters.transactionStatus && filters.transactionStatus !== 'all') {
+      // Filter by specific transaction status
+      pipeline.push({
+        $lookup: {
+          from: 'transactions',
+          localField: 'transactionId',
+          foreignField: '_id',
+          as: 'transaction',
+        },
+      });
+      pipeline.push({
+        $match: {
+          'transaction.status': filters.transactionStatus,
+        },
+      });
+    } else if (!filters.transactionStatus || filters.transactionStatus === 'all') {
+      // Default behavior: only show orders with completed transactions (paid orders)
+      pipeline.push({
+        $lookup: {
+          from: 'transactions',
+          localField: 'transactionId',
+          foreignField: '_id',
+          as: 'transaction',
+        },
+      });
+      pipeline.push({
+        $match: {
+          'transaction.status': 'completed',
+        },
+      });
+    }
+
+    // Sort by creation date
+    pipeline.push({ $sort: { createdAt: -1 } });
+
+    // Count total documents
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const totalResult = await Order.aggregate(countPipeline);
+    const totalOrders = totalResult[0]?.total || 0;
+
+    // Add pagination
+    pipeline.push({ $skip: (page - 1) * limit }, { $limit: limit });
+
+    // Remove transaction field from final result (keeping it lean)
+    pipeline.push({
+      $project: {
+        transaction: 0,
+      },
+    });
+
+    const orders = await Order.aggregate(pipeline);
 
     return {
       message: 'Orders retrieved successfully',
-      data: { orders, totalOrders },
+      data: { orders, totalOrders, meta: { page, limit, total: totalOrders } },
       code: 200,
     };
   } catch (error) {
@@ -370,10 +432,14 @@ const placeOrderWithStockValidation = async (
         saleContext: { discount: saleDiscount },
       });
       // Update item price to computed unit
-      item.price = pricing.unitPrice;
+      item.price = Math.round(pricing.unitPrice * 100) / 100;
       itemsSubtotal += pricing.unitPrice * qty;
       itemsBaseSubtotal += pricing.base * qty;
     }
+
+    // Round subtotals to 2 decimal places
+    itemsSubtotal = Math.round(itemsSubtotal * 100) / 100;
+    itemsBaseSubtotal = Math.round(itemsBaseSubtotal * 100) / 100;
 
     // Handle coupon codes validation and application
     let totalCouponDiscount = 0;
@@ -389,7 +455,7 @@ const placeOrderWithStockValidation = async (
         session,
       });
 
-      totalCouponDiscount = couponValidation.totalDiscount;
+      totalCouponDiscount = Math.round(couponValidation.totalDiscount * 100) / 100;
       appliedCouponDocs = couponValidation.validCoupons.map((v) => v.couponDoc);
 
       // Prepare results for response
@@ -397,7 +463,7 @@ const placeOrderWithStockValidation = async (
         ...couponValidation.validCoupons.map((v) => ({
           code: v.code,
           applied: true,
-          discount: v.discount,
+          discount: Math.round(v.discount * 100) / 100,
         })),
         ...couponValidation.invalidCoupons.map((v) => ({
           code: v.code,
@@ -432,7 +498,7 @@ const placeOrderWithStockValidation = async (
 
       // Compute discount
       const { discount } = computeCouponDiscount({ coupon: couponDoc, items: products as PricedItem[], itemsSubtotal });
-      couponDiscount = Math.min(discount, itemsSubtotal);
+      couponDiscount = Math.round(Math.min(discount, itemsSubtotal) * 100) / 100;
       if (couponDiscount > 0) {
         couponSnapshot = {
           discount: couponDoc.discount,
@@ -443,7 +509,8 @@ const placeOrderWithStockValidation = async (
     }
 
     // Use multiple coupon discount if available, otherwise legacy single coupon
-    const finalCouponDiscount = totalCouponDiscount > 0 ? totalCouponDiscount : couponDiscount;
+    const finalCouponDiscount =
+      Math.round((totalCouponDiscount > 0 ? totalCouponDiscount : couponDiscount) * 100) / 100;
 
     // Check stock and prepare updates
     const bulkUpdates = products.map((item) => {
@@ -506,15 +573,16 @@ const placeOrderWithStockValidation = async (
     }
 
     // Compute final totals with calculated shipping
-    const shipping = calculatedShipping;
-    const tax = Number(orderData.taxPrice || 0);
-    const subtotalAfterCoupon = Math.max(0, itemsSubtotal - finalCouponDiscount);
+    const shipping = Math.round(calculatedShipping * 100) / 100;
+    const tax = Math.round(Number(orderData.taxPrice || 0) * 100) / 100;
+    const subtotalAfterCoupon = Math.round(Math.max(0, itemsSubtotal - finalCouponDiscount) * 100) / 100;
+    const finalTotal = Math.round((subtotalAfterCoupon + shipping + tax) * 100) / 100;
 
     // Create the order with recomputed totals
     const order = new Order({
       ...orderData,
-      total: subtotalAfterCoupon + shipping + tax,
-      totalBeforeDiscount: itemsBaseSubtotal,
+      total: finalTotal,
+      totalBeforeDiscount: Math.round(itemsBaseSubtotal * 100) / 100,
       shippingPrice: shipping, // Use calculated shipping price
       products,
       // Handle multiple coupons if applied

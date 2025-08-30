@@ -7,24 +7,21 @@ import { authenticateUser } from '@/middleware/auth';
 const router = express.Router();
 
 // Fetch user orders
-router.get('/orders', authenticateUser, OrderController.getOrders);
+router.get('/orders', authenticateUser, OrderValidator.validateOrderQueryParams, OrderController.getOrders);
 
-// Place a new order (secure checkout with comprehensive validation)
-router.post('/orders/secure-checkout', authenticateUser, OrderValidator.validateSecureCheckout, OrderController.secureCheckout);
+// Fetch all returned orders (placed before :id route to avoid shadowing)
+router.get('/orders/returns', authenticateUser, OrderController.getAllReturns);
 
 // Get order by ID
 router.get('/orders/:id', authenticateUser, OrderValidator.validateOrderId, OrderController.getOrderById);
 
 // Update an order
-router.put('/orders/:id', authenticateUser, OrderValidator.validateOrderId, OrderController.updateOrder);
+// router.put('/orders/:id', authenticateUser, OrderValidator.validateOrderId, OrderController.updateOrder);
 
-// Cancel an order
-router.delete('/orders/:id', authenticateUser, OrderValidator.validateOrderId, OrderController.cancelOrder);
+// Cancel an order (users can cancel but cannot delete)
+router.post('/orders/:id/cancel', authenticateUser, OrderValidator.validateOrderId, OrderController.cancelOrder);
 
 // Initiate a return for an order
 router.post('/orders/:id/return', authenticateUser, OrderValidator.validateOrderId, OrderController.initiateReturn);
-
-// Fetch all returned orders
-router.get('/orders/returns', authenticateUser, OrderController.getAllReturns);
 
 export default router;

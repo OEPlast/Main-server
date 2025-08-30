@@ -309,11 +309,63 @@ const validatePagination = (req: Request, res: Response, next: NextFunction) => 
   next();
 };
 
+const validateOrderQueryParams = (req: Request, res: Response, next: NextFunction) => {
+  checkSchema({
+    page: {
+      in: ['query'],
+      optional: true,
+      isInt: {
+        options: { min: 1 },
+        errorMessage: 'Page must be a positive integer.',
+      },
+    },
+    limit: {
+      in: ['query'],
+      optional: true,
+      isInt: {
+        options: { min: 1 },
+        errorMessage: 'Limit must be a positive integer.',
+      },
+    },
+    status: {
+      in: ['query'],
+      optional: true,
+      isIn: {
+        options: [['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'returned']],
+        errorMessage: 'Status must be one of: pending, confirmed, processing, shipped, delivered, cancelled, returned',
+      },
+    },
+    deliveryStatus: {
+      in: ['query'],
+      optional: true,
+      isIn: {
+        options: [['pending', 'processing', 'shipped', 'delivered', 'failed']],
+        errorMessage: 'Delivery status must be one of: pending, processing, shipped, delivered, failed',
+      },
+    },
+    transactionStatus: {
+      in: ['query'],
+      optional: true,
+      isIn: {
+        options: [['all', 'pending', 'completed', 'failed', 'cancelled', 'refunded', 'partially_refunded']],
+        errorMessage: 'Transaction status must be one of: all, pending, completed, failed, cancelled, refunded, partially_refunded',
+      },
+    },
+  });
+
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
 const OrderValidator = {
   validateSecureCheckout,
   validateShippingCalculation,
   validateOrderId,
   validatePagination,
+  validateOrderQueryParams,
 };
 
 export default OrderValidator;

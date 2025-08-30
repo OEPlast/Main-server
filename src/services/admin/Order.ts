@@ -1,9 +1,11 @@
+import mongoose from 'mongoose';
 import Order, { OrderType } from '../../models/Order';
+import Transaction, { TransactionStatus } from '../../models/Transaction';
 import { CustomResponseType } from '@/types';
 import AnalyticsService from '../MainAnalyticsService';
 
 /**
- * Fetches orders with optional filters and pagination.
+ * Fetches orders with optional filters and pagination including transaction status.
  * @param page - Current page number (optional).
  * @param limit - Number of orders per page (optional).
  * @param filters - Filters for searching orders.
@@ -17,9 +19,11 @@ const getOrders = async (
     orderId: string;
     customerId: string;
     dateRange: { start: Date; end: Date };
+    transactionStatus: TransactionStatus | 'all';
   }>
 ): Promise<CustomResponseType<{ orders: OrderType[]; totalOrders: number }>> => {
   try {
+    const pipeline: mongoose.PipelineStage[] = [];
     const matchStage: Record<string, unknown> = {};
 
     // Apply filters if provided
@@ -31,25 +35,65 @@ const getOrders = async (
       matchStage.createdAt = { $gte: filters.dateRange.start, $lte: filters.dateRange.end };
     }
 
-    // Aggregation pipeline
-    const aggregationPipeline = [
-      { $match: matchStage }, // Apply filters
-      { $sort: { createdAt: -1 as 1 } }, // Sort by latest
-      ...(page && limit ? [{ $skip: (page - 1) * limit }, { $limit: limit }] : []), // Pagination
-      {
-        $facet: {
-          orders: [],
-          totalOrders: [{ $count: 'count' }],
-        },
-      },
-    ];
+    pipeline.push({ $match: matchStage });
 
-    // Run aggregation
-    const result = await Order.aggregate(aggregationPipeline);
+    // Handle transaction status filtering
+    if (filters?.transactionStatus && filters.transactionStatus !== 'all') {
+      // Filter by specific transaction status
+      pipeline.push({
+        $lookup: {
+          from: 'transactions',
+          localField: 'transactionId',
+          foreignField: '_id',
+          as: 'transaction'
+        }
+      });
+      pipeline.push({
+        $match: {
+          'transaction.status': filters.transactionStatus
+        }
+      });
+    } else if (!filters?.transactionStatus || filters.transactionStatus === 'all') {
+      // Default behavior: only show orders with completed transactions (paid orders)
+      pipeline.push({
+        $lookup: {
+          from: 'transactions',
+          localField: 'transactionId',
+          foreignField: '_id',
+          as: 'transaction'
+        }
+      });
+      pipeline.push({
+        $match: {
+          'transaction.status': 'completed'
+        }
+      });
+    }
 
-    // Extract results
-    const orders = result[0]?.orders || [];
-    const totalOrders = result[0]?.totalOrders[0]?.count || 0;
+    // Sort by creation date
+    pipeline.push({ $sort: { createdAt: -1 } });
+
+    // Count total documents
+    const countPipeline = [...pipeline, { $count: 'total' }];
+    const totalResult = await Order.aggregate(countPipeline);
+    const totalOrders = totalResult[0]?.total || 0;
+
+    // Add pagination if specified
+    if (page && limit) {
+      pipeline.push(
+        { $skip: (page - 1) * limit },
+        { $limit: limit }
+      );
+    }
+
+    // Remove transaction field from final result (keeping it lean)
+    pipeline.push({
+      $project: {
+        transaction: 0
+      }
+    });
+
+    const orders = await Order.aggregate(pipeline);
 
     return {
       message: 'Orders retrieved successfully',

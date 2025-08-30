@@ -199,12 +199,92 @@ const validateTopOrderedProducts = (req: Request, res: Response, next: NextFunct
   next();
 };
 
+const validateAdminOrderQueryParams = (req: Request, res: Response, next: NextFunction) => {
+  checkSchema({
+    page: {
+      in: ['query'],
+      optional: true,
+      isInt: {
+        options: { min: 1 },
+        errorMessage: 'Page must be a positive integer.',
+      },
+    },
+    limit: {
+      in: ['query'],
+      optional: true,
+      isInt: {
+        options: { min: 1 },
+        errorMessage: 'Limit must be a positive integer.',
+      },
+    },
+    status: {
+      in: ['query'],
+      optional: true,
+      isIn: {
+        options: [['Not Processed', 'Processing', 'Dispatched', 'Cancelled', 'Completed']],
+        errorMessage: 'Status must be one of: Not Processed, Processing, Dispatched, Cancelled, Completed',
+      },
+    },
+    deliveryStatus: {
+      in: ['query'],
+      optional: true,
+      isIn: {
+        options: [['Pending', 'Shipped', 'Out for Delivery', 'Delivered', 'Returned']],
+        errorMessage: 'Delivery status must be one of: Pending, Shipped, Out for Delivery, Delivered, Returned',
+      },
+    },
+    orderId: {
+      in: ['query'],
+      optional: true,
+      isMongoId: {
+        errorMessage: 'Order ID must be a valid MongoDB ID',
+      },
+    },
+    customerId: {
+      in: ['query'],
+      optional: true,
+      isMongoId: {
+        errorMessage: 'Customer ID must be a valid MongoDB ID',
+      },
+    },
+    transactionStatus: {
+      in: ['query'],
+      optional: true,
+      isIn: {
+        options: [['all', 'pending', 'completed', 'failed', 'cancelled', 'refunded', 'partially_refunded']],
+        errorMessage: 'Transaction status must be one of: all, pending, completed, failed, cancelled, refunded, partially_refunded',
+      },
+    },
+    startDate: {
+      in: ['query'],
+      optional: true,
+      isISO8601: {
+        errorMessage: 'Start date must be a valid ISO 8601 date',
+      },
+    },
+    endDate: {
+      in: ['query'],
+      optional: true,
+      isISO8601: {
+        errorMessage: 'End date must be a valid ISO 8601 date',
+      },
+    },
+  });
+
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
 const OrderValidator = {
   updateOrderDetails,
   validateRejectOrder,
   updateDeliveryTimeline,
   validatePagination,
   validateTopOrderedProducts,
+  validateAdminOrderQueryParams,
 };
 
 export default OrderValidator;

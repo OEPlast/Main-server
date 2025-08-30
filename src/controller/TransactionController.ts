@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import PaymentService from '../services/PaymentService';
+import TransactionService from '../services/TransactionService';
 import { isAuthenticatedRequest } from '@/types';
 
 /**
@@ -19,7 +19,7 @@ const initializePayment = async (req: Request, res: Response): Promise<void> => 
     const { orderId, email, amount, currency, metadata } = req.body;
     const userId = req.userId;
 
-    const result = await PaymentService.initializePayment({
+    const result = await TransactionService.initializePayment({
       orderId,
       userId,
       email,
@@ -46,7 +46,7 @@ const verifyPayment = async (req: Request, res: Response): Promise<void> => {
   try {
     const { reference } = req.params;
 
-    const result = await PaymentService.verifyPayment(reference);
+    const result = await TransactionService.verifyPayment(reference);
     res.status(result.code).json(result);
   } catch (error) {
     console.error('Error in verifyPayment controller:', error);
@@ -81,7 +81,7 @@ const handleWebhook = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const result = await PaymentService.handleWebhook(rawBody, signature);
+    const result = await TransactionService.handleWebhook(rawBody, signature);
     res.status(result.code).json(result);
   } catch (error) {
     console.error('Error in handleWebhook controller:', error);
@@ -94,9 +94,9 @@ const handleWebhook = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * Get payment by ID
+ * Get transaction by ID
  */
-const getPaymentById = async (req: Request, res: Response): Promise<void> => {
+const getTransactionById = async (req: Request, res: Response): Promise<void> => {
   try {
     if (!isAuthenticatedRequest(req)) {
       res.status(401).json({
@@ -107,12 +107,12 @@ const getPaymentById = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const { paymentId } = req.params;
+    const { transactionId } = req.params;
 
-    const result = await PaymentService.getPaymentById(paymentId);
+    const result = await TransactionService.getPaymentById(transactionId);
     res.status(result.code).json(result);
   } catch (error) {
-    console.error('Error in getPaymentById controller:', error);
+    console.error('Error in getTransactionById controller:', error);
     res.status(500).json({
       message: 'Internal server error',
       data: null,
@@ -122,9 +122,9 @@ const getPaymentById = async (req: Request, res: Response): Promise<void> => {
 };
 
 /**
- * Get user payments
+ * Get user transactions
  */
-const getUserPayments = async (req: Request, res: Response): Promise<void> => {
+const getUserTransactions = async (req: Request, res: Response): Promise<void> => {
   try {
     if (!isAuthenticatedRequest(req)) {
       res.status(401).json({
@@ -139,10 +139,10 @@ const getUserPayments = async (req: Request, res: Response): Promise<void> => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 10;
 
-    const result = await PaymentService.getUserPayments(userId, page, limit);
+    const result = await TransactionService.getUserPayments(userId, page, limit);
     res.status(result.code).json(result);
   } catch (error) {
-    console.error('Error in getUserPayments controller:', error);
+    console.error('Error in getUserTransactions controller:', error);
     res.status(500).json({
       message: 'Internal server error',
       data: null,
@@ -167,7 +167,7 @@ const getPaymentByReference = async (req: Request, res: Response): Promise<void>
 
     const { reference } = req.params;
 
-    const result = await PaymentService.getPaymentByReference(reference);
+    const result = await TransactionService.getPaymentByReference(reference);
     res.status(result.code).json(result);
   } catch (error) {
     console.error('Error in getPaymentByReference controller:', error);
@@ -197,7 +197,7 @@ const refundPayment = async (req: Request, res: Response): Promise<void> => {
     const { paymentId } = req.params;
     const { amount, reason } = req.body;
 
-    const result = await PaymentService.refundPayment(paymentId, { amount, reason });
+    const result = await TransactionService.refundPayment(paymentId, { amount, reason });
     res.status(result.code).json(result);
   } catch (error) {
     console.error('Error in refundPayment controller:', error);
@@ -209,14 +209,14 @@ const refundPayment = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
-const PaymentController = {
+const TransactionController = {
   initializePayment,
   verifyPayment,
   handleWebhook,
-  getPaymentById,
-  getUserPayments,
+  getTransactionById,
+  getUserTransactions,
   getPaymentByReference,
   refundPayment,
 };
 
-export default PaymentController;
+export default TransactionController;

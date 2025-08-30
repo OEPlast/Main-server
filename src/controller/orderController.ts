@@ -3,7 +3,7 @@ import { AuthenticatedRequest } from '@/types';
 import OrderService from '../services/orderService';
 import { OrderType } from '@/models/Order';
 // import { CartType } from '@/models/Cart';
-import PaymentService from '@/services/PaymentService';
+import PaymentService from '@/services/TransactionService';
 import User from '@/models/User';
 import LogisticsService from '@/services/LogisticsService';
 // import CartService from '@/services/cartService';
@@ -14,12 +14,18 @@ import { validateAndCorrectCart, FrontendCartData } from '@/services/CartValidat
 export const getOrders = async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthenticatedRequest).userId!;
-    const { page = 1, limit = 10, status, deliveryStatus } = req.query;
+    const { page = 1, limit = 10, status, deliveryStatus, transactionStatus } = req.query;
 
-    const filters = { userId, status, deliveryStatus } as unknown as {
+    const filters = { 
+      userId, 
+      status, 
+      deliveryStatus, 
+      transactionStatus 
+    } as unknown as {
       userId: string;
       status?: OrderType['status'];
       deliveryStatus?: OrderType['deliveryStatus'];
+      transactionStatus?: import('../models/Transaction').TransactionStatus | 'all';
     };
 
     const { data, message, code } = await OrderService.getOrderHistory(~~page, ~~limit, filters);
@@ -108,7 +114,7 @@ export const secureCheckout = async (req: Request, res: Response) => {
 
     // Step 1: Calculate shipping cost FIRST (before validation)
     let shippingCost = 0;
-    
+
     if (deliveryType === 'shipping') {
       // Calculate shipping cost for delivery
       if (!shippingAddress) {
@@ -117,8 +123,8 @@ export const secureCheckout = async (req: Request, res: Response) => {
           data: null,
         });
       }
-      
-      shippingCost = await LogisticsService.calculateProgressiveShipping(
+
+      const rawShippingCost = await LogisticsService.calculateProgressiveShipping(
         items.map((item) => ({
           productId: item.product.toString(),
           quantity: item.qty,
@@ -129,6 +135,9 @@ export const secureCheckout = async (req: Request, res: Response) => {
           lgaName: shippingAddress.city || '',
         }
       );
+
+      // Round shipping cost to 2 decimal places
+      shippingCost = Math.round(rawShippingCost * 100) / 100;
 
       // Note: Don't validate shipping cost mismatch - we'll correct it automatically like product prices
     } else {
@@ -158,19 +167,23 @@ export const secureCheckout = async (req: Request, res: Response) => {
 
     // Step 3: If validation fails, return corrected cart WITH shipping cost included
     if (validationResult.data.needsUpdate) {
-      const correctedCartTotal = validationResult.data.correctedCart.total + shippingCost;
+      const correctedCartTotal = Math.round((validationResult.data.correctedCart.total + shippingCost) * 100) / 100;
       const updatedChanges = [...validationResult.data.changes];
-      
+
       // Add shipping cost change if different from frontend
       if (frontendShippingCost !== undefined && frontendShippingCost !== shippingCost) {
-        updatedChanges.push(`Shipping cost updated: ₦${frontendShippingCost.toLocaleString()} → ₦${shippingCost.toLocaleString()}`);
+        updatedChanges.push(
+          `Shipping cost updated: ₦${frontendShippingCost.toLocaleString()} → ₦${shippingCost.toLocaleString()}`
+        );
       }
-      
+
       // Add total change including shipping
       if (total !== correctedCartTotal) {
-        updatedChanges.push(`Final total updated: ₦${total.toLocaleString()} → ₦${correctedCartTotal.toLocaleString()} (including shipping)`);
+        updatedChanges.push(
+          `Final total updated: ₦${total.toLocaleString()} → ₦${correctedCartTotal.toLocaleString()} (including shipping)`
+        );
       }
-      
+
       return res.status(400).json({
         message: 'Cart needs to be updated',
         data: {
@@ -191,10 +204,12 @@ export const secureCheckout = async (req: Request, res: Response) => {
     const backendCalculatedCouponDiscount = validationResult.data.correctedCart.couponDiscount;
 
     // Step 4: Check if ONLY shipping cost needs correction (cart validation passed)
-    const expectedTotal = total - (frontendShippingCost || 0) + shippingCost;
-    if (frontendShippingCost !== undefined && 
-        Math.abs(frontendShippingCost - shippingCost) > 1 && 
-        Math.abs(total - expectedTotal) > 1) {
+    const expectedTotal = Math.round((total - (frontendShippingCost || 0) + shippingCost) * 100) / 100;
+    if (
+      frontendShippingCost !== undefined &&
+      Math.abs(frontendShippingCost - shippingCost) > 1 &&
+      Math.abs(total - expectedTotal) > 1
+    ) {
       return res.status(400).json({
         message: 'Shipping cost needs to be updated',
         data: {
@@ -207,16 +222,16 @@ export const secureCheckout = async (req: Request, res: Response) => {
           },
           changes: [
             `Shipping cost updated: ₦${frontendShippingCost.toLocaleString()} → ₦${shippingCost.toLocaleString()}`,
-            `Total updated: ₦${total.toLocaleString()} → ₦${expectedTotal.toLocaleString()}`
+            `Total updated: ₦${total.toLocaleString()} → ₦${expectedTotal.toLocaleString()}`,
           ],
         },
       });
     }
 
     // Step 5: Use backend-calculated totals for order creation
-    const finalSubtotal = backendCalculatedSubtotal;
-    const finalCouponDiscount = backendCalculatedCouponDiscount;
-    const finalTotal = finalSubtotal - finalCouponDiscount + shippingCost;
+    const finalSubtotal = Math.round(backendCalculatedSubtotal * 100) / 100;
+    const finalCouponDiscount = Math.round(backendCalculatedCouponDiscount * 100) / 100;
+    const finalTotal = Math.round((finalSubtotal - finalCouponDiscount + shippingCost) * 100) / 100;
 
     // Step 6: Create order with validated data
     const orderInput = {
@@ -287,6 +302,9 @@ export const secureCheckout = async (req: Request, res: Response) => {
         total: finalTotal,
       },
     });
+    if (paymentInit.code !== 200) {
+      throw new Error(paymentInit.message);
+    }
 
     // Step 9: Return success
     return res.status(200).json({
@@ -379,7 +397,11 @@ export const getAllReturns = async (req: Request, res: Response) => {
 // Calculate shipping cost for checkout preview (from cart data)
 export const calculateShipping = async (req: Request, res: Response) => {
   try {
-    const { items, shippingAddress, deliveryType = 'shipping' } = req.body as {
+    const {
+      items,
+      shippingAddress,
+      deliveryType = 'shipping',
+    } = req.body as {
       items: Array<{
         product: string;
         qty: number;
@@ -435,7 +457,8 @@ export const calculateShipping = async (req: Request, res: Response) => {
       };
 
       // Calculate progressive shipping cost
-      const shippingCost = await LogisticsService.calculateProgressiveShipping(cartItems, destination);
+      const rawShippingCost = await LogisticsService.calculateProgressiveShipping(cartItems, destination);
+      const shippingCost = Math.round(rawShippingCost * 100) / 100;
 
       return res.status(200).json({
         message: 'Shipping cost calculated successfully',
@@ -445,7 +468,8 @@ export const calculateShipping = async (req: Request, res: Response) => {
           destination,
           currency: 'NGN',
           itemsSubtotal: items.reduce((sum, item) => sum + item.totalPrice, 0),
-          estimatedTotal: items.reduce((sum, item) => sum + item.totalPrice, 0) + shippingCost,
+          estimatedTotal:
+            Math.round((items.reduce((sum, item) => sum + item.totalPrice, 0) + shippingCost) * 100) / 100,
         },
         code: 200,
       });

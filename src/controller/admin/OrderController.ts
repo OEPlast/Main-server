@@ -4,13 +4,24 @@ import OrderService from '../../services/admin/Order';
 // Get all orders
 const getOrders = async (req: Request, res: Response) => {
   try {
-    const { page = 1, limit = 10, status, deliveryStatus, orderId, customerId, startDate, endDate } = req.query;
+    const { 
+      page = 1, 
+      limit = 10, 
+      status, 
+      deliveryStatus, 
+      orderId, 
+      customerId, 
+      startDate, 
+      endDate,
+      transactionStatus 
+    } = req.query;
 
     const filters: Record<string, unknown> = {};
     if (status) filters.status = status;
     if (deliveryStatus) filters.deliveryStatus = deliveryStatus;
     if (orderId) filters.orderId = orderId;
     if (customerId) filters.customerId = customerId;
+    if (transactionStatus) filters.transactionStatus = transactionStatus;
     if (startDate && endDate)
       filters.dateRange = { start: new Date(startDate as string), end: new Date(endDate as string) };
 

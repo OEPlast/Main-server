@@ -50,23 +50,13 @@ export const getUserTransactionsValidator = [
   query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
 ];
 
-export const refundTransactionValidator = [
-  param('transactionId')
-    .notEmpty()
-    .withMessage('Transaction ID is required')
-    .isMongoId()
-    .withMessage('Invalid transaction ID format'),
+// Grouped default export for convenience while keeping named exports for compatibility
+const TransactionValidator = {
+  initializePaymentValidator,
+  verifyPaymentValidator,
+  getTransactionByIdValidator,
+  getPaymentByReferenceValidator,
+  getUserTransactionsValidator,
+};
 
-  body('reason')
-    .notEmpty()
-    .withMessage('Refund reason is required')
-    .isLength({ min: 10, max: 500 })
-    .withMessage('Reason must be between 10 and 500 characters'),
-
-  body('amount')
-    .optional()
-    .isNumeric()
-    .withMessage('Amount must be a number')
-    .isFloat({ min: 0.01 })
-    .withMessage('Amount must be greater than 0'),
-];
+export default TransactionValidator;

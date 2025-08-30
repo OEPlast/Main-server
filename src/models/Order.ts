@@ -135,6 +135,11 @@ const orderSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
+    transactionId: {
+      type: ObjectId,
+      ref: 'Transaction',
+      default: null,
+    },
     isPaid: {
       type: Boolean,
       required: true,

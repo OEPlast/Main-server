@@ -1,5 +1,7 @@
 import Review, { ReviewType } from '../models/Review';
 import Reply from '@/models/Reply';
+import Order from '@/models/Order';
+import Transaction from '@/models/Transaction';
 import { ObjectId } from 'mongodb';
 import AnalyticsService from './MainAnalyticsService';
 
@@ -8,10 +10,13 @@ type IReview = {
   reviewBy: string;
   rating: number;
   review: string;
+  title?: string;
   size?: string;
   style?: { color: string; image: string };
   fit?: string;
   images: [];
+  transactionId: string;
+  orderId: string;
 };
 type ReplyData = { _id: string; replyBy: string; reply: string; createdAt: Date };
 
@@ -20,6 +25,67 @@ type CustomResponseType<T> = {
   data: T | null;
   code: number;
 };
+
+/**
+ * Verifies if user has purchased and received the product before allowing review
+ */
+const verifyPurchaseEligibility = async (
+  userId: string, 
+  productId: string
+): Promise<{ eligible: boolean; transactionId?: string; orderId?: string; message?: string }> => {
+  try {
+    // Find completed orders by the user that contain this product
+    const orders = await Order.find({
+      user: new ObjectId(userId),
+      isPaid: true,
+      status: 'Completed',
+      deliveryStatus: 'Delivered',
+      'products.product': new ObjectId(productId),
+    }).populate('transactionId');
+
+    if (orders.length === 0) {
+      return {
+        eligible: false,
+        message: 'You can only review products you have purchased and received',
+      };
+    }
+
+    // Get the most recent eligible order
+    const latestOrder = orders[0];
+    
+    // Verify transaction is completed
+    if (!latestOrder.transactionId) {
+      return {
+        eligible: false,
+        message: 'No valid payment found for this purchase',
+      };
+    }
+
+    const transaction = await Transaction.findById(latestOrder.transactionId);
+    if (!transaction || transaction.status !== 'completed') {
+      return {
+        eligible: false,
+        message: 'Payment must be completed before reviewing',
+      };
+    }
+
+    return {
+      eligible: true,
+      transactionId: (transaction._id as any).toString(),
+      orderId: latestOrder._id.toString(),
+    };
+  } catch (error) {
+    console.error('Error verifying purchase eligibility:', error);
+    return {
+      eligible: false,
+      message: 'Unable to verify purchase eligibility',
+    };
+  }
+};
+
+/**
+ * Creates a new review with purchase verification
+ */
 
 /**
  * Adds a like to a review by a specific user.
@@ -267,20 +333,59 @@ const deleteReply = async (reviewId: string, replyId: string, replyBy: string): 
 };
 
 /**
- * Creates a new review.
- * @param reviewData - The data for the new review.
+ * Creates a new review with purchase verification
  */
 const createReview = async (reviewData: IReview): Promise<CustomResponseType<ReviewType>> => {
   try {
-    //logic to check if user ordered a product
+    const { reviewBy, product, rating, review, title, size, style, fit, images } = reviewData;
 
-    const newReview = new Review(reviewData);
+    // Verify purchase eligibility
+    const eligibility = await verifyPurchaseEligibility(reviewBy, product);
+    if (!eligibility.eligible) {
+      return {
+        message: eligibility.message || 'Not eligible to review this product',
+        data: null,
+        code: 403,
+      };
+    }
+
+    // Check if user has already reviewed this product
+    const existingReview = await Review.findOne({
+      product: new ObjectId(product),
+      reviewBy: new ObjectId(reviewBy),
+    });
+
+    if (existingReview) {
+      return {
+        message: 'You have already reviewed this product',
+        data: null,
+        code: 400,
+      };
+    }
+
+    const newReview = new Review({
+      product,
+      reviewBy,
+      rating,
+      review,
+      title,
+      size,
+      style,
+      fit,
+      images,
+      transactionId: eligibility.transactionId,
+      orderId: eligibility.orderId,
+    });
+
     await newReview.save();
+    await newReview.populate([
+      { path: 'reviewBy', select: 'firstName lastName email' },
+      { path: 'product', select: 'name slug images' }
+    ]);
 
     // Track review creation for analytics
-    // This runs independently and won't affect the response time
-    if (newReview._id && reviewData.product && reviewData.reviewBy) {
-      AnalyticsService.trackReviewCreated(newReview._id.toString(), reviewData.product, reviewData.reviewBy).catch(
+    if (newReview._id && product && reviewBy) {
+      AnalyticsService.trackReviewCreated(newReview._id.toString(), product, reviewBy).catch(
         (err) => console.error('Failed to track review analytics:', err)
       );
     }
@@ -291,7 +396,7 @@ const createReview = async (reviewData: IReview): Promise<CustomResponseType<Rev
       code: 201,
     };
   } catch (error) {
-    console.error(error);
+    console.error('Error creating review:', error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -307,10 +412,21 @@ const createReview = async (reviewData: IReview): Promise<CustomResponseType<Rev
  */
 const updateReview = async (
   reviewId: string,
-  reviewData: Pick<IReview, 'review' | 'rating'>
+  reviewData: Pick<IReview, 'review' | 'rating' | 'title'>
 ): Promise<CustomResponseType<IReview | null>> => {
   try {
-    const updatedReview = await Review.findByIdAndUpdate(reviewId, reviewData);
+    const updatedReview = await Review.findByIdAndUpdate(
+      reviewId, 
+      { 
+        ...reviewData,
+        updatedAt: new Date(),
+      },
+      { new: true }
+    ).populate([
+      { path: 'reviewBy', select: 'firstName lastName email' },
+      { path: 'product', select: 'name slug images' }
+    ]);
+    
     if (!updatedReview) {
       return {
         message: 'Review not found',
@@ -318,13 +434,14 @@ const updateReview = async (
         code: 404,
       };
     }
+    
     return {
       message: 'Review updated successfully',
-      data: null,
+      data: updatedReview as any,
       code: 200,
     };
   } catch (error) {
-    console.error(error);
+    console.error('Error updating review:', error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -380,9 +497,24 @@ const deleteReview = async ({
 const allReviews = async (
   productId: string,
   page: number = 1,
-  limit: number = 10
-): Promise<CustomResponseType<IReview[]>> => {
+  limit: number = 20,
+  userId?: string,
+): Promise<{
+  message: string;
+  data: IReview[] | null;
+  code: number;
+  meta?: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}> => {
   try {
+    // Get total count for pagination
+    const totalCount = await Review.countDocuments({ product: new ObjectId(productId) });
+    const totalPages = Math.ceil(totalCount / limit);
+
     const reviews = await Review.aggregate([
       { $match: { product: new ObjectId(productId) } },
       {
@@ -413,6 +545,7 @@ const allReviews = async (
           fit: 1,
           likesCount: { $size: '$likes' },
           repliesCount: { $size: '$replies' },
+          isLikedByUser: userId ? { $in: [new ObjectId(userId), '$likes'] } : false,
         },
       },
       { $sort: { createdAt: -1 } }, // Sort by creation date in descending order
@@ -424,6 +557,12 @@ const allReviews = async (
       message: 'Reviews retrieved successfully',
       data: reviews,
       code: 200,
+      meta: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages,
+      },
     };
   } catch (error) {
     console.error(error);

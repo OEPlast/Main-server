@@ -2,13 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { validationResult } from 'express-validator';
 import { authenticateUser, isAdmin, requirePermission } from '@/middleware/auth';
 import AdminInventoryController from '@/controller/admin/InventoryController';
-import {
-  listValidator,
-  productIdParam,
-  setThresholdValidator,
-  setStockValidator,
-  bulkAdjustValidator,
-} from '@/validators/admin/inventoryValidator';
+import { listValidator, setThresholdValidator, setStockValidator } from '@/validators/admin/inventoryValidator';
 
 const router = Router();
 
@@ -32,7 +26,7 @@ router.get(
 );
 
 // Set low stock threshold requires update permission on inventory
-router.post(
+router.patch(
   '/:productId/threshold',
   authenticateUser,
   isAdmin,
@@ -43,7 +37,7 @@ router.post(
 );
 
 // Set stock requires update permission on inventory
-router.post(
+router.patch(
   '/:productId/stock',
   authenticateUser,
   isAdmin,
@@ -51,17 +45,6 @@ router.post(
   setStockValidator,
   validate,
   AdminInventoryController.setStock
-);
-
-// Bulk adjust requires update permission on inventory
-router.post(
-  '/bulk/adjust',
-  authenticateUser,
-  isAdmin,
-  requirePermission('inventory', 'update'),
-  bulkAdjustValidator,
-  validate,
-  AdminInventoryController.bulkAdjustStock
 );
 
 export default router;

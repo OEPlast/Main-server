@@ -19,6 +19,7 @@ export enum PermissionResource {
   ANALYTICS = 'analytics',
   INVOICES = 'invoices',
   LOGISTICS = 'logistics',
+  TRANSACTIONS = 'transactions',
 }
 
 export enum PermissionAction {

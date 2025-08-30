@@ -20,7 +20,7 @@ router.get(
 router.get(
   '/',
   requirePermission('orders', 'read'),
-  Admin_OrderValidator.validatePagination,
+  Admin_OrderValidator.validateAdminOrderQueryParams,
   Admin_OrderController.getOrders
 );
 router.get(

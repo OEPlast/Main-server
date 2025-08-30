@@ -1,5 +1,7 @@
 import { ObjectId } from 'mongodb';
-import Review from '../../models/Review';
+import Review, { ReviewType } from '../../models/Review';
+import User from '../../models/User';
+import Product from '../../models/Product';
 
 type ReplyData = { _id: string; replyBy: string; reply: string; createdAt: Date };
 
@@ -7,6 +9,453 @@ type CustomResponseType<T> = {
   message: string;
   data: T | null;
   code: number;
+};
+
+type CustomResponseTypeWithMeta<T, M = undefined> = {
+  message: string;
+  data: T | null;
+  code: number;
+  meta?: M;
+};
+
+type PaginationMeta = {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+};
+
+type ReviewFilters = {
+  page?: number;
+  limit?: number;
+  rating?: number;
+  isApproved?: boolean;
+  productId?: string;
+  userId?: string;
+  startDate?: string;
+  endDate?: string;
+  sortBy?: 'createdAt' | 'rating' | 'helpful';
+  sortOrder?: 'asc' | 'desc';
+};
+
+type MoodAnalysisFilters = {
+  startDate: string;
+  endDate: string;
+  productId?: string;
+  categoryId?: string;
+};
+
+type DailyMoodData = {
+  date: string;
+  ratings: {
+    1: number;
+    2: number;
+    3: number;
+    4: number;
+    5: number;
+  };
+  averageRating: number;
+  totalReviews: number;
+  moodScore: number; // Calculated mood based on rating distribution
+};
+
+/**
+ * Gets all reviews with pagination and filtering for admin dashboard
+ */
+const getAllReviews = async (filters: ReviewFilters): Promise<CustomResponseTypeWithMeta<ReviewType[], PaginationMeta>> => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      rating,
+      isApproved,
+      productId,
+      userId,
+      startDate,
+      endDate,
+      sortBy = 'createdAt',
+      sortOrder = 'desc'
+    } = filters;
+
+    // Build match conditions
+    const matchConditions: Record<string, unknown> = {};
+    
+    if (rating) matchConditions.rating = rating;
+    if (typeof isApproved === 'boolean') matchConditions.isApproved = isApproved;
+    if (productId) matchConditions.product = new ObjectId(productId);
+    if (userId) matchConditions.reviewBy = new ObjectId(userId);
+    
+    if (startDate || endDate) {
+      matchConditions.createdAt = {} as { $gte?: Date; $lte?: Date };
+      if (startDate) (matchConditions.createdAt as { $gte?: Date; $lte?: Date })['$gte'] = new Date(startDate);
+      if (endDate) (matchConditions.createdAt as { $gte?: Date; $lte?: Date })['$lte'] = new Date(endDate);
+    }
+
+    // Build sort conditions
+    const sortConditions: Record<string, 1 | -1> = {};
+    sortConditions[sortBy] = sortOrder === 'asc' ? 1 : -1;
+
+    // Count total reviews
+    const total = await Review.countDocuments(matchConditions);
+    const totalPages = Math.ceil(total / limit);
+
+    // Get reviews with pagination
+    const reviews = await Review.find(matchConditions)
+      .populate('reviewBy', 'firstName lastName email')
+      .populate('product', 'name slug images')
+      .populate('transactionId', 'reference status')
+      .populate('orderId', 'orderNumber status')
+      .sort(sortConditions)
+      .skip((page - 1) * limit)
+      .limit(limit)
+      .lean();
+
+    return {
+      message: 'Reviews retrieved successfully',
+      data: reviews as ReviewType[],
+      code: 200,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages,
+      },
+    };
+  } catch (error) {
+    console.error('Error getting all reviews:', error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Gets a single review by ID with full details
+ */
+const getReviewById = async (reviewId: string): Promise<CustomResponseType<ReviewType>> => {
+  try {
+    const review = await Review.findById(reviewId)
+      .populate('reviewBy', 'firstName lastName email phoneNumber')
+      .populate('product', 'name slug images price')
+      .populate('transactionId', 'reference status amount paidAt')
+      .populate('orderId', 'orderNumber status deliveryStatus deliveredAt')
+      .populate('moderatedBy', 'firstName lastName email')
+      .populate('replies.replyBy', 'firstName lastName email')
+      .lean();
+
+    if (!review) {
+      return {
+        message: 'Review not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    return {
+      message: 'Review retrieved successfully',
+      data: review as ReviewType,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error getting review by ID:', error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Gets reviews by product ID with pagination and filtering
+ */
+const getReviewsByProductId = async (
+  productId: string,
+  filters: Omit<ReviewFilters, 'productId'>
+): Promise<CustomResponseTypeWithMeta<ReviewType[], PaginationMeta>> => {
+  try {
+    return await getAllReviews({ ...filters, productId });
+  } catch (error) {
+    console.error('Error getting reviews by product ID:', error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Gets reviews by user ID with pagination and filtering
+ */
+const getReviewsByUserId = async (
+  userId: string,
+  filters: Omit<ReviewFilters, 'userId'>
+): Promise<CustomResponseTypeWithMeta<ReviewType[], PaginationMeta>> => {
+  try {
+    return await getAllReviews({ ...filters, userId });
+  } catch (error) {
+    console.error('Error getting reviews by user ID:', error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Moderates a review (approve/reject)
+ */
+const moderateReview = async (
+  reviewId: string,
+  adminId: string,
+  isApproved: boolean,
+  moderationNote?: string
+): Promise<CustomResponseType<ReviewType>> => {
+  try {
+    const review = await Review.findByIdAndUpdate(
+      reviewId,
+      {
+        isApproved,
+        moderatedBy: new ObjectId(adminId),
+        moderatedAt: new Date(),
+        ...(moderationNote && { moderationNote }),
+      },
+      { new: true }
+    )
+      .populate('reviewBy', 'firstName lastName email')
+      .populate('product', 'name slug')
+      .populate('moderatedBy', 'firstName lastName email');
+
+    if (!review) {
+      return {
+        message: 'Review not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    return {
+      message: `Review ${isApproved ? 'approved' : 'rejected'} successfully`,
+      data: review as ReviewType,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error moderating review:', error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Updates a review (admin can edit content)
+ */
+const updateReview = async (
+  reviewId: string,
+  adminId: string,
+  updateData: {
+    review?: string;
+    rating?: number;
+    title?: string;
+    moderationNote?: string;
+  }
+): Promise<CustomResponseType<ReviewType>> => {
+  try {
+    const review = await Review.findByIdAndUpdate(
+      reviewId,
+      {
+        ...updateData,
+        updatedAt: new Date(),
+        moderatedBy: new ObjectId(adminId),
+        moderatedAt: new Date(),
+      },
+      { new: true }
+    )
+      .populate('reviewBy', 'firstName lastName email')
+      .populate('product', 'name slug')
+      .populate('moderatedBy', 'firstName lastName email');
+
+    if (!review) {
+      return {
+        message: 'Review not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    return {
+      message: 'Review updated successfully',
+      data: review as ReviewType,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error updating review:', error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Gets mood analysis based on reviews within date ranges
+ */
+const getMoodBasedAnalysis = async (filters: MoodAnalysisFilters): Promise<CustomResponseType<DailyMoodData[]>> => {
+  try {
+    const { startDate, endDate, productId, categoryId } = filters;
+
+    // Build match conditions
+    const matchConditions: Record<string, unknown> = {
+      createdAt: {
+        $gte: new Date(startDate),
+        $lte: new Date(endDate),
+      },
+      isApproved: true,
+    };
+
+    if (productId) {
+      matchConditions.product = new ObjectId(productId);
+    }
+
+    // If categoryId is provided, we need to join with products to filter by category
+    const aggregationPipeline: any[] = [
+      { $match: matchConditions },
+    ];
+
+    if (categoryId) {
+      aggregationPipeline.push(
+        {
+          $lookup: {
+            from: 'products',
+            localField: 'product',
+            foreignField: '_id',
+            as: 'productData',
+          },
+        },
+        {
+          $match: {
+            'productData.category': new ObjectId(categoryId),
+          },
+        }
+      );
+    }
+
+    aggregationPipeline.push(
+      {
+        $group: {
+          _id: {
+            $dateToString: {
+              format: '%Y-%m-%d',
+              date: '$createdAt',
+            },
+          },
+          ratings: {
+            $push: '$rating',
+          },
+          totalReviews: { $sum: 1 },
+          averageRating: { $avg: '$rating' },
+        },
+      },
+      {
+        $project: {
+          date: '$_id',
+          totalReviews: 1,
+          averageRating: { $round: ['$averageRating', 2] },
+          ratings: {
+            1: {
+              $size: {
+                $filter: {
+                  input: '$ratings',
+                  cond: { $eq: ['$$this', 1] },
+                },
+              },
+            },
+            2: {
+              $size: {
+                $filter: {
+                  input: '$ratings',
+                  cond: { $eq: ['$$this', 2] },
+                },
+              },
+            },
+            3: {
+              $size: {
+                $filter: {
+                  input: '$ratings',
+                  cond: { $eq: ['$$this', 3] },
+                },
+              },
+            },
+            4: {
+              $size: {
+                $filter: {
+                  input: '$ratings',
+                  cond: { $eq: ['$$this', 4] },
+                },
+              },
+            },
+            5: {
+              $size: {
+                $filter: {
+                  input: '$ratings',
+                  cond: { $eq: ['$$this', 5] },
+                },
+              },
+            },
+          },
+        },
+      },
+      {
+        $addFields: {
+          // Calculate mood score: weighted average where 5-star = very positive, 1-star = very negative
+          moodScore: {
+            $round: [
+              {
+                $divide: [
+                  {
+                    $add: [
+                      { $multiply: ['$ratings.1', 1] },
+                      { $multiply: ['$ratings.2', 2] },
+                      { $multiply: ['$ratings.3', 3] },
+                      { $multiply: ['$ratings.4', 4] },
+                      { $multiply: ['$ratings.5', 5] },
+                    ],
+                  },
+                  '$totalReviews',
+                ],
+              },
+              2,
+            ],
+          },
+        },
+      },
+      {
+        $sort: { date: 1 },
+      }
+    );
+
+    const moodAnalysis = await Review.aggregate(aggregationPipeline);
+
+    return {
+      message: 'Mood analysis retrieved successfully',
+      data: moodAnalysis as DailyMoodData[],
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error getting mood analysis:', error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
 };
 
 /**
@@ -31,9 +480,9 @@ const getRepliesByReviewId = async (
       {
         $lookup: {
           foreignField: '_id',
-          localField: '$replies.replyBy',
-          from: 'user',
-          as: '$userDetails',
+          localField: 'replies.replyBy',
+          from: 'users',
+          as: 'userDetails',
         },
       },
       { $unwind: '$userDetails' },
@@ -42,7 +491,7 @@ const getRepliesByReviewId = async (
           _id: '$replies._id',
           replyBy: {
             _id: '$replies.replyBy',
-            name: '$userDetails.firstName' + ' ' + '$userDetails.lastName',
+            name: { $concat: ['$userDetails.firstName', ' ', '$userDetails.lastName'] },
             image: '$userDetails.image',
           },
           reply: '$replies.reply',
@@ -51,13 +500,14 @@ const getRepliesByReviewId = async (
         },
       },
     ]);
+    
     return {
       message: 'Replies retrieved successfully',
       data: replies,
       code: 200,
     };
   } catch (error) {
-    console.error(error);
+    console.error('Error getting replies:', error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -69,23 +519,35 @@ const getRepliesByReviewId = async (
 /**
  * Adds a reply to a specific review.
  * @param reviewId - The ID of the review to reply to.
- * @param reply - The reply data including the user ID and the reply text.
+ * @param replyText - The reply text.
+ * @param adminId - The ID of the admin adding the reply.
  */
 const addReply = async (
   reviewId: string,
-  reply: { replyBy: string; reply: string }
+  replyText: string,
+  adminId?: string
 ): Promise<CustomResponseType<void>> => {
   try {
+    const replyBy = adminId || new ObjectId(); // Use admin ID if provided, otherwise generate new ObjectId
+    
     await Review.findByIdAndUpdate(reviewId, {
-      $push: { replies: { reply: reply.reply, replyBy: new ObjectId(reply.replyBy) } },
+      $push: { 
+        replies: { 
+          reply: replyText, 
+          replyBy: new ObjectId(replyBy),
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } 
+      },
     });
+    
     return {
       message: 'Reply added successfully',
       data: null,
       code: 200,
     };
   } catch (error) {
-    console.error(error);
+    console.error('Error adding reply:', error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -107,16 +569,25 @@ const deleteReply = async ({
   replyId: string;
 }): Promise<CustomResponseType<void>> => {
   try {
-    await Review.findByIdAndUpdate(reviewId, {
+    const result = await Review.findByIdAndUpdate(reviewId, {
       $pull: { replies: { _id: replyId } },
     });
+
+    if (!result) {
+      return {
+        message: 'Review or reply not found',
+        data: null,
+        code: 404,
+      };
+    }
+
     return {
       message: 'Reply deleted successfully',
       data: null,
       code: 200,
     };
   } catch (error) {
-    console.error(error);
+    console.error('Error deleting reply:', error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -124,6 +595,7 @@ const deleteReply = async ({
     };
   }
 };
+
 /**
  * Updates a reply in a specific review.
  * @param reviewId - The ID of the review.
@@ -142,7 +614,12 @@ const updateReply = async ({
   try {
     const result = await Review.findOneAndUpdate(
       { _id: reviewId, 'replies._id': replyId },
-      { $set: { 'replies.$.reply': updatedReply } }
+      { 
+        $set: { 
+          'replies.$.reply': updatedReply,
+          'replies.$.updatedAt': new Date(),
+        } 
+      }
     );
 
     if (!result) {
@@ -159,7 +636,7 @@ const updateReply = async ({
       code: 200,
     };
   } catch (error) {
-    console.error(error);
+    console.error('Error updating reply:', error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -169,26 +646,28 @@ const updateReply = async ({
 };
 
 /**
- * Deletes a review.
+ * Deletes a review (admin can delete any review).
  * @param reviewId - The ID of the review to delete.
  */
 const deleteReview = async ({ reviewId }: { reviewId: string }): Promise<CustomResponseType<void>> => {
   try {
-    const deleteReview = await Review.deleteOne({ _id: reviewId });
-    if (deleteReview.deletedCount === 0) {
+    const deleteResult = await Review.deleteOne({ _id: reviewId });
+    
+    if (deleteResult.deletedCount === 0) {
       return {
         message: 'Review not found or not deleted',
         data: null,
         code: 404,
       };
     }
+    
     return {
       message: 'Review deleted successfully',
       data: null,
       code: 200,
     };
   } catch (error) {
-    console.error(error);
+    console.error('Error deleting review:', error);
     return {
       message: 'Something went wrong',
       data: null,
@@ -198,12 +677,18 @@ const deleteReview = async ({ reviewId }: { reviewId: string }): Promise<CustomR
 };
 
 const Admin_ReviewService = {
+  getAllReviews,
+  getReviewById,
+  getReviewsByProductId,
+  getReviewsByUserId,
+  moderateReview,
+  updateReview,
+  getMoodBasedAnalysis,
   getRepliesByReviewId,
   addReply,
   deleteReply,
-  deleteReview,
   updateReply,
+  deleteReview,
 };
 
 export default Admin_ReviewService;
-// TODO: scaling issue of max likes and max replies allowed

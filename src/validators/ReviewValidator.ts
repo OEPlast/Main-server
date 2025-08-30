@@ -3,7 +3,7 @@ import { checkSchema, validationResult } from 'express-validator';
 
 const validateCreateReview = [
   checkSchema({
-    productId: {
+    product: {
       in: ['body'],
       isMongoId: true,
       errorMessage: 'Invalid product ID',
@@ -15,14 +15,14 @@ const validateCreateReview = [
       },
       errorMessage: 'Rating must be between 1 and 5',
     },
-    comment: {
+    review: {
       in: ['body'],
       isString: true,
       trim: true,
       isLength: {
         options: { min: 10, max: 1000 },
       },
-      errorMessage: 'Comment must be between 10 and 1000 characters',
+      errorMessage: 'Review must be between 10 and 1000 characters',
     },
     title: {
       in: ['body'],
@@ -33,6 +33,46 @@ const validateCreateReview = [
         options: { max: 100 },
       },
       errorMessage: 'Title must be less than 100 characters',
+    },
+    size: {
+      in: ['body'],
+      optional: true,
+      isString: true,
+      trim: true,
+      errorMessage: 'Size must be a string',
+    },
+    style: {
+      in: ['body'],
+      optional: true,
+      isObject: true,
+      errorMessage: 'Style must be an object',
+    },
+    'style.color': {
+      in: ['body'],
+      optional: true,
+      isString: true,
+      trim: true,
+      errorMessage: 'Style color must be a string',
+    },
+    'style.image': {
+      in: ['body'],
+      optional: true,
+      isString: true,
+      trim: true,
+      errorMessage: 'Style image must be a string',
+    },
+    fit: {
+      in: ['body'],
+      optional: true,
+      isString: true,
+      trim: true,
+      errorMessage: 'Fit must be a string',
+    },
+    images: {
+      in: ['body'],
+      optional: true,
+      isArray: true,
+      errorMessage: 'Images must be an array',
     },
   }),
   (req: Request, res: Response, next: NextFunction) => {
@@ -46,7 +86,7 @@ const validateCreateReview = [
 
 const validateUpdateReview = [
   checkSchema({
-    reviewId: {
+    id: {
       in: ['params'],
       isMongoId: true,
       errorMessage: 'Invalid review ID',
@@ -59,7 +99,7 @@ const validateUpdateReview = [
       },
       errorMessage: 'Rating must be between 1 and 5',
     },
-    comment: {
+    review: {
       in: ['body'],
       optional: true,
       isString: true,
@@ -67,7 +107,7 @@ const validateUpdateReview = [
       isLength: {
         options: { min: 10, max: 1000 },
       },
-      errorMessage: 'Comment must be between 10 and 1000 characters',
+      errorMessage: 'Review must be between 10 and 1000 characters',
     },
     title: {
       in: ['body'],
@@ -91,7 +131,7 @@ const validateUpdateReview = [
 
 const validateReviewId = [
   checkSchema({
-    reviewId: {
+    id: {
       in: ['params'],
       isMongoId: true,
       errorMessage: 'Invalid review ID',
@@ -108,7 +148,7 @@ const validateReviewId = [
 
 const validateProductReviewsQuery = [
   checkSchema({
-    productId: {
+    product: {
       in: ['params'],
       isMongoId: true,
       errorMessage: 'Invalid product ID',
