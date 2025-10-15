@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { checkSchema, validationResult } from 'express-validator';
 
-const MODEL_STATUSES = ['pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed'] as const;
+const MODEL_STATUSES = ['In-Warehouse', 'Shipped', 'Dispatched', 'Delivered', 'Returned', 'Failed'] as const;
 
 const createShipmentValidator = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({
@@ -17,22 +17,46 @@ const createShipmentValidator = (req: Request, res: Response, next: NextFunction
       optional: true,
       errorMessage: 'Tracking number should be a string',
     },
-    carrier: {
+    courier: {
       in: ['body'],
       isString: true,
       notEmpty: true,
-      errorMessage: 'Carrier is required and should be a string',
+      errorMessage: 'Courier is required and should be a string',
     },
     shippingAddress: {
       in: ['body'],
       isObject: true,
       errorMessage: 'Shipping address must be an object',
     },
-    'shippingAddress.street': {
+    'shippingAddress.firstName': {
       in: ['body'],
       isString: true,
       notEmpty: true,
-      errorMessage: 'Street address is required',
+      errorMessage: 'First name is required',
+    },
+    'shippingAddress.lastName': {
+      in: ['body'],
+      isString: true,
+      notEmpty: true,
+      errorMessage: 'Last name is required',
+    },
+    'shippingAddress.phoneNumber': {
+      in: ['body'],
+      isString: true,
+      notEmpty: true,
+      errorMessage: 'Phone number is required',
+    },
+    'shippingAddress.address1': {
+      in: ['body'],
+      isString: true,
+      notEmpty: true,
+      errorMessage: 'Address line 1 is required',
+    },
+    'shippingAddress.address2': {
+      in: ['body'],
+      isString: true,
+      optional: true,
+      errorMessage: 'Address line 2 should be a string',
     },
     'shippingAddress.city': {
       in: ['body'],
@@ -70,7 +94,7 @@ const createShipmentValidator = (req: Request, res: Response, next: NextFunction
       optional: true,
       isIn: {
         options: [Array.from(MODEL_STATUSES)],
-        errorMessage: 'Status must be one of: pending, picked_up, in_transit, out_for_delivery, delivered, failed',
+        errorMessage: 'Status must be one of: In-Warehouse, Shipped, Dispatched, Delivered, Returned, Failed',
       },
     },
     dimensions: {
@@ -111,11 +135,11 @@ const updateShipmentValidator = (req: Request, res: Response, next: NextFunction
       optional: true,
       errorMessage: 'Tracking number should be a string',
     },
-    carrier: {
+    courier: {
       in: ['body'],
       isString: true,
       optional: true,
-      errorMessage: 'Carrier should be a string',
+      errorMessage: 'Courier should be a string',
     },
     shippingAddress: {
       in: ['body'],
@@ -135,7 +159,7 @@ const updateShipmentValidator = (req: Request, res: Response, next: NextFunction
       optional: true,
       isIn: {
         options: [Array.from(MODEL_STATUSES)],
-        errorMessage: 'Status must be one of: pending, picked_up, in_transit, out_for_delivery, delivered, failed',
+        errorMessage: 'Status must be one of: In-Warehouse, Shipped, Dispatched, Delivered, Returned, Failed',
       },
     },
     dimensions: { in: ['body'], optional: true, isObject: true },
@@ -181,7 +205,7 @@ const updateStatusValidator = (req: Request, res: Response, next: NextFunction) 
       notEmpty: true,
       isIn: {
         options: [Array.from(MODEL_STATUSES)],
-        errorMessage: 'Status must be one of: pending, picked_up, in_transit, out_for_delivery, delivered, failed',
+        errorMessage: 'Status must be one of: In-Warehouse, Shipped, Dispatched, Delivered, Returned, Failed',
       },
     },
     note: { in: ['body'], optional: true, isString: true },
@@ -206,7 +230,7 @@ const addTrackingValidator = (req: Request, res: Response, next: NextFunction) =
       notEmpty: true,
       isIn: {
         options: [Array.from(MODEL_STATUSES)],
-        errorMessage: 'Status must be one of: pending, picked_up, in_transit, out_for_delivery, delivered, failed',
+        errorMessage: 'Status must be one of: In-Warehouse, Shipped, Dispatched, Delivered, Returned, Failed',
       },
     },
     location: {
@@ -243,7 +267,7 @@ const statusFilterValidator = (req: Request, res: Response, next: NextFunction) 
       notEmpty: true,
       isIn: {
         options: [Array.from(MODEL_STATUSES)],
-        errorMessage: 'Status must be one of: pending, picked_up, in_transit, out_for_delivery, delivered, failed',
+        errorMessage: 'Status must be one of: In-Warehouse, Shipped, Dispatched, Delivered, Returned, Failed',
       },
     },
   });
@@ -274,7 +298,7 @@ const bulkUpdateValidator = (req: Request, res: Response, next: NextFunction) =>
       notEmpty: true,
       isIn: {
         options: [Array.from(MODEL_STATUSES)],
-        errorMessage: 'Status must be one of: pending, picked_up, in_transit, out_for_delivery, delivered, failed',
+        errorMessage: 'Status must be one of: In-Warehouse, Shipped, Dispatched, Delivered, Returned, Failed',
       },
     },
     note: { in: ['body'], optional: true, isString: true },

@@ -27,7 +27,7 @@ export interface UserType {
   password: string;
   role?: 'owner' | 'user' | 'manager' | 'employee';
   image?: string;
-  emailVerified?: boolean;
+  emailVerified?: Date | null;
   defaultPaymentMethod?: string;
   address?: AddressType[];
   wishlist?: WishlistType[];

@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import ShipmentService from '../../services/admin/ShipmentService';
 
-const allowedStatuses = ['pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed'] as const;
+const allowedStatuses = ['In-Warehouse', 'Shipped', 'Dispatched', 'Delivered', 'Returned', 'Failed'] as const;
 type ShipmentStatus = (typeof allowedStatuses)[number];
 const isShipmentStatus = (val: unknown): val is ShipmentStatus =>
   typeof val === 'string' && (allowedStatuses as readonly string[]).includes(val);

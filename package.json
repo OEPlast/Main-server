@@ -4,7 +4,7 @@
   "description": "Node.js project with TypeScript, Express.js, ESLint, Prettier, ts-node, nodemon and package.json environment specific scripts.",
   "main": "index.js",
   "scripts": {
-    "dev": "nodemon",
+    "dev": "nodemon src/server.ts",
     "qa": "NODE_ENV=qa npm run build:start",
     "prod": "NODE_ENV=production npm run build:start",
     "build": "rm -rf dist/ && tsc -p tsconfig.json",

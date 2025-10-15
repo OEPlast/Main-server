@@ -15,7 +15,6 @@ const getOrders = async (
   limit?: number,
   filters?: Partial<{
     status: OrderType['status'];
-    deliveryStatus: OrderType['deliveryStatus'];
     orderId: string;
     customerId: string;
     dateRange: { start: Date; end: Date };
@@ -28,7 +27,6 @@ const getOrders = async (
 
     // Apply filters if provided
     if (filters?.status) matchStage.status = filters.status;
-    if (filters?.deliveryStatus) matchStage.deliveryStatus = filters.deliveryStatus;
     if (filters?.orderId) matchStage._id = filters.orderId;
     if (filters?.customerId) matchStage.user = filters.customerId;
     if (filters?.dateRange) {
@@ -147,7 +145,7 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<OrderTy
 const updateOrderDetails = async (
   orderId: string,
   updates: Partial<
-    Pick<OrderType, 'shippingProgress' | 'deliveryStatus' | 'status' | 'products' | 'shippingAddress' | 'deliveredAt'>
+    Pick<OrderType, 'status' | 'products' | 'shippingAddress' | 'deliveredAt'>
   >
 ): Promise<CustomResponseType<null>> => {
   try {
@@ -168,16 +166,6 @@ const updateOrderDetails = async (
       if (updates.status === 'Completed') {
         AnalyticsService.trackOrderCompleted(orderId, previousOrder.total).catch((err) =>
           console.error('Failed to track order completion analytics:', err)
-        );
-      }
-    }
-
-    // Track analytics for delivery status changes
-    if (updates.deliveryStatus && previousOrder.deliveryStatus !== updates.deliveryStatus) {
-      // Track returned orders for analytics
-      if (updates.deliveryStatus === 'Returned') {
-        AnalyticsService.trackOrderReturned(orderId).catch((err) =>
-          console.error('Failed to track order return analytics:', err)
         );
       }
     }

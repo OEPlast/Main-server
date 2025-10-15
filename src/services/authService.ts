@@ -6,7 +6,16 @@ import OTPService from './OTP';
 import mongoose from 'mongoose';
 import { eventPublisher } from '@/events';
 import EmailProcessor from './EmailProcessor';
+import Account from '@/models/Account';
 
+type TMiniUser = {
+  _id: mongoose.Types.ObjectId;
+  role: UserType['role'];
+  name: UserType['name'];
+  email: UserType['email'];
+  image: UserType['image'];
+  suspended: UserType['suspended'];
+};
 /**
  * Creates a new user.
  * @param userData - The data of the user to create.
@@ -84,14 +93,14 @@ const login = async ({
 }: {
   email: string;
   password: string;
-}): Promise<CustomResponseType<{ emailVerified: boolean; token: string }>> => {
+}): Promise<CustomResponseType<{ emailVerified: Date | null; token: string }>> => {
   try {
     const user = await User.findOne({ email }, { emailVerified: true, password: true });
     if (!user) {
       return {
         message: 'User not found',
         data: null,
-        code: 404,
+        code: 401,
       };
     }
     if (!user.password) {
@@ -113,6 +122,61 @@ const login = async ({
     return {
       message: 'Login successful',
       data: { emailVerified: user.emailVerified, token },
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+const loginWithProvider = async (providerData: {
+  provider: string;
+  providerAccountId: string;
+}): Promise<CustomResponseType<TMiniUser & { token: string }>> => {
+  try {
+    const account = await Account.findOne(providerData).populate({
+      path: 'userId',
+      select: '_id role suspended name image email',
+    });
+    console.log(providerData);
+
+    if (!account) {
+      return {
+        code: 404,
+        message: 'Account not found',
+        data: null,
+      };
+    }
+
+    const user = account.userId as unknown as TMiniUser;
+
+    if (!user) {
+      return {
+        message: 'User not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    // Generate JWT token
+    const token = tokenizer.SignData({ userId: user._id, role: user.role });
+
+    return {
+      message: 'Login successful',
+      data: {
+        _id: user._id,
+        role: user.role,
+        name: user.name,
+        email: user.email,
+        image: user.image,
+        suspended: user.suspended,
+        token,
+      },
       code: 200,
     };
   } catch (error) {
@@ -265,6 +329,8 @@ const requestResetCode = async (email: string): Promise<CustomResponseType<null>
       message: 'OTP sent successfully',
     };
   } catch (error) {
+    console.log(error);
+
     return {
       message: 'Something went wrong',
       data: null,
@@ -354,7 +420,7 @@ const verifyAccountOtp = async ({
       };
     }
 
-    user.emailVerified = true; // Assuming `emailVerified` is a field in the User model
+    user.emailVerified = new Date();
     await user.save();
 
     return {
@@ -422,6 +488,7 @@ const AuthService = {
   resetPasswordWithCode,
   verifyAccountOtp,
   resendAccountOtp,
+  loginWithProvider,
 };
 
 export default AuthService;

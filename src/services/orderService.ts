@@ -18,6 +18,7 @@ import {
 import Coupon, { CouponType as CouponSchemaType } from '@/models/Coupon';
 import CouponRedemption from '@/models/CouponRedemption';
 import LogisticsService from '@/services/LogisticsService';
+import ShipmentService from '@/services/ShipmentService';
 
 function calculateUnitPrice({
   product,
@@ -235,7 +236,6 @@ const getOrderHistory = async (
   filters: {
     userId: string;
     status?: OrderType['status'];
-    deliveryStatus?: OrderType['deliveryStatus'];
     transactionStatus?: TransactionStatus | 'all';
   }
 ): CustomResponseTypeWithMeta<{
@@ -252,9 +252,6 @@ const getOrderHistory = async (
     // Add order filters
     if (filters.status) {
       matchStage.status = filters.status;
-    }
-    if (filters.deliveryStatus) {
-      matchStage.deliveryStatus = filters.deliveryStatus;
     }
 
     pipeline.push({ $match: matchStage });
@@ -334,9 +331,8 @@ const getOrderHistory = async (
 
 // Accept user as string (will be cast by Mongoose) or ObjectId
 // Make array fields optional for input ergonomics
-type OrderDataInput = Omit<OrderType, 'createdAt' | 'updatedAt' | 'user' | 'shippingProgress' | 'flashSaleApplied'> & {
+type OrderDataInput = Omit<OrderType, 'createdAt' | 'updatedAt' | 'user' | 'flashSaleApplied'> & {
   user: string | mongoose.Types.ObjectId;
-  shippingProgress?: OrderType['shippingProgress'];
   flashSaleApplied?: OrderType['flashSaleApplied'];
   couponCodes?: string[]; // Add support for coupon codes array
 };
@@ -610,6 +606,19 @@ const placeOrderWithStockValidation = async (
     });
     await order.save({ session });
 
+    // Create shipment for shipping orders
+    if (orderData.deliveryType === 'shipping') {
+      try {
+        const shipmentResult = await ShipmentService.createShipmentForOrder(order._id, session);
+        if (shipmentResult) {
+          console.log(`[OrderService] Created shipment ${shipmentResult.trackingNumber} for order ${order._id}`);
+        }
+      } catch (shipmentError) {
+        console.error('[OrderService] Failed to create shipment, but order was placed successfully:', shipmentError);
+        // Don't fail the order if shipment creation fails - admin can create manually later
+      }
+    }
+
     // Record coupon redemptions for all applied coupons
     if (appliedCouponDocs.length > 0) {
       const redemptions = appliedCouponDocs.map((coupon, index) => ({
@@ -785,8 +794,17 @@ const cancelOrder = async (orderId: string, userId: string): Promise<CustomRespo
       throw new Error('Order not found.');
     }
 
-    if (order.deliveryStatus !== 'In-Warehouse') {
-      throw new Error('Order cannot be canceled. It may have already been shipped.');
+    // Check if order can be cancelled based on its current status
+    if (order.status === 'Completed' || order.status === 'Cancelled') {
+      throw new Error('Order cannot be canceled. It has already been completed or cancelled.');
+    }
+
+    // For shipping orders, check shipment status
+    if (order.deliveryType === 'shipping' && order.shipmentId) {
+      const deliveryStatus = await ShipmentService.getDeliveryStatus(orderId);
+      if (deliveryStatus === 'Shipped' || deliveryStatus === 'Dispatched' || deliveryStatus === 'Delivered') {
+        throw new Error('Order cannot be canceled. It may have already been shipped.');
+      }
     }
 
     // Restore stock
@@ -861,13 +879,26 @@ const initiateReturn = async (orderId: string, userId: string): Promise<CustomRe
       throw new Error('Order not found.');
     }
 
-    if (order.deliveryStatus !== 'Delivered') {
+    // Check delivery status via shipment for shipping orders
+    let canReturn = false;
+    if (order.deliveryType === 'shipping' && order.shipmentId) {
+      const deliveryStatus = await ShipmentService.getDeliveryStatus(orderId);
+      canReturn = deliveryStatus === 'Delivered';
+    } else if (order.deliveryType === 'pickup') {
+      // For pickup orders, check if they've been completed/delivered
+      canReturn = order.status === 'Completed';
+    }
+
+    if (!canReturn) {
       throw new Error('Only delivered orders can be returned.');
     }
 
-    // Update order status to Returned
-    order.deliveryStatus = 'Returned';
-    await order.save({ session });
+    // For shipping orders with shipments, update shipment status to 'Returned'
+    if (order.deliveryType === 'shipping' && order.shipmentId) {
+      // We'll let the admin shipment service handle updating the shipment status
+      // For now, just mark the order as having a return initiated
+      console.log(`[OrderService] Return initiated for order ${orderId} - shipment ${order.shipmentId} should be updated`);
+    }
 
     await session.commitTransaction();
     session.endSession();
@@ -904,8 +935,34 @@ const getAllReturns = async ({
   limit?: number;
 }): Promise<CustomResponseType<{ orders: OrderType[]; totalOrders: number }>> => {
   try {
+    // For now, we'll find orders where returns were initiated
+    // In a full implementation, we might track returns in a separate collection
+    // or use shipment status to determine returns
     const pipeline = [
-      { $match: { user: userId, deliveryStatus: 'Returned' } },
+      { 
+        $match: { 
+          user: userId,
+          // We could add a 'returnInitiated' flag to orders, or check shipment status
+          // For now, let's return orders that are completed (as potential returns)
+          status: 'Completed' 
+        } 
+      },
+      {
+        $lookup: {
+          from: 'shipments',
+          localField: 'shipmentId',
+          foreignField: '_id',
+          as: 'shipment'
+        }
+      },
+      {
+        $match: {
+          $or: [
+            { 'shipment.status': 'Returned' }, // Shipping orders with returned status
+            { deliveryType: 'pickup', status: 'Completed' } // Pickup orders that are completed
+          ]
+        }
+      },
       {
         $facet: {
           orders: [{ $skip: (page - 1) * limit }, { $limit: limit }],

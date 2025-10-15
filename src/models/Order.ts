@@ -2,11 +2,6 @@ import mongoose, { InferSchemaType } from 'mongoose';
 
 const { ObjectId } = mongoose.Schema;
 
-const shippingProgressSchema = new mongoose.Schema({
-  location: { type: String, required: true },
-  date: { type: Date, required: true },
-});
-
 const couponSnapshotSchema = new mongoose.Schema(
   {
     discount: { type: Number },
@@ -150,12 +145,11 @@ const orderSchema = new mongoose.Schema(
       default: 'Pending',
       enum: ['Pending', 'Processing', 'Cancelled', 'Completed'],
     },
-    deliveryStatus: {
-      type: String,
-      default: 'In-Warehouse',
-      enum: ['In-Warehouse', 'Shipped', 'Dispatched', 'Delivered', 'Returned'],
+    shipmentId: {
+      type: ObjectId,
+      ref: 'Shipment',
+      default: null,
     },
-    shippingProgress: [shippingProgressSchema],
     paidAt: {
       type: Date,
     },

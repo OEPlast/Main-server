@@ -4,16 +4,20 @@ const shipmentSchema = new Schema(
   {
     orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true },
     trackingNumber: { type: String, required: true, unique: true },
-    carrier: { type: String, required: true },
+    courier: { type: String, required: true },
     status: {
       type: String,
-      enum: ['pending', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'failed'],
-      default: 'pending',
+      enum: ['In-Warehouse', 'Shipped', 'Dispatched', 'Delivered', 'Returned', 'Failed'],
+      default: 'In-Warehouse',
     },
     estimatedDelivery: { type: Date },
     actualDelivery: { type: Date },
     shippingAddress: {
-      street: { type: String, required: true },
+      firstName: { type: String, required: true },
+      lastName: { type: String, required: true },
+      phoneNumber: { type: String, required: true },
+      address1: { type: String, required: true },
+      address2: { type: String },
       city: { type: String, required: true },
       state: { type: String, required: true },
       zipCode: { type: String, required: true },
@@ -29,7 +33,6 @@ const shipmentSchema = new Schema(
     notes: { type: String },
     trackingHistory: [
       {
-        status: { type: String, required: true },
         location: { type: String },
         timestamp: { type: Date, default: Date.now },
         description: { type: String },

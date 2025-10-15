@@ -22,6 +22,28 @@ const loginValidator = (req: Request, res: Response, next: NextFunction) => {
   next();
 };
 
+const providerLoginValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      provider: {
+        in: ['body'],
+        isString: true,
+        errorMessage: 'provider type is required (google, reddit, github...)',
+      },
+      providerAccountId: {
+        in: ['body'],
+        isString: true,
+        errorMessage: 'providerAccountId is required',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
 const registerValidator = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({
     email: {
@@ -143,6 +165,7 @@ const verifyAccountOtpValidator = (req: Request, res: Response, next: NextFuncti
 
 const AuthValidator = {
   loginValidator,
+  providerLoginValidator,
   registerValidator,
   changePasswordValidator,
   requestResetPasswordCodeValidator,

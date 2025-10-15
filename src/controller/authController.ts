@@ -105,6 +105,16 @@ const resendVerifyAccountOtp = async (req: Request, res: Response) => {
   }
 };
 
+const providerLogin = async (req: Request, res: Response) => {
+  try {
+    const { provider, providerAccountId } = req.body;
+    const { data, code, message } = await AuthService.loginWithProvider({ provider, providerAccountId });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 const AuthController = {
   userLogin,
   userLogout,
@@ -114,5 +124,6 @@ const AuthController = {
   requestResetPasswordCode,
   verifyAccountOtp,
   resendVerifyAccountOtp,
+  providerLogin,
 };
 export default AuthController;

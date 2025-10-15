@@ -5,8 +5,8 @@ import { authenticateUser } from '@/middleware/auth';
 import RateLimits from '@/middleware/rate';
 const router = express.Router();
 
-router.post('/logout', () => {});
 router.post('/login', AuthValidator.loginValidator, AuthController.userLogin);
+router.post('/login/provider', AuthValidator.providerLoginValidator, AuthController.providerLogin);
 router.post('/register', AuthValidator.registerValidator, AuthController.userRegister);
 router.post(
   '/changePassword',

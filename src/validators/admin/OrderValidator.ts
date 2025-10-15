@@ -5,37 +5,13 @@ import { checkSchema, validationResult } from 'express-validator';
 
 const updateOrderDetails = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({
-    shippingProgress: {
-      optional: true,
-      isArray: {
-        errorMessage: 'Shipping progress must be an array',
-      },
-      custom: {
-        options: (value) => {
-          if (!value.every((item: { location: string; date: string }) => item.location && item.date)) {
-            throw new Error('Each shipping progress item must have a location and date');
-          }
-          return true;
-        },
-      },
-    },
-    deliveryStatus: {
-      optional: true,
-      isString: {
-        errorMessage: 'Delivery status must be a string',
-      },
-      isIn: {
-        options: [['Pending', 'Shipped', 'Out for Delivery', 'Delivered', 'Returned']],
-        errorMessage: 'Invalid delivery status',
-      },
-    },
     status: {
       optional: true,
       isString: {
         errorMessage: 'Status must be a string',
       },
       isIn: {
-        options: [['Not Processed', 'Processing', 'Dispatched', 'Cancelled', 'Completed']],
+        options: [['Pending', 'Processing', 'Cancelled', 'Completed']],
         errorMessage: 'Invalid status',
       },
     },

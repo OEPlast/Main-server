@@ -9,22 +9,21 @@ import LogisticsService from '@/services/LogisticsService';
 // import CartService from '@/services/cartService';
 // import Cart from '@/models/Cart';
 import { validateAndCorrectCart, FrontendCartData } from '@/services/CartValidationService';
+import { populateOrderWithDeliveryStatus } from '@/helpers/orderPopulation';
 
 // Fetch paginated order history for a user
 export const getOrders = async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthenticatedRequest).userId!;
-    const { page = 1, limit = 10, status, deliveryStatus, transactionStatus } = req.query;
+    const { page = 1, limit = 10, status, transactionStatus } = req.query;
 
     const filters = { 
       userId, 
       status, 
-      deliveryStatus, 
       transactionStatus 
     } as unknown as {
       userId: string;
       status?: OrderType['status'];
-      deliveryStatus?: OrderType['deliveryStatus'];
       transactionStatus?: import('../models/Transaction').TransactionStatus | 'all';
     };
 
@@ -43,6 +42,13 @@ export const getOrderById = async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId!;
 
     const { data, message, code } = await OrderService.getOneOrder({ orderId: id, userId });
+    
+    if (data) {
+      // Populate the order with delivery status from shipment
+      const populatedOrder = await populateOrderWithDeliveryStatus(data);
+      return res.status(code).json({ message, data: populatedOrder });
+    }
+    
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getOrderById:', error);
@@ -260,7 +266,6 @@ export const secureCheckout = async (req: Request, res: Response) => {
       taxPrice: taxPrice ?? 0,
       isPaid: false,
       status: 'Pending' as OrderType['status'],
-      deliveryStatus: 'In-Warehouse' as OrderType['deliveryStatus'],
     } as unknown as Parameters<typeof OrderService.placeOrderWithStockValidation>[0];
 
     // Step 7: Place the order with stock validation

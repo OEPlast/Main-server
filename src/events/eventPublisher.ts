@@ -209,6 +209,27 @@ class EventPublisher {
   }): Promise<void> {
     await this.publish(EventType.ADMIN_ACTION, { action: 'coupon.redeemed', ...data }, { userId: data.userId });
   }
+
+  async publishShipmentCreated(data: {
+    shipmentId: string;
+    orderId: string;
+    trackingNumber: string;
+    status: string;
+  }): Promise<void> {
+    await this.publish(EventType.SHIPMENT_CREATED, data);
+  }
+
+  async publishShipmentStatusUpdated(data: {
+    shipmentId: string;
+    orderId: string;
+    trackingNumber: string;
+    oldStatus: string;
+    newStatus: string;
+    location?: string;
+    description?: string;
+  }): Promise<void> {
+    await this.publish(EventType.SHIPMENT_STATUS_UPDATED, data);
+  }
 }
 
 const eventPublisher = new EventPublisher();

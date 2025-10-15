@@ -113,6 +113,7 @@ app.use('/admin/transactions', AdminTransactionRoute);
 app.use('/admin/reviews', AdminReviewRoute);
 
 app.use('/admin/shipment', AdminShipmentRoute);
+
 app.use('/admin/analytics', AdminAnalyticsRoute);
 
 //------------------

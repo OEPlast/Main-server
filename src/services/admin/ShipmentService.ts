@@ -1,8 +1,8 @@
 import Shipment, { IShipment } from '../../models/Shipment';
 import { CustomResponseType } from '@/types';
 
-// Define shipment status union based on model enum
-type ShipmentStatus = IShipment['status'];
+// Define shipment status union based on updated model enum
+type ShipmentStatus = 'In-Warehouse' | 'Shipped' | 'Dispatched' | 'Delivered' | 'Returned' | 'Failed';
 
 type TrackingHistoryEntry = IShipment['trackingHistory'][number];
 
@@ -18,12 +18,12 @@ const createShipment = async (shipmentData: Partial<IShipment>): Promise<CustomR
     // Generate tracking number
     const trackingNumber = 'TRK' + Date.now() + Math.random().toString(36).substr(2, 5).toUpperCase();
 
-    const initHistory: TrackingHistoryEntry[] = [
+    const initHistory = [
       {
-        status: 'pending' as IShipment['status'],
+        location: 'Warehouse',
         description: 'Shipment created',
         timestamp: new Date(),
-      } as unknown as TrackingHistoryEntry,
+      },
     ];
 
     const doc = new Shipment({
@@ -127,10 +127,10 @@ const updateShipment = async (
     // If status is being updated, add to tracking history
     if (updates.status && updates.status !== shipment.status) {
       shipment.trackingHistory.push({
-        status: updates.status as unknown as TrackingHistoryEntry['status'],
+        location: 'Updated',
         description: `Status updated to ${updates.status}`,
         timestamp: new Date(),
-      } as TrackingHistoryEntry);
+      });
     }
 
     Object.assign(shipment, updates);
@@ -199,9 +199,10 @@ const addTrackingUpdate = async (
     }
 
     shipment.trackingHistory.push({
-      ...trackingUpdate,
+      location: trackingUpdate.location || 'Unknown',
       timestamp: new Date(),
-    } as TrackingHistoryEntry);
+      description: trackingUpdate.description,
+    });
 
     // Update current status
     shipment.status = trackingUpdate.status as IShipment['status'];
@@ -271,10 +272,10 @@ const updateShipmentStatus = async (
 
     // Add to tracking history
     shipment.trackingHistory.push({
-      status: status as unknown as TrackingHistoryEntry['status'],
+      location: 'Updated',
       description: note || `Status updated to ${status}`,
       timestamp: new Date(),
-    } as TrackingHistoryEntry);
+    });
 
     shipment.status = status as IShipment['status'];
     await shipment.save();
@@ -339,10 +340,10 @@ const bulkUpdateStatus = async (
       const shipment = await Shipment.findById(shipmentId);
       if (shipment) {
         shipment.trackingHistory.push({
-          status: status as unknown as TrackingHistoryEntry['status'],
+          location: 'Updated',
           description: note || `Bulk status update to ${status}`,
           timestamp: new Date(),
-        } as TrackingHistoryEntry);
+        });
         shipment.status = status as IShipment['status'];
         await shipment.save();
         return true;
