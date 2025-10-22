@@ -159,6 +159,40 @@ const getUsersByRole = async (req: Request, res: Response) => {
   }
 };
 
+const addUserAsEmployee = async (req: Request, res: Response) => {
+  try {
+    const { email, roleIds } = req.body;
+    const result = await RoleService.addUserAsEmployee(email, roleIds);
+    return res.status(result.code).json({ message: result.message, data: result.data });
+  } catch (error) {
+    console.error('Error in addUserAsEmployee:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const revokeAdminAccess = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const result = await RoleService.revokeAdminAccess(userId);
+    return res.status(result.code).json({ message: result.message, data: result.data });
+  } catch (error) {
+    console.error('Error in revokeAdminAccess:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const modifyUserPermissions = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+    const { roleIds } = req.body;
+    const result = await RoleService.modifyUserPermissions(userId, roleIds);
+    return res.status(result.code).json({ message: result.message, data: result.data });
+  } catch (error) {
+    console.error('Error in modifyUserPermissions:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export default {
   createRole,
   getAllRoles,
@@ -173,4 +207,7 @@ export default {
   checkUserPermission,
   checkPermission,
   getUsersByRole,
+  addUserAsEmployee,
+  revokeAdminAccess,
+  modifyUserPermissions,
 };

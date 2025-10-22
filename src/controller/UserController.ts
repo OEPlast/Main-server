@@ -120,6 +120,22 @@ const getAddresses = async (req: Request, res: Response) => {
   }
 };
 
+// Get user permissions from all roles
+const getUserPermissions = async (req: Request, res: Response) => {
+  try {
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const userId = req.userId;
+    const result = await UserService.getUserPermissions(userId);
+    return res.status(result.code).json({ message: result.message, data: result.data });
+  } catch (error) {
+    console.error('Error in getUserPermissions:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export default {
   getProfile,
   updateProfile,
@@ -128,4 +144,5 @@ export default {
   updateAddress,
   deleteAddress,
   getAddresses,
+  getUserPermissions,
 };

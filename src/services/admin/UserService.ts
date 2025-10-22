@@ -322,6 +322,118 @@ const getUsersByRole = async ({
   }
 };
 
+/**
+ * Fetches all staff members (employees and owners) with pagination and search.
+ * @param page - The page number for pagination.
+ * @param limit - The number of staff per page.
+ * @param search - Optional search string to filter by name or email.
+ * @param role - Optional role filter (employee or owner).
+ * @param sort - Sort direction (1 for asc, -1 for desc).
+ * @returns A promise that resolves to a custom response containing staff list and metadata.
+ */
+const getStaff = async ({
+  page = 1,
+  limit = 50,
+  search,
+  role,
+  sort = -1,
+}: {
+  page: number;
+  limit?: number;
+  search?: string;
+  role?: 'employee' | 'owner';
+  sort?: 1 | -1;
+}): CustomResponsePromise<{
+  users: UserType[];
+  total: number;
+  totalPages: number;
+  currentPage: number;
+}> => {
+  try {
+    const match: Record<string, unknown> = {
+      role: role ? role : { $in: ['employee', 'owner'] },
+    };
+
+    if (search) {
+      match.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    const pipeline: PipelineStage[] = [
+      { $match: match },
+      {
+        $lookup: {
+          from: 'orders',
+          let: { userId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [{ $eq: ['$user', '$$userId'] }, { $ne: ['$status', 'Cancelled'] }],
+                },
+              },
+            },
+          ],
+          as: 'orders',
+        },
+      },
+      {
+        $addFields: {
+          orderCount: { $size: '$orders' },
+          totalSpent: { $sum: '$orders.total' },
+        },
+      },
+      { $sort: { firstName: sort, email: sort } },
+      {
+        $facet: {
+          metadata: [{ $count: 'total' }],
+          users: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            {
+              $project: {
+                _id: 1,
+                firstName: 1,
+                lastName: 1,
+                email: 1,
+                joinedAt: '$createdAt',
+                orderCount: 1,
+                totalSpent: 1,
+                suspended: 1,
+                image: 1,
+                role: 1,
+                emailVerified: 1,
+              },
+            },
+          ],
+        },
+      },
+    ];
+
+    const result = await User.aggregate(pipeline);
+    const total = result[0]?.metadata[0]?.total || 0;
+    const users = result[0]?.users || [];
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      message: 'Staff members fetched successfully',
+      data: {
+        users,
+        total,
+        totalPages,
+        currentPage: page,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching staff:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
 const Admin_UserService = {
   updateUserRole,
   suspendedStatus,
@@ -329,6 +441,7 @@ const Admin_UserService = {
   getAllUsersWithPaginationAndSearch,
   getUserAndAllTheirBasicInfo,
   getUsersByRole,
+  getStaff,
 };
 
 export default Admin_UserService;

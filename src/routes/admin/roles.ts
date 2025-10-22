@@ -38,19 +38,31 @@ router.get(
   RoleController.getRolePermissions
 );
 
-// User role assignment
+
+// New: Add user as employee
 router.post(
-  '/users/assign',
-  requirePermission('roles', 'update'),
-  RoleValidator.assignRoleValidator,
-  RoleController.assignRoleToUser
+  '/users/add-employee',
+  requirePermission('roles', 'create'),
+  RoleValidator.addUserAsEmployeeValidator,
+  RoleController.addUserAsEmployee
 );
-router.patch(
-  '/users/unassign',
-  requirePermission('roles', 'update'),
-  RoleValidator.assignRoleValidator,
-  RoleController.removeRoleFromUser
+
+// New: Revoke admin access (demote employee to user)
+router.delete(
+  '/users/:userId/revoke-access',
+  requirePermission('roles', 'delete'),
+  RoleValidator.userIdValidator,
+  RoleController.revokeAdminAccess
 );
+
+// New: Edit user permissions (replace all permissions)
+router.put(
+  '/users/:userId/edit-permissions',
+  requirePermission('roles', 'update'),
+  RoleValidator.editUserPermissionsValidator,
+  RoleController.modifyUserPermissions
+);
+
 router.get(
   '/users/:userId/roles',
   requirePermission('roles', 'read'),

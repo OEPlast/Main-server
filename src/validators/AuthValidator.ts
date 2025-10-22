@@ -163,6 +163,24 @@ const verifyAccountOtpValidator = (req: Request, res: Response, next: NextFuncti
   next();
 };
 
+const setPasswordValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      newPassword: {
+        in: ['body'],
+        isString: true,
+        isLength: { options: { min: 8 } },
+        errorMessage: 'newPassword must be at least 8 characters',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
 const AuthValidator = {
   loginValidator,
   providerLoginValidator,
@@ -171,6 +189,7 @@ const AuthValidator = {
   requestResetPasswordCodeValidator,
   resetPasswordByCodeValidator,
   verifyAccountOtpValidator,
+  setPasswordValidator,
 };
 
 export default AuthValidator;

@@ -78,11 +78,31 @@ const deleteUser = async (req: Request, res: Response) => {
   }
 };
 
+// Get all staff (employees and owners) with pagination
+const getStaff = async (req: Request, res: Response) => {
+  try {
+    const { page, limit, search, sort, role } = req.query;
+    const sortDir = sort === '1' ? 1 : -1;
+    const { data, code, message } = await Admin_UserService.getStaff({
+      page: Number(page) || 1,
+      search: search ? search.toString() : undefined,
+      role: role as 'employee' | 'owner' | undefined,
+      sort: sortDir,
+      ...(limit && { limit: Number(limit) }),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getStaff:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 const Admin_UserController = {
   getAllUsers,
   getUserById,
   updateUserSuspension,
   updateUserRole,
   deleteUser,
+  getStaff,
 };
 export default Admin_UserController;

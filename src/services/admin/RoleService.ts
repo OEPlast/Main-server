@@ -225,7 +225,7 @@ const removeRoleFromUser = async (userId: string, roleId: string) => {
 // Get user roles
 const getUserRoles = async (userId: string) => {
   try {
-    const user = await User.findById(userId).populate({
+    const user = await User.findById(userId).select('role roles email firstName lastName').populate({
       path: 'roles',
       select: 'name description permissions isActive',
     });
@@ -237,7 +237,7 @@ const getUserRoles = async (userId: string) => {
         permissions?: RolePermission[];
         isActive?: boolean;
       }>) || [];
-    return { message: 'User roles retrieved', data: roles, code: 200 };
+    return { message: 'User roles retrieved', data: {roles, role: user.role, email: user.email, firstName: user.firstName, lastName: user.lastName}, code: 200 };
   } catch (error) {
     console.error('Error getting user roles:', error);
     return { message: 'Failed to get user roles', data: [], code: 500 };
@@ -339,6 +339,109 @@ const getUsersByRole = async (
   }
 };
 
+// Add new user as employee with roles
+const addUserAsEmployee = async (email: string, roleIds: string[]) => {
+  try {
+    const user = await User.findOne({ email }).select('role roles email firstName lastName');
+    if (!user) {
+      return { message: 'User not found', data: null, code: 404 };
+    }
+
+    // Check if user is already an employee or owner
+    if (user.role !== 'user') {
+      return { message: 'User is already an employee or owner', data: null, code: 400 };
+    }
+
+    // Validate all role IDs exist and are active
+    const roles = await Role.find({ _id: { $in: roleIds }, isActive: true });
+    if (roles.length !== roleIds.length) {
+      return { message: 'One or more roles not found or inactive', data: null, code: 404 };
+    }
+
+    // Update user to employee and assign roles
+    user.role = 'employee';
+    user.roles = roleIds.map((id) => new mongoose.Types.ObjectId(id));
+    await user.save();
+
+    return {
+      message: 'User promoted to employee successfully',
+      data: user,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error adding user as employee:', error);
+    return { message: 'Failed to add user as employee', data: null, code: 500 };
+  }
+};
+
+// Revoke admin access (demote employee to user)
+const revokeAdminAccess = async (userId: string) => {
+  try {
+    const user = await User.findById(userId).select('role roles email firstName lastName');
+    if (!user) {
+      return { message: 'User not found', data: null, code: 404 };
+    }
+
+    // Cannot demote owner
+    if (user.role === 'owner') {
+      return { message: 'Cannot revoke admin access from owner', data: null, code: 403 };
+    }
+
+    // Only demote if currently employee
+    if (user.role !== 'employee') {
+      return { message: 'User is not an employee', data: null, code: 400 };
+    }
+
+    // Demote to user and clear all roles
+    user.role = 'user';
+    user.roles = [];
+    await user.save();
+
+    return {
+      message: 'Admin access revoked successfully',
+      data: user,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error revoking admin access:', error);
+    return { message: 'Failed to revoke admin access', data: null, code: 500 };
+  }
+};
+
+// Edit user roles (replace existing roles with new ones)
+const modifyUserPermissions = async (userId: string, roleIds: string[]) => {
+  try {
+    const user = await User.findById(userId).select('role roles email firstName lastName');
+    if (!user) {
+      return { message: 'User not found', data: null, code: 404 };
+    }
+
+    // Can only edit permission for employees
+    if (user.role !== 'employee') {
+      return { message: 'Can only edit permission for employees', data: null, code: 400 };
+    }
+
+    // Validate all role IDs exist and are active
+    const permissions = await Role.find({ _id: { $in: roleIds }, isActive: true });
+    if (permissions.length !== roleIds.length) {
+      return { message: 'One or more permission not found or inactive', data: null, code: 404 };
+    }
+
+    // Replace permission
+    user.roles = roleIds.map((id) => new mongoose.Types.ObjectId(id));
+    await user.save();
+
+    return {
+      message: 'User permission updated successfully',
+      data: user,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error editing user permission:', error);
+    return { message: 'Failed to edit user permission', data: null, code: 500 };
+  }
+};
+
 const RoleService = {
   createRole,
   getAllRoles,
@@ -353,6 +456,9 @@ const RoleService = {
   checkPermission,
   getRolePermissions,
   getUsersByRole,
+  addUserAsEmployee,
+  revokeAdminAccess,
+   modifyUserPermissions,
 };
 
 export default RoleService;

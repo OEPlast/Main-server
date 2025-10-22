@@ -15,6 +15,17 @@ router.post(
   AuthController.updateUserPassword
 );
 router.post(
+  '/setPassword',
+  authenticateUser,
+  AuthValidator.setPasswordValidator,
+  AuthController.setPassword
+);
+router.get(
+  '/passwordAndProviderStatus',
+  authenticateUser,
+  AuthController.userPasswordAndProviderStatus
+);
+router.post(
   '/requestResetPasswordCode',
   RateLimits.OTP_Limiter,
   AuthValidator.requestResetPasswordCodeValidator,

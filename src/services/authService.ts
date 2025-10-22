@@ -9,11 +9,12 @@ import EmailProcessor from './EmailProcessor';
 import Account from '@/models/Account';
 
 type TMiniUser = {
-  _id: mongoose.Types.ObjectId;
+  _id: string;
   role: UserType['role'];
   name: UserType['name'];
   email: UserType['email'];
   image: UserType['image'];
+  emailVerified?: UserType['emailVerified'];
   suspended: UserType['suspended'];
 };
 /**
@@ -29,7 +30,6 @@ const signup = async (userData: {
 }): CustomResponsePromise<{ newUser: UserType; token: string; otpCode: number }> => {
   const session = await mongoose.startSession();
   session.startTransaction();
-  console.log('hit');
 
   try {
     const existingUser = await User.findOne({ email: userData.email });
@@ -93,9 +93,21 @@ const login = async ({
 }: {
   email: string;
   password: string;
-}): Promise<CustomResponseType<{ emailVerified: Date | null; token: string }>> => {
+}): Promise<CustomResponseType<TMiniUser & { token: string }>> => {
   try {
-    const user = await User.findOne({ email }, { emailVerified: true, password: true });
+    const user = await User.findOne(
+      { email },
+      {
+        emailVerified: true,
+        email: true,
+        password: true,
+        firstName: true,
+        lastName: true,
+        image: true,
+        suspended: true,
+        role: true,
+      }
+    );
     if (!user) {
       return {
         message: 'User not found',
@@ -121,7 +133,16 @@ const login = async ({
     const token = tokenizer.SignData({ userId: user._id, role: user.role });
     return {
       message: 'Login successful',
-      data: { emailVerified: user.emailVerified, token },
+      data: {
+        emailVerified: user.emailVerified,
+        token,
+        name: user.firstName + ' ' + user.lastName,
+        email: user.email,
+        image: user.image,
+        suspended: user.suspended,
+        _id: user._id.toString(),
+        role: user.role,
+      },
       code: 200,
     };
   } catch (error) {
@@ -169,7 +190,7 @@ const loginWithProvider = async (providerData: {
     return {
       message: 'Login successful',
       data: {
-        _id: user._id,
+        _id: user._id.toString(),
         role: user.role,
         name: user.name,
         email: user.email,
@@ -305,11 +326,19 @@ const requestResetCode = async (email: string): Promise<CustomResponseType<null>
   try {
     //check if the user exist
     const user = await User.findOne({ email });
+    // if (!user) {
+    //   return {
+    //     message: 'User does not exist',
+    //     data: null,
+    //     code: 404,
+    //   };
+    // }
+    //keep it basic to avoid email enumeration, this proved to be an exploitation and was causing some unnecessary errors for mails that intentionally was not even valid
     if (!user) {
       return {
-        message: 'User does not exist',
+        message: 'If the email is registered, a reset code has been sent.',
         data: null,
-        code: 401,
+        code: 200,
       };
     }
     //then call the otp service
@@ -326,7 +355,7 @@ const requestResetCode = async (email: string): Promise<CustomResponseType<null>
     return {
       data: null,
       code: createOTP.code,
-      message: 'OTP sent successfully',
+      message: 'If the email is registered, a reset code has been sent.',
     };
   } catch (error) {
     console.log(error);
@@ -478,6 +507,112 @@ const resendAccountOtp = async ({ userId }: { userId: string }): Promise<CustomR
   }
 };
 
+/**
+ * Sets a password for provider-based accounts that don't have a password yet.
+ * This is a one-time operation - once a password is set, users must use changePassword.
+ * @param userId - The ID of the user.
+ * @param newPassword - The new password to set.
+ * @returns A promise that resolves to a custom response.
+ */
+const setPassword = async ({
+  userId,
+  newPassword,
+}: {
+  userId: string;
+  newPassword: string;
+}): Promise<CustomResponseType<null>> => {
+  try {
+    // Find the user
+    const user = await User.findById(userId, { password: true });
+    if (!user) {
+      return {
+        message: 'User not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    // Check if password already exists
+    if (user.password) {
+      return {
+        message: 'Password already set. Use change password to update your existing password.',
+        data: null,
+        code: 400,
+      };
+    }
+
+    // Check if user has a provider account linked
+    const hasProviderAccount = await Account.exists({ userId: user._id });
+    if (!hasProviderAccount) {
+      return {
+        message: 'This feature is only available for accounts created with social providers (Google, GitHub, etc.).',
+        data: null,
+        code: 403,
+      };
+    }
+
+    // Set the new password
+    user.password = await passwordLib.hashPassword(newPassword);
+    await user.save();
+
+    return {
+      message: 'Password set successfully. You can now login with your email and password.',
+      data: null,
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Checks if a user has a password set.
+ * Useful for frontend to show "Set Password" vs "Change Password" UI.
+ * @param userId - The ID of the user.
+ * @returns A promise that resolves to a custom response with hasPassword boolean and provider info.
+ */
+const getUserPasswordAndProviderStatus = async ({
+  userId,
+}: {
+  userId: string;
+}): Promise<CustomResponseType<{ hasPassword: boolean; hasProviderAccount: boolean }>> => {
+  try {
+    // Find the user
+    const [user, hasProviderAccount] = await Promise.all([
+      User.findById(userId, { password: true }),
+      Account.exists({ userId }),
+    ]);
+    if (!user) {
+      return {
+        message: 'User not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    return {
+      message: 'Password status retrieved successfully',
+      data: {
+        hasPassword: !!user.password,
+        hasProviderAccount: !!hasProviderAccount,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const AuthService = {
   signup,
   login,
@@ -489,6 +624,8 @@ const AuthService = {
   verifyAccountOtp,
   resendAccountOtp,
   loginWithProvider,
+  setPassword,
+  getUserPasswordAndProviderStatus,
 };
 
 export default AuthService;

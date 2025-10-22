@@ -188,6 +188,55 @@ const checkPermissionValidator = async (req: Request, res: Response, next: NextF
   next();
 };
 
+const addUserAsEmployeeValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      email: {
+        in: ['body'],
+        isEmail: true,
+        normalizeEmail: true,
+        errorMessage: 'Valid email is required',
+      },
+      roleIds: {
+        in: ['body'],
+        isArray: { options: { min: 1 }, errorMessage: 'Role IDs must be a non-empty array' },
+      },
+      'roleIds.*': {
+        in: ['body'],
+        isMongoId: true,
+        errorMessage: 'Each role ID must be a valid MongoDB ID',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  next();
+};
+
+const editUserPermissionsValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      userId: {
+        in: ['params'],
+        isMongoId: true,
+        errorMessage: 'User ID must be a valid MongoDB ID',
+      },
+      roleIds: {
+        in: ['body'],
+        isArray: { options: { min: 1 }, errorMessage: 'Role IDs must be a non-empty array' },
+      },
+      'roleIds.*': {
+        in: ['body'],
+        isMongoId: true,
+        errorMessage: 'Each role ID must be a valid MongoDB ID',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  next();
+};
+
 const RoleValidator = {
   createRoleValidator,
   updateRoleValidator,
@@ -195,6 +244,8 @@ const RoleValidator = {
   userIdValidator,
   assignRoleValidator,
   checkPermissionValidator,
+  addUserAsEmployeeValidator,
+   editUserPermissionsValidator,
 };
 
 export default RoleValidator;

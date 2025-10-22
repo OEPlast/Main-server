@@ -2,7 +2,25 @@ import Admin_UserController from '@/controller/admin/UserController';
 import Admin_UserValidator from '@/validators/admin/UserValidator';
 import { isAdmin, authenticateUser, requirePermission } from '@/middleware/auth';
 import express from 'express';
+import UserController from '@/controller/UserController';
 const router = express.Router();
+
+router.get(
+  '/permissions',
+  authenticateUser,
+  // isAdmin,
+  UserController.getUserPermissions
+);
+
+// Get all staff (employees and owners) with pagination
+router.get(
+  '/staff',
+  authenticateUser,
+  isAdmin,
+  requirePermission('users', 'read'),
+  Admin_UserValidator.getStaffValidator,
+  Admin_UserController.getStaff
+);
 
 router.get(
   '/all',

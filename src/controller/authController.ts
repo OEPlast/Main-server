@@ -7,7 +7,7 @@ const userLogin = async (req: Request, res: Response) => {
   try {
     // Logic for user login
     const { email, password } = req.body;
-    const { data, code, message } = await AuthService.login({ email, password });
+    const { data, code, message } = await AuthService.login({ email, password });    
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in userLogin:', error);
@@ -115,6 +115,35 @@ const providerLogin = async (req: Request, res: Response) => {
   }
 };
 
+// Set password for provider-based accounts
+const setPassword = async (req: Request, res: Response) => {
+  try {
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const { newPassword } = req.body;
+    const { message, code } = await AuthService.setPassword({ userId: req.userId, newPassword });
+    return res.status(code).json({ message });
+  } catch (error) {
+    console.error('Error in setPassword:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+// Check if user has password set
+const userPasswordAndProviderStatus = async (req: Request, res: Response) => {
+  try {
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+    const { message, code, data } = await AuthService.getUserPasswordAndProviderStatus({ userId: req.userId });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in userPasswordAndProviderStatus:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 const AuthController = {
   userLogin,
   userLogout,
@@ -125,5 +154,7 @@ const AuthController = {
   verifyAccountOtp,
   resendVerifyAccountOtp,
   providerLogin,
+  setPassword,
+  userPasswordAndProviderStatus,
 };
 export default AuthController;

@@ -246,7 +246,7 @@ const applyCoupon = async (userId: string, couponCode: string): CustomResponsePr
  */
 const getUserProfile = async (userId: string): Promise<CustomResponseType<Partial<UserType>>> => {
   try {
-    const user = await User.findById(userId).select('-password -resetCode -isVerified');
+    const user = await User.findById(userId).select('firstName lastName notifications image country dob');
     if (!user) {
       return {
         message: 'User not found',
@@ -484,7 +484,7 @@ const deleteAddress = async (userId: string, addressId: string): Promise<CustomR
  */
 const getUserAddresses = async (userId: string): Promise<CustomResponseType<UserType['address']>> => {
   try {
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).select('address');
     if (!user) {
       return {
         message: 'User not found',
@@ -496,6 +496,54 @@ const getUserAddresses = async (userId: string): Promise<CustomResponseType<User
     return {
       message: 'User addresses retrieved successfully',
       data: user.address,
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Get user permissions from all assigned roles
+ * @param userId - The ID of the user.
+ * @returns A promise that resolves to user roles and their permissions.
+ */
+const getUserPermissions = async (userId: string): Promise<CustomResponseType<any>> => {
+  try {
+    const user = await User.findById(userId)
+      .populate({
+        path: 'roles',
+        select: 'name description permissions isActive',
+      })
+      .select('roles role');
+
+    if (!user) {
+      return {
+        message: 'User not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    // Format the response with all roles and their permissions
+    const rolesWithPermissions = user.roles?.map((role: any) => ({
+      name: role.name,
+      description: role.description,
+      permissions: role.permissions || [],
+      isActive: role.isActive,
+    })) || [];
+
+    return {
+      message: 'User permissions retrieved successfully',
+      data: {
+        legacyRole: user.role, // The old string role field
+        roles: rolesWithPermissions,
+      },
       code: 200,
     };
   } catch (error) {
@@ -521,5 +569,6 @@ const UserService = {
   updateAddress,
   deleteAddress,
   getUserAddresses,
+  getUserPermissions,
 };
 export default UserService;

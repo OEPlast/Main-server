@@ -1,7 +1,7 @@
 import rateLimit from 'express-rate-limit';
 
 const OTP_Limiter = rateLimit({
-  windowMs: 6 * 60 * 1000, // 16 minutes
+  windowMs: 1.5 * 60 * 1000, // 1.5 minutes
   limit: 1,
   standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
   legacyHeaders: false,
