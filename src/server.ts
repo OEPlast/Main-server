@@ -21,6 +21,7 @@ import InventoryRoute from '@/routes/general/inventory';
 import LogisticsPublicRoute from '@/routes/general/logistics';
 import UserShipmentsRoute from '@/routes/users/shipments';
 import UserCampaignsRoute from '@/routes/users/campaigns';
+import UserReturnsRoute from '@/routes/users/returns';
 import { eventPublisher } from '@/events';
 
 import {
@@ -40,6 +41,7 @@ import {
   AdminCouponAnalyticsRoute,
   AdminLogisticsRoute,
   AdminTransactionRoute,
+  AdminReturnRoute,
   AdminReviewRoute,
 } from './routes/admin';
 import FileUploadRoute from '@/routes/general/fileUpload';
@@ -90,6 +92,7 @@ app.use('/myorder', OrderRoute);
 app.use('/payments', TransactionRoute);
 app.use('/reviews/user', UserReviewsRoute);
 app.use('/reviews', ReviewRoute);
+app.use('/returns', UserReturnsRoute);
 
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);
@@ -111,6 +114,7 @@ app.use('/admin/inventory', AdminInventoryRoute);
 app.use('/admin/coupon-analytics', AdminCouponAnalyticsRoute);
 app.use('/admin/transactions', AdminTransactionRoute);
 app.use('/admin/reviews', AdminReviewRoute);
+app.use('/admin/returns', AdminReturnRoute);
 
 app.use('/admin/shipment', AdminShipmentRoute);
 

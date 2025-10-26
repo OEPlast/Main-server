@@ -10,6 +10,7 @@ const getTransactions = async (req: Request, res: Response) => {
       status,
       paymentMethod,
       paymentGateway,
+      transactionType,
       userId,
       orderId,
       startDate,
@@ -25,6 +26,7 @@ const getTransactions = async (req: Request, res: Response) => {
     if (status) filters.status = status;
     if (paymentMethod) filters.paymentMethod = paymentMethod;
     if (paymentGateway) filters.paymentGateway = paymentGateway;
+    if (transactionType) filters.transactionType = transactionType;
     if (userId) filters.userId = userId;
     if (orderId) filters.orderId = orderId;
     if (reference) filters.reference = reference;

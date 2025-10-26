@@ -8,6 +8,7 @@ interface TransactionFilters {
   paymentGateway?: TransactionGateway;
   userId?: string;
   orderId?: string;
+  transactionType?: 'order_payment' | 'return_refund';
   dateRange?: { start: Date; end: Date };
   amountRange?: { min: number; max: number };
   reference?: string;
@@ -42,6 +43,7 @@ const getTransactions = async (
     if (filters.status) matchStage.status = filters.status;
     if (filters.paymentMethod) matchStage.paymentMethod = filters.paymentMethod;
     if (filters.paymentGateway) matchStage.paymentGateway = filters.paymentGateway;
+    if (filters.transactionType) matchStage.transactionType = filters.transactionType;
     if (filters.userId) matchStage.userId = new mongoose.Types.ObjectId(filters.userId);
     if (filters.orderId) matchStage.orderId = new mongoose.Types.ObjectId(filters.orderId);
     if (filters.reference) matchStage.reference = { $regex: filters.reference, $options: 'i' };
@@ -336,6 +338,9 @@ const getStatistics = async (): Promise<CustomResponseType<any>> => {
       recentTransactions,
       todayRevenueData,
       monthlyRevenueData,
+      orderPaymentCount,
+      returnRefundCount,
+      returnRefundAmount,
     ] = await Promise.all([
       // Total transactions
       Transaction.countDocuments(),
@@ -358,9 +363,9 @@ const getStatistics = async (): Promise<CustomResponseType<any>> => {
       // Partially refunded transactions
       Transaction.countDocuments({ status: 'partially_refunded' }),
       
-      // Total revenue (completed transactions)
+      // Total revenue (completed order_payment transactions only)
       Transaction.aggregate([
-        { $match: { status: 'completed' } },
+        { $match: { status: 'completed', transactionType: 'order_payment' } },
         { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
       ]),
       
@@ -385,22 +390,36 @@ const getStatistics = async (): Promise<CustomResponseType<any>> => {
       // Recent transactions (last 7 days)
       Transaction.countDocuments({ createdAt: { $gte: sevenDaysAgo } }),
       
-      // Today's revenue
+      // Today's revenue (order_payment only)
       Transaction.aggregate([
-        { $match: { status: 'completed', paidAt: { $gte: todayStart } } },
+        { $match: { status: 'completed', transactionType: 'order_payment', paidAt: { $gte: todayStart } } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
       
-      // Monthly revenue
+      // Monthly revenue (order_payment only)
       Transaction.aggregate([
-        { $match: { status: 'completed', paidAt: { $gte: monthStart } } },
+        { $match: { status: 'completed', transactionType: 'order_payment', paidAt: { $gte: monthStart } } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+
+      // Order payment count
+      Transaction.countDocuments({ transactionType: 'order_payment' }),
+
+      // Return refund count
+      Transaction.countDocuments({ transactionType: 'return_refund' }),
+
+      // Return refund amount (completed return_refund transactions)
+      Transaction.aggregate([
+        { $match: { status: 'completed', transactionType: 'return_refund' } },
+        { $group: { _id: null, total: { $sum: { $abs: '$amount' } } } },
       ]),
     ]);
 
     const totalRevenue = revenueData[0]?.total || 0;
     const totalRevenueCount = revenueData[0]?.count || 0;
     const totalRefunded = refundData[0]?.total || 0;
+    const totalReturnRefunds = returnRefundAmount[0]?.total || 0;
+    const netRevenue = totalRevenue - totalReturnRefunds;
     const averageTransactionValue = totalRevenueCount > 0 ? totalRevenue / totalRevenueCount : 0;
 
     // Format gateway and method statistics
@@ -424,9 +443,13 @@ const getStatistics = async (): Promise<CustomResponseType<any>> => {
       partially_refunded: partiallyRefunded,
       totalRevenue: Number(totalRevenue.toFixed(2)),
       totalRefunded: Number(totalRefunded.toFixed(2)),
+      totalReturnRefunds: Number(totalReturnRefunds.toFixed(2)),
+      netRevenue: Number(netRevenue.toFixed(2)),
       averageTransactionValue: Number(averageTransactionValue.toFixed(2)),
       transactionsByGateway,
       transactionsByMethod,
+      orderPaymentCount,
+      returnRefundCount,
       recentTransactions,
       todayRevenue: Number((todayRevenueData[0]?.total || 0).toFixed(2)),
       monthlyRevenue: Number((monthlyRevenueData[0]?.total || 0).toFixed(2)),

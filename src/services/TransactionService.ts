@@ -145,6 +145,9 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<ITra
     if (!transaction) {
       return { message: 'Transaction record not found', data: null, code: 404 };
     }
+    if (!transaction.orderId) {
+      return { message: 'Order not found for transaction', data: null, code: 404 };
+    }
 
     // Idempotent update
     const isSuccess = paymentData.status === 'success';
@@ -165,12 +168,12 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<ITra
       await transaction.save();
 
       // Update Order
-      if (isSuccess) {
+      if (isSuccess && transaction.orderId) {
         await Order.findByIdAndUpdate(transaction.orderId, { isPaid: true, paidAt: new Date() });
       }
 
       // Events
-      if (isSuccess) {
+      if (isSuccess && transaction.orderId) {
         await eventPublisher.publishPaymentSuccessful({
           orderId: transaction.orderId.toString(),
           userId: transaction.userId.toString(),
@@ -179,7 +182,7 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<ITra
           paymentMethod: 'paystack',
         });
         await eventPublisher.publishWebsocketOrderUpdate({ orderId: transaction.orderId.toString(), status: 'paid' });
-      } else {
+      } else if (!isSuccess && transaction.orderId) {
         await eventPublisher.publish(EventType.PAYMENT_FAILED, {
           orderId: transaction.orderId.toString(),
           userId: transaction.userId.toString(),
@@ -273,7 +276,7 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
         ).toString()}, status=${transaction.status})`
       );
 
-      if (isSuccess) {
+      if (isSuccess && transaction.orderId) {
         logger.info(`Paystack webhook: marking order as paid (orderId=${transaction.orderId.toString()})`);
         await Order.findByIdAndUpdate(transaction.orderId, { isPaid: true, paidAt: new Date() });
         await eventPublisher.publishPaymentSuccessful({
@@ -288,7 +291,7 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
         logger.debug(
           `Paystack webhook: published websocket update (orderId=${transaction.orderId.toString()}, status=paid)`
         );
-      } else {
+      } else if (!isSuccess && transaction.orderId) {
         await eventPublisher.publish(EventType.PAYMENT_FAILED, {
           orderId: transaction.orderId.toString(),
           userId: transaction.userId.toString(),

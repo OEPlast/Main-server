@@ -2,10 +2,13 @@ import mongoose, { Document, Schema } from 'mongoose';
 
 export type TransactionStatus = 'pending' | 'completed' | 'failed' | 'cancelled' | 'refunded' | 'partially_refunded';
 export type TransactionGateway = 'paystack' | 'stripe' | 'flutterwave' | 'manual';
-export type PaymentMethod = 'stripe' | 'paystack' | 'flutterwave' | 'bank_transfer' | 'cash_on_delivery';
+export type PaymentMethod = 'stripe' | 'paystack' | 'flutterwave' | 'bank_transfer' | 'cash_on_delivery' | 'store_credit' | 'original_payment';
+export type TransactionType = 'order_payment' | 'return_refund';
 
 export interface ITransaction extends Document {
-  orderId: mongoose.Types.ObjectId;
+  orderId?: mongoose.Types.ObjectId; // Optional now
+  returnId?: mongoose.Types.ObjectId; // New field
+  transactionType: TransactionType; // New field
   userId: mongoose.Types.ObjectId;
   reference: string; // Unique transaction reference
   amount: number;
@@ -56,14 +59,22 @@ export interface ITransaction extends Document {
 
 const TransactionSchema = new Schema<ITransaction>(
   {
-    orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true },
+    orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: false },
+    returnId: { type: Schema.Types.ObjectId, ref: 'Return', required: false },
+    transactionType: { 
+      type: String, 
+      enum: ['order_payment', 'return_refund'], 
+      required: true,
+      default: 'order_payment',
+      index: true 
+    },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     reference: { type: String, required: true, unique: true },
     amount: { type: Number, required: true, min: 0 },
     currency: { type: String, required: true, default: 'NGN', uppercase: true },
     paymentMethod: {
       type: String,
-      enum: ['stripe', 'paystack', 'flutterwave', 'bank_transfer', 'cash_on_delivery'],
+      enum: ['stripe', 'paystack', 'flutterwave', 'bank_transfer', 'cash_on_delivery', 'store_credit', 'original_payment'],
       required: true,
     },
     paymentGateway: { 
@@ -156,9 +167,25 @@ const TransactionSchema = new Schema<ITransaction>(
 );
 
 TransactionSchema.index({ orderId: 1 });
+TransactionSchema.index({ returnId: 1 });
 TransactionSchema.index({ userId: 1 });
 TransactionSchema.index({ reference: 1 }, { unique: true });
 TransactionSchema.index({ status: 1 });
 TransactionSchema.index({ paymentDate: -1 });
+TransactionSchema.index({ transactionType: 1, status: 1 });
+
+// Validation: orderId and returnId are mutually exclusive
+TransactionSchema.pre('save', function (next) {
+  if (this.transactionType === 'order_payment' && !this.orderId) {
+    return next(new Error('orderId is required for order_payment transactions'));
+  }
+  if (this.transactionType === 'return_refund' && !this.returnId) {
+    return next(new Error('returnId is required for return_refund transactions'));
+  }
+  if (this.orderId && this.returnId) {
+    return next(new Error('Transaction cannot have both orderId and returnId'));
+  }
+  next();
+});
 
 export default mongoose.model<ITransaction>('Transaction', TransactionSchema);

@@ -16,3 +16,4 @@ export { default as AdminSalesRoute } from './sales';
 export { default as AdminInventoryRoute } from './inventory';
 export { default as AdminLogisticsRoute } from './logistics';
 export { default as AdminTransactionRoute } from './transaction';
+export { default as AdminReturnRoute } from './returnRoutes';

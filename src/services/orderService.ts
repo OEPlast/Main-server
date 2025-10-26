@@ -990,6 +990,49 @@ const getAllReturns = async ({
   }
 };
 
+/**
+ * Get order with new returns populated
+ */
+const getOrderWithReturns = async (orderId: string): Promise<CustomResponseType<any>> => {
+  try {
+    const order = await Order.findById(orderId)
+      .populate('userId', 'firstName lastName email')
+      .populate('items.product', 'name images')
+      .lean();
+
+    if (!order) {
+      return {
+        message: 'Order not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    // Populate returns from the new Return model
+    const Return = (await import('../models/Return')).default;
+    const returns = await Return.find({ order: orderId })
+      .populate('user', 'firstName lastName email')
+      .populate('items.product', 'name images')
+      .lean();
+
+    return {
+      message: 'Order with returns fetched successfully',
+      data: {
+        ...order,
+        returns,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching order with returns:', error);
+    return {
+      message: error instanceof Error ? error.message : 'Failed to fetch order with returns',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const OrderService = {
   getOrderHistory,
   placeOrderWithStockValidation,
@@ -998,6 +1041,7 @@ const OrderService = {
   getOneOrder,
   initiateReturn,
   getAllReturns,
+  getOrderWithReturns,
 };
 
 export default OrderService;

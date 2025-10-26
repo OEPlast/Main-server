@@ -87,6 +87,14 @@ const validateTransactionQueryParams = async (req: Request, res: Response, next:
           errorMessage: 'Order ID must be a valid MongoDB ID',
         },
       },
+      transactionType: {
+        in: ['query'],
+        optional: true,
+        isIn: {
+          options: [['order_payment', 'return_refund']],
+          errorMessage: 'Transaction type must be one of: order_payment, return_refund',
+        },
+      },
       startDate: {
         in: ['query'],
         optional: true,
