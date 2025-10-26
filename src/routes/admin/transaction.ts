@@ -9,6 +9,13 @@ const router = express.Router();
 // All admin transaction routes require authentication and admin privileges
 router.use(authenticateUser, isAdmin);
 
+// Get transaction statistics
+router.get(
+  '/statistics',
+  requirePermission('transactions', 'read'),
+  Admin_TransactionController.getStatistics
+);
+
 // Transaction management routes
 router.get(
   '/',
@@ -36,7 +43,7 @@ router.post(
   '/:transactionId/refund',
   requirePermission('transactions', 'update'),
   Admin_TransactionValidator.refundTransactionValidator,
-  TransactionController.refundPayment
+  Admin_TransactionController.processRefund
 );
 
 export default router;

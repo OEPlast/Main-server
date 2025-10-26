@@ -16,6 +16,45 @@ router.get(
   Admin_ProductController.getAllProducts
 );
 
+// List all products with rating (enhanced version)
+router.get(
+  '/all-enhanced',
+  authenticateUser,
+  isAdmin,
+  requirePermission('products', 'read'),
+  ...GeneralProductValidator.validateProductQuery,
+  Admin_ProductController.getAllProductsEnhanced
+);
+
+// Check if SKU exists
+router.get(
+  '/does-sku-exist/:sku',
+  authenticateUser,
+  isAdmin,
+  requirePermission('products', 'read'),
+  ProductValidator.checkSkuValidator,
+  Admin_ProductController.checkSkuExists
+);
+
+// Check if slug is available
+router.get(
+  '/check-slug',
+  authenticateUser,
+  isAdmin,
+  requirePermission('products', 'read'),
+  ProductValidator.checkSlugValidator,
+  Admin_ProductController.checkSlugAvailable
+);
+
+// Get minimal product list for dropdowns/selectors
+router.get(
+  '/list-minimal',
+  authenticateUser,
+  isAdmin,
+  requirePermission('products', 'read'),
+  Admin_ProductController.getProductListMinimal
+);
+
 // Create product
 router.post(
   '/create',

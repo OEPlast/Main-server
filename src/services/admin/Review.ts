@@ -676,6 +676,123 @@ const deleteReview = async ({ reviewId }: { reviewId: string }): Promise<CustomR
   }
 };
 
+/**
+ * Get review statistics
+ */
+const getStatistics = async (): Promise<CustomResponseType<any>> => {
+  try {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    // Run aggregations in parallel
+    const [
+      total,
+      approved,
+      pending,
+      rejected,
+      withReplies,
+      withImages,
+      ratingStats,
+      recentReviews,
+      helpfulVotesStats,
+    ] = await Promise.all([
+      // Total reviews
+      Review.countDocuments(),
+      
+      // Approved reviews
+      Review.countDocuments({ isApproved: true }),
+      
+      // Pending reviews (not approved and not rejected)
+      Review.countDocuments({ isApproved: { $ne: true }, isRejected: { $ne: true } }),
+      
+      // Rejected reviews
+      Review.countDocuments({ isRejected: true }),
+      
+      // Reviews with replies
+      Review.countDocuments({ 'replies.0': { $exists: true } }),
+      
+      // Reviews with images
+      Review.countDocuments({ images: { $exists: true, $ne: [] } }),
+      
+      // Rating distribution and average
+      Review.aggregate([
+        {
+          $group: {
+            _id: null,
+            averageRating: { $avg: '$rating' },
+            rating1: { $sum: { $cond: [{ $eq: ['$rating', 1] }, 1, 0] } },
+            rating2: { $sum: { $cond: [{ $eq: ['$rating', 2] }, 1, 0] } },
+            rating3: { $sum: { $cond: [{ $eq: ['$rating', 3] }, 1, 0] } },
+            rating4: { $sum: { $cond: [{ $eq: ['$rating', 4] }, 1, 0] } },
+            rating5: { $sum: { $cond: [{ $eq: ['$rating', 5] }, 1, 0] } },
+          },
+        },
+      ]),
+      
+      // Recent reviews (last 7 days)
+      Review.countDocuments({ createdAt: { $gte: sevenDaysAgo } }),
+      
+      // Total helpful votes
+      Review.aggregate([
+        {
+          $project: {
+            helpfulCount: { $size: { $ifNull: ['$helpfulVotes.helpful', []] } },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            total: { $sum: '$helpfulCount' },
+          },
+        },
+      ]),
+    ]);
+
+    const ratingData = ratingStats[0] || {
+      averageRating: 0,
+      rating1: 0,
+      rating2: 0,
+      rating3: 0,
+      rating4: 0,
+      rating5: 0,
+    };
+
+    const helpfulVotesData = helpfulVotesStats[0] || { total: 0 };
+
+    const statistics = {
+      total,
+      approved,
+      pending,
+      rejected,
+      withReplies,
+      withImages,
+      averageRating: Number(ratingData.averageRating.toFixed(2)),
+      ratingDistribution: {
+        1: ratingData.rating1,
+        2: ratingData.rating2,
+        3: ratingData.rating3,
+        4: ratingData.rating4,
+        5: ratingData.rating5,
+      },
+      recentReviews,
+      totalHelpfulVotes: helpfulVotesData.total,
+    };
+
+    return {
+      message: 'Review statistics fetched successfully',
+      data: statistics,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error getting review statistics:', error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const Admin_ReviewService = {
   getAllReviews,
   getReviewById,
@@ -684,6 +801,7 @@ const Admin_ReviewService = {
   moderateReview,
   updateReview,
   getMoodBasedAnalysis,
+  getStatistics,
   getRepliesByReviewId,
   addReply,
   deleteReply,

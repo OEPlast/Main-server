@@ -22,6 +22,18 @@ const createCategoryValidator = async (req: Request, res: Response, next: NextFu
         optional: true,
         errorMessage: 'Banner should be a string URL',
       },
+      slug: {
+        in: ['body'],
+        isString: true,
+        notEmpty: true,
+        errorMessage: 'Slug is required',
+      },
+      image: {
+        in: ['body'],
+        isString: true,
+        optional: true,
+        errorMessage: 'Image should be a string',
+      },
       parent: {
         in: ['body'],
         isArray: true,

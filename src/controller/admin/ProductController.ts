@@ -185,6 +185,91 @@ const Admin_ProductController = {
       return res.status(500).json({ error: 'Internal server error' });
     }
   },
+  async getAllProductsEnhanced(req: Request, res: Response) {
+    try {
+      const page = req.query.page ? parseInt(String(req.query.page), 10) : undefined;
+      const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
+      const category = req.query.category ? String(req.query.category) : undefined;
+      const subcategory = req.query.subcategory ? String(req.query.subcategory) : undefined;
+      const search = req.query.search ? String(req.query.search) : undefined;
+      const minPrice = req.query.minPrice != null ? parseFloat(String(req.query.minPrice)) : undefined;
+      const maxPrice = req.query.maxPrice != null ? parseFloat(String(req.query.maxPrice)) : undefined;
+      const sortBy = (req.query.sortBy as 'price' | 'name' | 'createdAt' | 'rating' | 'sales' | undefined) ?? undefined;
+      const sortOrder = (req.query.sortOrder as 'asc' | 'desc' | undefined) ?? undefined;
+      const availability =
+        (req.query.availability as 'in-stock' | 'out-of-stock' | 'low-stock' | undefined) ?? undefined;
+      const brand = req.query.brand ? String(req.query.brand) : undefined;
+
+      const specKey = req.query.specKey ? String(req.query.specKey) : undefined;
+      const specValue = req.query.specValue ? String(req.query.specValue) : undefined;
+
+      const { data, message, code, meta } = await Admin_ProductService.getAllProductsEnhanced({
+        page,
+        limit,
+        category,
+        subcategory,
+        search,
+        minPrice,
+        maxPrice,
+        sortBy,
+        sortOrder,
+        availability,
+        specKey,
+        specValue,
+        brand,
+      });
+      return res.status(code).json({ message, data, meta });
+    } catch (error) {
+      console.error('Error in admin getAllProductsEnhanced:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+  async checkSkuExists(req: Request, res: Response) {
+    try {
+      const { sku } = req.params;
+      const skuNumber = parseInt(sku, 10);
+
+      if (isNaN(skuNumber)) {
+        return res.status(400).json({ message: 'Invalid SKU format', data: null });
+      }
+
+      const { data, message, code } = await Admin_ProductService.checkSkuExists(skuNumber);
+      return res.status(code).json({ message, data });
+    } catch (error) {
+      console.error('Error in checkSkuExists:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  async checkSlugAvailable(req: Request, res: Response) {
+    try {
+      const { slug, excludeId } = req.query;
+
+      if (!slug || typeof slug !== 'string') {
+        return res.status(400).json({ message: 'Slug is required', data: null });
+      }
+
+      const { data, message, code } = await Admin_ProductService.checkSlugAvailable(
+        slug,
+        excludeId as string | undefined
+      );
+      return res.status(code).json({ message, data });
+    } catch (error) {
+      console.error('Error in checkSlugAvailable:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
+  async getProductListMinimal(req: Request, res: Response) {
+    try {
+      const { data, message, code } = await Admin_ProductService.getProductListMinimal();
+      return res.status(code).json({ message, data });
+    } catch (error) {
+      console.error('Error in getProductListMinimal:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+
   createProduct,
   updateCoverImage,
   getProductById,

@@ -199,6 +199,27 @@ const getStaffValidator = async (req: Request, res: Response, next: NextFunction
   next();
 };
 
+const searchUsersValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      q: {
+        in: ['query'],
+        isString: true,
+        notEmpty: true,
+        isLength: {
+          options: { min: 2, max: 100 },
+        },
+        errorMessage: 'Search query must be between 2 and 100 characters',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
 const Admin_UserValidator = {
   getAllUsersValidator,
   getUserByIdValidator,
@@ -207,6 +228,7 @@ const Admin_UserValidator = {
   deleteUserValidator,
   usersByRole,
   getStaffValidator,
+  searchUsersValidator,
 };
 
 export default Admin_UserValidator;

@@ -32,7 +32,7 @@ const couponSchema = new mongoose.Schema(
       uppercase: true,
       required: true,
       minLength: 4,
-      maxLength: 12,
+      maxLength:20,
     },
     startDate: {
       type: Date,

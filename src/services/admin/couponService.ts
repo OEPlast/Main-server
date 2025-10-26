@@ -14,6 +14,12 @@ const createCoupon = async ({
   creator,
   couponType,
   allowedUser,
+  maxUsage,
+  maxUsagePerUser,
+  minOrderValue,
+  discountType,
+  stackable,
+  notes,
 }: {
   coupon: string;
   startDate: string;
@@ -23,6 +29,12 @@ const createCoupon = async ({
   creator: string;
   couponType?: CouponType['couponType'];
   allowedUser?: string | null;
+  maxUsage: number | null;
+  maxUsagePerUser: number | null;
+  minOrderValue: number | null;
+  discountType: 'percentage' | 'fixed';
+  stackable: boolean;
+  notes: string;
 }): Promise<CustomResponseType<CouponType>> => {
   try {
     const creatorId = new mongoose.Types.ObjectId(creator);
@@ -35,8 +47,14 @@ const createCoupon = async ({
       discount,
       active,
       creator: creatorId,
+      discountType,
+      stackable,
+      notes,
       ...(couponType ? { couponType } : {}),
       ...(allowedUserId ? { allowedUser: allowedUserId } : {}),
+      ...(maxUsage !== null ? { maxUsage } : {}),
+      ...(maxUsagePerUser !== null ? { maxUsagePerUser } : {}),
+      ...(minOrderValue !== null ? { minOrderValue } : {}),
     });
     await newCoupon.save();
     return {

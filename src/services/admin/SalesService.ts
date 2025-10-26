@@ -50,10 +50,14 @@ export const createSale = async (data: Partial<SalesType>, userId: string): Cust
 /**
  * Gets all sales with product and creator info (paginated).
  */
-export const getAllSales = async (page = 1, limit = 20): CustomResponsePromise<PaginatedSales> => {
+export const getAllSales = async (page = 1, limit = 20, search?: string): CustomResponsePromise<PaginatedSales> => {
   try {
-    const total = await Sales.countDocuments({});
+    // Build match stage for search filter
+    const matchStage = search ? { title: { $regex: search, $options: 'i' } } : {};
+
+    const total = await Sales.countDocuments(matchStage);
     const sales = (await Sales.aggregate([
+      { $match: matchStage },
       {
         $lookup: {
           from: 'products',

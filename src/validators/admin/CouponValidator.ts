@@ -23,6 +23,7 @@ const createCouponValidator = async (req: Request, res: Response, next: NextFunc
         trim: true,
         notEmpty: true,
         errorMessage: 'coupon code is required',
+        isLength: { options: { min: 4, max: 20 }, errorMessage: 'coupon code must be between 4 and 20 characters' },
       },
       startDate: {
         in: ['body'],
@@ -98,36 +99,6 @@ const createCouponValidator = async (req: Request, res: Response, next: NextFunc
         isBoolean: true,
         toBoolean: true,
         errorMessage: 'stackable must be a boolean',
-      },
-      'appliesTo.scope': {
-        in: ['body'],
-        optional: true,
-        custom: { options: (v) => APPLIES_SCOPES.includes(v) },
-        errorMessage: `appliesTo.scope must be one of: ${APPLIES_SCOPES.join(', ')}`,
-      },
-      'appliesTo.productIds': {
-        in: ['body'],
-        optional: true,
-        isArray: true,
-        errorMessage: 'appliesTo.productIds must be an array of product IDs',
-      },
-      'appliesTo.productIds.*': {
-        in: ['body'],
-        optional: true,
-        isMongoId: true,
-        errorMessage: 'Each appliesTo.productIds item must be a valid Mongo ID',
-      },
-      'appliesTo.categoryIds': {
-        in: ['body'],
-        optional: true,
-        isArray: true,
-        errorMessage: 'appliesTo.categoryIds must be an array of category IDs',
-      },
-      'appliesTo.categoryIds.*': {
-        in: ['body'],
-        optional: true,
-        isMongoId: true,
-        errorMessage: 'Each appliesTo.categoryIds item must be a valid Mongo ID',
       },
       notes: {
         in: ['body'],

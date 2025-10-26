@@ -50,7 +50,21 @@ const createCoupon = async (req: Request, res: Response) => {
   }
   try {
     const user = (req as AuthenticatedRequest).userId;
-    const { startDate, endDate, coupon, discount, active, couponType, allowedUser } = req.body as {
+    const {
+      startDate,
+      endDate,
+      coupon,
+      discount,
+      active,
+      couponType,
+      allowedUser,
+      maxUsage,
+      maxUsagePerUser,
+      minOrderValue,
+      discountType,
+      stackable,
+      notes,
+    } = req.body as {
       coupon: string;
       startDate: string;
       endDate: string;
@@ -58,6 +72,12 @@ const createCoupon = async (req: Request, res: Response) => {
       active: boolean;
       couponType?: 'one-off' | 'one-off-user' | 'one-off-for-one-person' | 'normal';
       allowedUser?: string | null;
+      maxUsage: number | null;
+      maxUsagePerUser: number | null;
+      minOrderValue: number | null;
+      discountType: 'percentage' | 'fixed';
+      stackable: boolean;
+      notes: string;
     };
 
     const mainData = {
@@ -69,6 +89,12 @@ const createCoupon = async (req: Request, res: Response) => {
       coupon,
       couponType,
       allowedUser,
+      maxUsage,
+      maxUsagePerUser,
+      minOrderValue,
+      discountType,
+      stackable,
+      notes,
     };
 
     const { message, data, code } = await CouponService.createCoupon(mainData);

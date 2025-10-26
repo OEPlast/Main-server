@@ -46,6 +46,7 @@ const attributeSchema = new mongoose.Schema(
         price: {
           type: Number,
           min: 0,
+          required: false, // Optional - falls back to parent product price if not set
         },
         stock: {
           type: Number,
@@ -53,9 +54,16 @@ const attributeSchema = new mongoose.Schema(
           default: 0,
           min: 0,
         },
-        image: {
+        colorCode: {
           type: String,
-          required: true,
+          required: false,
+          validate: {
+            validator: function (v: string | undefined) {
+              // Allow valid hex codes like "#FFF" or "#FFFFFF" or empty/undefined
+              return !v || /^#([0-9A-F]{3}){1,2}$/i.test(v);
+            },
+            message: (props: { value?: string }) => `${props.value} is not a valid hex color code!`,
+          },
         },
         pricingTiers: {
           type: [pricingTierSchema],

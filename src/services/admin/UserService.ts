@@ -434,6 +434,64 @@ const getStaff = async ({
   }
 };
 
+/**
+ * Search users by email or name (lightweight for autocomplete/selectors)
+ * @param query - Search query string
+ * @returns Promise with array of users (minimal data)
+ */
+const searchUsers = async (
+  query: string
+): CustomResponsePromise<Array<{ _id: string; name: string; email: string; reviewCount?: number }>> => {
+  try {
+    if (!query || query.trim().length < 2) {
+      return {
+        message: 'Search query must be at least 2 characters',
+        data: [],
+        code: 400,
+      };
+    }
+
+    const searchRegex = new RegExp(query.trim(), 'i');
+    
+    const users = await User.find({
+      $or: [
+        { email: searchRegex },
+        { name: searchRegex },
+      ],
+      role: 'user', // Only search regular users, not staff
+    })
+      .select('_id name email')
+      .limit(20)
+      .lean()
+      .exec();
+
+    // Get review counts for these users
+    const userIds = users.map((u) => u._id);
+    const reviewCounts = await Review.aggregate([
+      { $match: { reviewBy: { $in: userIds } } },
+      { $group: { _id: '$reviewBy', count: { $sum: 1 } } },
+    ]);
+
+    const reviewCountMap = new Map(reviewCounts.map((r) => [r._id.toString(), r.count]));
+
+    const userList = users.map((user) => ({
+      _id: user._id.toString(),
+      name: user.name || 'Unknown',
+      email: user.email,
+      reviewCount: reviewCountMap.get(user._id.toString()) || 0,
+    }));
+
+    return {
+      message: 'Users found successfully',
+      data: userList,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error searching users:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
 const Admin_UserService = {
   updateUserRole,
   suspendedStatus,
@@ -442,6 +500,7 @@ const Admin_UserService = {
   getUserAndAllTheirBasicInfo,
   getUsersByRole,
   getStaff,
+  searchUsers,
 };
 
 export default Admin_UserService;

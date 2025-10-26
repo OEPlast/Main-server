@@ -14,6 +14,17 @@ const getAllCategories = async (req: Request, res: Response) => {
   }
 };
 
+// Get all categories list (for dropdowns) - no pagination
+const getCategoriesListAll = async (req: Request, res: Response) => {
+  try {
+    const response = await Admin_CategoryService.getCategoriesListAll();
+    return res.status(response.code).json(response);
+  } catch (error) {
+    console.error('Error in getCategoriesListAll:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 // Create category
 const createCategory = async (req: Request, res: Response) => {
   try {
@@ -30,13 +41,15 @@ const createCategory = async (req: Request, res: Response) => {
 const updateCategory = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, banner, description, parent } = req.body;
+    const { name, banner, description, parent, image, slug } = req.body;
     const { data, code, message } = await Admin_CategoryService.updateCategory({
       categoryId: id,
       name,
       banner,
       description,
       parent,
+      image,
+      slug,
     });
     return res.status(code).json({ data, message });
   } catch (error) {
@@ -71,6 +84,7 @@ const getCategoryById = async (req: Request, res: Response) => {
 
 const CategoryController = {
   getAllCategories,
+  getCategoriesListAll,
   createCategory,
   updateCategory,
   deleteCategory,

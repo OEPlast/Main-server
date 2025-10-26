@@ -92,9 +92,21 @@ const removeProductFromCampaign = async (req: Request, res: Response) => {
   }
 };
 
+const getCampaignsList = async (req: Request, res: Response) => {
+  try {
+    const { status } = req.query;
+    const result = await CampaignService.getCampaignsList(status as string);
+    return res.status(result.code).json({ message: result.message, data: result.data });
+  } catch (error) {
+    console.error('Error in getCampaignsList:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export default {
   createCampaign,
   getAllCampaigns,
+  getCampaignsList,
   getCampaignById,
   updateCampaign,
   deleteCampaign,

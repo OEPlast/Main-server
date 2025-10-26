@@ -15,6 +15,7 @@ router.post(
   CampaignValidator.createCampaignValidator,
   CampaignController.createCampaign
 );
+router.get('/list', requirePermission('campaigns', 'read'), CampaignController.getCampaignsList);
 router.get('/all', requirePermission('campaigns', 'read'), CampaignController.getAllCampaigns);
 router.get(
   '/:campaignId',

@@ -9,6 +9,11 @@ const router = express.Router();
 router.use(authenticateUser, isAdmin);
 
 // Banner CRUD routes
+router.get(
+  '/',
+  requirePermission('banners', 'read'),
+  Admin_BannerController.getBanners
+);
 router.post(
   '/',
   requirePermission('banners', 'create'),

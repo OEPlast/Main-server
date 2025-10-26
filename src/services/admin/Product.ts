@@ -473,10 +473,21 @@ const getAllProducts = async (
       }
     }
     if (params.search) {
-      const rx = new RegExp(params.search, 'i');
-      and.push({
-        $or: [{ name: rx }],
-      });
+      const searchTerm = params.search.trim();
+      const rx = new RegExp(escapeRegex(searchTerm), 'i');
+      
+      // Build $or conditions for name, sku, and _id
+      const searchConditions: Record<string, unknown>[] = [
+        { name: rx },
+        { sku: isNaN(Number(searchTerm)) ? -1 : Number(searchTerm) }, // Exact SKU match if numeric
+      ];
+      
+      // If search term is a valid MongoDB ObjectId, add _id search
+      if (mongoose.Types.ObjectId.isValid(searchTerm)) {
+        searchConditions.push({ _id: new mongoose.Types.ObjectId(searchTerm) });
+      }
+      
+      and.push({ $or: searchConditions });
     }
     if (params.brand) {
       and.push({ brand: { $regex: params.brand, $options: 'i' } });
@@ -612,6 +623,319 @@ const getAllProducts = async (
   }
 };
 
+/**
+ * Get all products with average rating from reviews (enhanced version)
+ */
+const getAllProductsEnhanced = async (params: {
+  page?: number;
+  limit?: number;
+  category?: string;
+  subcategory?: string;
+  search?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  sortBy?: 'price' | 'name' | 'createdAt' | 'rating' | 'sales';
+  sortOrder?: 'asc' | 'desc';
+  availability?: 'in-stock' | 'out-of-stock' | 'low-stock';
+  brand?: string;
+  specKey?: string;
+  specValue?: string;
+}): Promise<CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; pages: number }>> => {
+  try {
+    const page = params.page || 1;
+    const limit = params.limit || 20;
+    const sortOrderNum = params.sortOrder === 'asc' ? 1 : -1;
+
+    const match: Record<string, unknown> = {};
+    const and: Array<Record<string, unknown>> = [];
+
+    // Category filter
+    if (params.category) {
+      const cat = await Category.findOne({ slug: params.category }).select('_id').exec();
+      if (cat) match.category = cat._id;
+      else return { message: 'Category not found', data: null, code: 404 };
+    }
+
+    // Search filter
+    if (params.search) {
+      const regex = new RegExp(escapeRegex(params.search), 'i');
+      and.push({ $or: [{ name: regex }, { description: regex }, { tags: regex }] });
+    }
+
+    // Price range
+    if (params.minPrice != null || params.maxPrice != null) {
+      const priceMatch: Record<string, unknown> = {};
+      if (params.minPrice != null) priceMatch.$gte = params.minPrice;
+      if (params.maxPrice != null) priceMatch.$lte = params.maxPrice;
+      match.price = priceMatch;
+    }
+
+    // Availability filter
+    if (params.availability) {
+      if (params.availability === 'in-stock') match.stock = { $gt: 0 };
+      else if (params.availability === 'out-of-stock') match.stock = 0;
+      else if (params.availability === 'low-stock')
+        and.push({ $expr: { $lte: ['$stock', '$lowStockThreshold'] }, stock: { $gt: 0 } });
+    }
+
+    // Specification filter
+    if (params.specKey && params.specValue) {
+      and.push({
+        specifications: { $elemMatch: { key: params.specKey, value: new RegExp(escapeRegex(params.specValue), 'i') } },
+      });
+    }
+
+    if (and.length) match.$and = and;
+
+    const pipeline: PipelineStage[] = [];
+    if (Object.keys(match).length) pipeline.push({ $match: match });
+
+    // Category populate via $lookup
+    pipeline.push(
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } }
+    );
+
+    // Add average rating from reviews
+    pipeline.push(
+      {
+        $lookup: {
+          from: 'reviews',
+          localField: '_id',
+          foreignField: 'product',
+          as: 'reviews',
+        },
+      },
+      {
+        $addFields: {
+          totalRating: {
+            $cond: {
+              if: { $gt: [{ $size: '$reviews' }, 0] },
+              then: { $avg: '$reviews.rating' },
+              else: 0,
+            },
+          },
+          reviewCount: { $size: '$reviews' },
+        },
+      },
+      {
+        $project: { reviews: 0 }, // Remove reviews array from response
+      }
+    );
+
+    // Optional sales-based sorting
+    if (params.sortBy === 'sales') {
+      pipeline.push(
+        {
+          $lookup: {
+            from: 'orders',
+            let: { pid: '$_id' },
+            pipeline: [
+              { $unwind: '$products' },
+              { $match: { $expr: { $eq: ['$products.product', '$$pid'] } } },
+              { $count: 'count' },
+            ],
+            as: 'salesAgg',
+          },
+        },
+        { $addFields: { salesCount: { $ifNull: [{ $arrayElemAt: ['$salesAgg.count', 0] }, 0] } } },
+        { $project: { salesAgg: 0 } }
+      );
+    }
+
+    // Sorting
+    const sortStage: Record<string, 1 | -1> = {};
+    if (params.sortBy === 'sales') sortStage.salesCount = sortOrderNum;
+    else if (params.sortBy === 'price') sortStage.price = sortOrderNum;
+    else if (params.sortBy === 'name') sortStage.name = sortOrderNum;
+    else if (params.sortBy === 'rating') sortStage.totalRating = sortOrderNum;
+    else sortStage.createdAt = sortOrderNum; // default newest
+
+    pipeline.push({ $sort: sortStage });
+
+    // Facet for data and total count
+    pipeline.push(
+      {
+        $facet: {
+          data: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                price: 1,
+                sku: 1,
+                tags: 1,
+                slug: 1,
+                stock: 1,
+                lowStockThreshold: 1,
+                status: 1,
+                totalRating: 1,
+                reviewCount: 1,
+                category: {
+                  _id: '$category._id',
+                  name: '$category.name',
+                  image: '$category.image',
+                  slug: '$category.slug',
+                },
+                description_images: {
+                  $filter: {
+                    input: '$description_images',
+                    as: 'img',
+                    cond: { $eq: ['$$img.cover_image', true] },
+                  },
+                },
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            },
+          ],
+          totalCount: [{ $count: 'total' }],
+        },
+      },
+      {
+        $project: {
+          data: 1,
+          total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
+        },
+      }
+    );
+
+    const agg = await Product.aggregate(pipeline).exec();
+    const products = (agg[0]?.data as ProductType[]) || [];
+    const total = (agg[0]?.total as number) || 0;
+
+    return {
+      message: 'Products retrieved successfully',
+      data: products,
+      code: 200,
+      meta: { total, page, limit, pages: Math.ceil(total / limit) },
+    };
+  } catch (error) {
+    console.error('Error fetching enhanced products:', error);
+    return { message: 'Failed to fetch products', data: null, code: 500 };
+  }
+};
+
+/**
+ * Check if SKU exists
+ */
+const checkSkuExists = async (sku: number): Promise<CustomResponseType<{ exists: boolean; productId?: string; productName?: string }>> => {
+  try {
+    const product = await Product.findOne({ sku }).select('_id name').lean().exec();
+    
+    if (product) {
+      return {
+        message: 'SKU exists',
+        data: {
+          exists: true,
+          productId: product._id.toString(),
+          productName: product.name,
+        },
+        code: 200,
+      };
+    }
+
+    return {
+      message: 'SKU available',
+      data: { exists: false },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error checking SKU:', error);
+    return { message: 'Failed to check SKU', data: null, code: 500 };
+  }
+};
+
+/**
+ * Check if slug is available (not taken by another product)
+ * @param slug - Product slug to check
+ * @param excludeId - Optional product ID to exclude from check (for editing existing product)
+ * @returns Response with available boolean and optional conflicting product info
+ */
+const checkSlugAvailable = async (
+  slug: string,
+  excludeId?: string
+): Promise<CustomResponseType<{ available: boolean; productId?: string; productName?: string }>> => {
+  try {
+    const query: any = { slug };
+    
+    // When editing, exclude the current product from the check
+    if (excludeId) {
+      query._id = { $ne: excludeId };
+    }
+    
+    const product = await Product.findOne(query).select('_id name').lean().exec();
+    
+    if (product) {
+      return {
+        message: 'Slug is already taken',
+        data: {
+          available: false,
+          productId: product._id.toString(),
+          productName: product.name,
+        },
+        code: 200,
+      };
+    }
+
+    return {
+      message: 'Slug is available',
+      data: { available: true },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error checking slug:', error);
+    return { message: 'Failed to check slug', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get minimal product list for dropdowns/selectors
+ * Returns only essential fields for UI selectors
+ */
+const getProductListMinimal = async (): Promise<
+  CustomResponseType<Array<{ _id: string; name: string; image: string; sku: number }>>
+> => {
+  try {
+    const products = await Product.find({ status: 'active' })
+      .select('_id name sku description_images.url description_images.cover_image')
+      .sort({ name: 1 })
+      .lean()
+      .exec();
+
+    const productList = products.map((product) => {
+      // Find cover image or use first image
+      const coverImage = product.description_images?.find((img: any) => img.cover_image);
+      const imageUrl = coverImage?.url || product.description_images?.[0]?.url || '';
+
+      return {
+        _id: product._id.toString(),
+        name: product.name,
+        sku: product.sku,
+        image: imageUrl,
+      };
+    });
+
+    return {
+      message: 'Product list retrieved successfully',
+      data: productList,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error getting minimal product list:', error);
+    return { message: 'Failed to get product list', data: null, code: 500 };
+  }
+};
+
 const Admin_ProductService = {
   createProduct,
   updateProduct,
@@ -624,6 +948,10 @@ const Admin_ProductService = {
   addSpecifications,
   removeSpecification,
   getAllProducts,
+  getAllProductsEnhanced,
+  checkSkuExists,
+  checkSlugAvailable,
+  getProductListMinimal,
 };
 
 export default Admin_ProductService;

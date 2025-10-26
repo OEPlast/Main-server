@@ -10,7 +10,7 @@ router.use(authenticateUser, isAdmin);
 
 // CRUD for admin
 router.post('/', requirePermission('sales', 'create'), SalesValidator.createSaleValidator, SalesController.createSale);
-router.get('/', requirePermission('sales', 'read'), SalesController.getAllSales);
+router.get('/all', requirePermission('sales', 'read'), SalesController.getAllSales);
 router.get('/:id', requirePermission('sales', 'read'), SalesValidator.saleIdValidator, SalesController.getSaleById);
 router.put(
   '/:id',

@@ -102,7 +102,7 @@ app.use('/admin/attributes', AdminAttributeRoute);
 app.use('/admin/category', AdminCategoryRoute);
 app.use('/admin/users', AdminUsersRoute);
 app.use('/admin/banners', AdminBannerRoute);
-app.use('/admin/product', AdminProductRoute);
+app.use('/admin/products', AdminProductRoute);
 app.use('/admin/logistics', AdminLogisticsRoute);
 app.use('/admin/sales', AdminSalesRoute);
 app.use('/admin/campaigns', AdminCampaignRoute);

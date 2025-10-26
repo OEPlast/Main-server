@@ -275,9 +275,44 @@ const removeProductFromCampaign = async (
   }
 };
 
+const getCampaignsList = async (
+  status?: string
+): Promise<CustomResponseType<{ campaigns: ICampaign[]; total: number }>> => {
+  try {
+    const filter = status ? { status } : {};
+
+    // Minimal projection - only fields needed for list view (no population)
+    const [campaigns, total] = await Promise.all([
+      Campaign.find(filter).select('_id image title status createdAt updatedAt products sales').sort({ createdAt: -1 }),
+      Campaign.countDocuments(filter),
+    ]);
+
+    // Calculate counts without population for better performance
+    const campaignsWithCounts = campaigns.map((campaign) => ({
+      ...campaign.toObject(),
+      productsCount: campaign.products?.length || 0,
+      salesCount: campaign.sales?.length || 0,
+    }));
+
+    return {
+      message: 'Campaigns list retrieved successfully',
+      data: { campaigns: campaignsWithCounts as any, total },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error getting campaigns list:', error);
+    return {
+      message: 'Failed to retrieve campaigns list',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const CampaignService = {
   createCampaign,
   getAllCampaigns,
+  getCampaignsList,
   getCampaignById,
   updateCampaign,
   deleteCampaign,

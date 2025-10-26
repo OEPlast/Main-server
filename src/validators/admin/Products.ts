@@ -55,7 +55,14 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
       'attributes.*.children.*.name': { optional: true, isString: true, notEmpty: true },
       'attributes.*.children.*.price': { optional: true, isNumeric: true },
       'attributes.*.children.*.stock': { optional: true, isNumeric: true },
-      'attributes.*.children.*.image': { optional: true, isString: true, notEmpty: true },
+      'attributes.*.children.*.colorCode': { 
+        optional: true, 
+        isString: true,
+        matches: {
+          options: /^#([0-9A-F]{3}){1,2}$/i,
+          errorMessage: 'colorCode must be a valid hex color code (e.g., #FFF or #FFFFFF)',
+        },
+      },
 
       'attributes.*.children.*.pricingTiers': { optional: true, isArray: true },
       'attributes.*.children.*.pricingTiers.*.minQty': { optional: true, isInt: { options: { min: 1 } } },
@@ -127,7 +134,14 @@ const updateProductValidator = async (req: Request, res: Response, next: NextFun
       'attributes.*.children.*.name': { optional: true, isString: true },
       'attributes.*.children.*.price': { optional: true, isNumeric: true },
       'attributes.*.children.*.stock': { optional: true, isNumeric: true },
-      'attributes.*.children.*.image': { optional: true, isString: true },
+      'attributes.*.children.*.colorCode': { 
+        optional: true, 
+        isString: true,
+        matches: {
+          options: /^#([0-9A-F]{3}){1,2}$/i,
+          errorMessage: 'colorCode must be a valid hex color code (e.g., #FFF or #FFFFFF)',
+        },
+      },
 
       'attributes.*.children.*.pricingTiers': { optional: true, isArray: true },
       'attributes.*.children.*.pricingTiers.*.minQty': { optional: true, isInt: { options: { min: 1 } } },
@@ -427,6 +441,45 @@ const removeSpecificationValidator = async (req: Request, res: Response, next: N
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
   next();
 };
+
+const checkSkuValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      sku: {
+        in: ['params'],
+        isNumeric: true,
+        notEmpty: true,
+        errorMessage: 'SKU is required and must be a number',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  next();
+};
+
+const checkSlugValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      slug: {
+        in: ['query'],
+        isString: true,
+        notEmpty: true,
+        errorMessage: 'Slug is required and must be a string',
+      },
+      excludeId: {
+        in: ['query'],
+        optional: true,
+        isMongoId: true,
+        errorMessage: 'excludeId must be a valid MongoDB ObjectId',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  next();
+};
+
 const ProductValidator = {
   createProductValidator,
   updateProductValidator,
@@ -441,6 +494,8 @@ const ProductValidator = {
   removeTagValidator,
   addSpecificationsValidator,
   removeSpecificationValidator,
+  checkSkuValidator,
+  checkSlugValidator,
 };
 
 export default ProductValidator;

@@ -22,6 +22,16 @@ router.get(
   Admin_UserController.getStaff
 );
 
+// Search users for autocomplete/selector
+router.get(
+  '/search',
+  authenticateUser,
+  isAdmin,
+  requirePermission('users', 'read'),
+  Admin_UserValidator.searchUsersValidator,
+  Admin_UserController.searchUsers
+);
+
 router.get(
   '/all',
   authenticateUser,

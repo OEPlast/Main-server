@@ -15,6 +15,15 @@ router.get(
   CategoryController.getAllCategories
 );
 
+// Get all categories list (for dropdowns) - no pagination
+router.get(
+  '/get-list',
+  authenticateUser,
+  isAdmin,
+  requirePermission('categories', 'read'),
+  CategoryController.getCategoriesListAll
+);
+
 // Get single category (populated subcategories)
 router.get(
   '/:id',

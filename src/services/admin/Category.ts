@@ -138,6 +138,34 @@ const getAllCategories = async ({
 };
 
 /**
+ * Retrieves all categories list (for dropdowns/select options)
+ * Returns only _id, name, and slug - no pagination
+ */
+type CategoryListOption = {
+  _id: mongoose.Types.ObjectId;
+  name: string;
+  slug?: string;
+};
+
+const getCategoriesListAll = async (): CustomResponseTypeWithMeta<CategoryListOption[]> => {
+  try {
+    const categories = await Category.find({}, '_id name slug').sort({ name: 1 });
+    return {
+      message: 'Categories list retrieved successfully',
+      data: categories as CategoryListOption[],
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return {
+      message: 'Something went wrong',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
  * Retrieves a single category with its populated subcategories.
  */
 
@@ -167,6 +195,14 @@ const getCategoryById = async (categoryId: string): CustomResponseTypeWithMeta<C
         },
       },
       {
+        $lookup: {
+          from: 'categories',
+          foreignField: '_id',
+          localField: 'parent',
+          as: 'parent_categories',
+        },
+      },
+      {
         $addFields: {
           sub_categories: {
             $map: {
@@ -183,6 +219,18 @@ const getCategoryById = async (categoryId: string): CustomResponseTypeWithMeta<C
             },
           },
           subcategoryCount: { $size: '$sub_categories' },
+          parent_categories: {
+            $map: {
+              input: '$parent_categories',
+              as: 'pc',
+              in: {
+                _id: '$$pc._id',
+                name: '$$pc.name',
+                image: '$$pc.image',
+                slug: '$$pc.slug',
+              },
+            },
+          },
         },
       },
       {
@@ -196,6 +244,7 @@ const getCategoryById = async (categoryId: string): CustomResponseTypeWithMeta<C
           createdAt: 1,
           updatedAt: 1,
           sub_categories: 1,
+          parent_categories: 1,
           subcategoryCount: 1,
         },
       },
@@ -226,11 +275,15 @@ const updateCategory = async ({
   banner,
   parent,
   description,
+  image,
+  slug,
 }: {
   categoryId: string;
   name?: string;
   banner?: string;
   description?: string;
+  image?: string;
+  slug?: string;
   parent: mongoose.Types.ObjectId[];
 }): CustomResponseTypeWithMeta<CategoryType> => {
   try {
@@ -244,13 +297,12 @@ const updateCategory = async ({
     const updatePayload: Partial<CategoryType> & { slug?: string; banner?: string } = {};
     if (name) {
       updatePayload.name = name;
-      const slug = name.trim().replace(/\s+/g, '_');
-      updatePayload.slug = slug;
     }
+    if (image) updatePayload.image = image;
+    if (slug) updatePayload.slug = slug;
     if (banner) updatePayload.banner = banner;
     if (description) updatePayload.description = description;
     if (parent) {
-      updatePayload.description = description;
       updatePayload.parent = parent;
     }
 
@@ -323,6 +375,7 @@ const deleteCategory = async (categoryId: string): CustomResponsePromise<null> =
 export const Admin_CategoryService = {
   createCategory,
   getAllCategories,
+  getCategoriesListAll,
   getCategoryById,
   updateCategory,
   deleteCategory,

@@ -100,10 +100,59 @@ const updateTransaction = async (req: Request, res: Response) => {
   }
 };
 
+// Get transaction statistics
+const getStatistics = async (req: Request, res: Response) => {
+  try {
+    const response = await TransactionService.getStatistics();
+    return res.status(response.code).json(response);
+  } catch (error) {
+    console.error('Error in getStatistics:', error);
+    return res.status(500).json({ 
+      message: 'Internal server error', 
+      data: null, 
+      code: 500 
+    });
+  }
+};
+
+// Process refund
+const processRefund = async (req: Request, res: Response) => {
+  try {
+    const { transactionId } = req.params;
+    const { amount, reason } = req.body;
+    const adminId = (req as any).userId; // Get from authenticated request
+
+    if (!amount || !reason) {
+      return res.status(400).json({
+        message: 'Amount and reason are required',
+        data: null,
+        code: 400,
+      });
+    }
+
+    const response = await TransactionService.processRefund(
+      transactionId,
+      Number(amount),
+      reason,
+      adminId
+    );
+    return res.status(response.code).json(response);
+  } catch (error) {
+    console.error('Error in processRefund:', error);
+    return res.status(500).json({ 
+      message: 'Internal server error', 
+      data: null, 
+      code: 500 
+    });
+  }
+};
+
 const Admin_TransactionController = {
   getTransactions,
   getTransactionById,
   updateTransaction,
+  getStatistics,
+  processRefund,
 };
 
 export default Admin_TransactionController;

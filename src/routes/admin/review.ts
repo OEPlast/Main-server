@@ -16,6 +16,13 @@ router.get(
   Admin_ReviewController.getAllReviews
 );
 
+// Get review statistics
+router.get(
+  '/statistics',
+  requirePermission('reviews', 'read'),
+  Admin_ReviewController.getStatistics
+);
+
 // Get mood-based analytics for reviews
 router.get(
   '/analytics/mood',

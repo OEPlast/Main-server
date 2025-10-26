@@ -245,6 +245,17 @@ const deleteReply = async (req: Request, res: Response) => {
   }
 };
 
+// Get review statistics
+const getStatistics = async (req: Request, res: Response) => {
+  try {
+    const result = await Admin_ReviewService.getStatistics();
+    return res.status(result.code).json(result);
+  } catch (error) {
+    console.error('Error in getStatistics:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 const Admin_ReviewController = {
   getAllReviews,
   getReviewById,
@@ -254,6 +265,7 @@ const Admin_ReviewController = {
   updateReview,
   deleteReview,
   getMoodAnalytics,
+  getStatistics,
   addReply,
   updateReply,
   deleteReply,

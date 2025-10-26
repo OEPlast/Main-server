@@ -32,11 +32,11 @@ const validateProductQuery = [
     limit: {
       in: ['query'],
       isInt: {
-        options: { min: 1, max: 100 },
+        options: { min: 1, max: 150 },
       },
       optional: true,
       toInt: true,
-      errorMessage: 'Limit must be between 1 and 100',
+      errorMessage: 'Limit must be between 1 and 150',
     },
     category: {
       in: ['query'],
