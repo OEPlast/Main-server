@@ -96,7 +96,9 @@ const quote = async (input: QuoteInput): CustomResponsePromise<QuoteResult> => {
     const config = cfgResp.data;
 
     // Locate base price and eta based on specificity: city/lga > state fallback > 0
-    const state = config.states.find((s) => s.code.toUpperCase() === (destination.stateCode || '').toUpperCase());
+    const state = config.states.find(
+      (s) => s.name.toLowerCase() === (destination.stateName || '').toLowerCase()
+    );
 
     let basePrice = 0;
     let etaDays = 0;
@@ -178,19 +180,18 @@ const listLocationsTree = async (): CustomResponsePromise<LocationTree> => {
               as: 's',
               in: {
                 name: '$$s.name',
-                code: '$$s.code',
                 cities: {
                   $map: {
                     input: { $ifNull: ['$$s.cities', []] },
                     as: 'c',
-                    in: { name: '$$c.name', code: '$$c.code' },
+                    in: { name: '$$c.name' },
                   },
                 },
                 lgas: {
                   $map: {
                     input: { $ifNull: ['$$s.lgas', []] },
                     as: 'l',
-                    in: { name: '$$l.name', code: '$$l.code' },
+                    in: { name: '$$l.name' },
                   },
                 },
               },
@@ -270,7 +271,7 @@ const updateCountryName = async (
 
 type Destination = {
   countryName: string;
-  stateCode: string;
+  stateName: string;
   lgaName: string;
 };
 
@@ -307,7 +308,7 @@ export async function calculateProgressiveShipping(items: OrderItem[], destinati
 
   if (logisticsConfig) {
     const stateConfig = logisticsConfig.states.find(
-      (s) => s.code?.toUpperCase() === destination.stateCode.toUpperCase()
+      (s) => s.name?.toLowerCase() === destination.stateName.toLowerCase()
     );
     const lgaConfig = stateConfig?.lgas.find((l) => l.name?.toLowerCase() === destination.lgaName.toLowerCase());
 

@@ -57,7 +57,7 @@ const flatCartShipping = async (req: Request, res: Response) => {
   try {
     const { items, destination } = req.body as {
       items: Array<{ productId: string; quantity: number }>;
-      destination: { countryName: string; stateCode: string; lgaName: string };
+      destination: { countryName: string; stateName: string; lgaName: string };
     };
     const amount = await LogisticsService.calculateProgressiveShipping(items, destination);
     return res.status(200).json({ message: 'Flat cart shipping calculated', data: { amount }, code: 200 });

@@ -4,14 +4,16 @@ const shipmentSchema = new Schema(
   {
     orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true },
     trackingNumber: { type: String, required: true, unique: true },
-    courier: { type: String, required: true },
+    courier: { type: String},
+    courierUser: { type: Schema.Types.ObjectId, ref: 'User' },
     status: {
       type: String,
       enum: ['In-Warehouse', 'Shipped', 'Dispatched', 'Delivered', 'Returned', 'Failed'],
       default: 'In-Warehouse',
     },
     estimatedDelivery: { type: Date },
-    actualDelivery: { type: Date },
+    // actualDelivery: { type: Date }, changed to deliveredOn
+    deliveredOn: { type: Date },
     shippingAddress: {
       firstName: { type: String, required: true },
       lastName: { type: String, required: true },

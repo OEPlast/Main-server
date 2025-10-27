@@ -551,7 +551,7 @@ const placeOrderWithStockValidation = async (
         // Prepare destination from shipping address
         const destination = {
           countryName: orderData.shippingAddress.country || 'Nigeria', // Default to Nigeria if not provided
-          stateCode: orderData.shippingAddress.state || 'LA', // Default to Lagos if not provided
+          stateName: orderData.shippingAddress.state || 'Lagos', // Default to Lagos if not provided
           lgaName: 'Default', // LGA not provided in shipping address, use default
         };
 

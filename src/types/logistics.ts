@@ -1,20 +1,17 @@
 export type LogisticsCity = {
   name: string;
-  code?: string;
   price?: number; // override price to destination
   etaDays?: number; // override ETA days
 };
 
 export type LogisticsLGA = {
   name: string;
-  code?: string;
   price?: number;
   etaDays?: number;
 };
 
 export type LogisticsState = {
   name: string;
-  code: string; // e.g., CA, NY, LA, etc.
   fallbackPrice?: number;
   fallbackEtaDays?: number;
   cities?: LogisticsCity[];
@@ -35,7 +32,7 @@ export type QuoteInput = {
   quantity?: number;
   destination: {
     countryName: string;
-    stateCode?: string;
+    stateName?: string;
     cityName?: string;
     lgaName?: string;
   };
@@ -67,8 +64,7 @@ export type LocationTree = Array<{
   countryName: string;
   states: Array<{
     name: string;
-    code: string;
-    cities: Array<{ name: string; code?: string }>;
-    lgas: Array<{ name: string; code?: string }>;
+    cities: Array<{ name: string }>;
+    lgas: Array<{ name: string }>;
   }>;
 }>;

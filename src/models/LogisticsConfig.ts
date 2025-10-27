@@ -3,7 +3,6 @@ import mongoose, { InferSchemaType } from 'mongoose';
 const citySchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    code: { type: String, trim: true },
     price: { type: Number, min: 0 },
     etaDays: { type: Number, min: 0 },
   },
@@ -13,7 +12,6 @@ const citySchema = new mongoose.Schema(
 const lgaSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    code: { type: String, trim: true },
     price: { type: Number, min: 0 },
     etaDays: { type: Number, min: 0 },
   },
@@ -23,7 +21,6 @@ const lgaSchema = new mongoose.Schema(
 const stateSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
-    code: { type: String, required: true, trim: true, uppercase: true },
     fallbackPrice: { type: Number, min: 0, default: 0 },
     fallbackEtaDays: { type: Number, min: 0, default: 0 },
     cities: { type: [citySchema], default: [] },

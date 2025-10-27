@@ -137,7 +137,7 @@ export const secureCheckout = async (req: Request, res: Response) => {
         })),
         {
           countryName: shippingAddress.country || 'Nigeria',
-          stateCode: shippingAddress.state || '',
+          stateName: shippingAddress.state || '',
           lgaName: shippingAddress.city || '',
         }
       );
@@ -457,7 +457,7 @@ export const calculateShipping = async (req: Request, res: Response) => {
       // Prepare destination from shipping address
       const destination = {
         countryName: shippingAddress.country || 'Nigeria',
-        stateCode: shippingAddress.state || 'LA', // Default to Lagos if not provided
+        stateName: shippingAddress.state || 'Lagos', // Default to Lagos by name if not provided
         lgaName: 'Default', // LGA not provided in shipping address, use default
       };
 
