@@ -1052,6 +1052,21 @@ const getRevenueExpenseChart = async (req: Request, res: Response) => {
   }
 };
 
+const getProfitLossChart = async (req: Request, res: Response) => {
+  try {
+    const { from, to, groupBy } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getProfitLossChart({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      groupBy: (groupBy as string) || 'months',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getProfitLossChart:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 const getOrdersTrend = async (req: Request, res: Response) => {
   try {
     const { from, to, groupBy } = req.query;
@@ -1412,6 +1427,20 @@ const getMostReviewedProducts = async (req: Request, res: Response) => {
   }
 };
 
+const getLowStockProducts = async (req: Request, res: Response) => {
+  try {
+    const { page, limit } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getLowStockProducts({
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 10,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getLowStockProducts:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 const Admin_AnalyticsController = {
   getSellerStatistics,
   getTotalSales,
@@ -1488,6 +1517,7 @@ const Admin_AnalyticsController = {
   getReviewsOverview,
   getCouponsOverview,
   getRevenueExpenseChart,
+  getProfitLossChart,
   getOrdersTrend,
   getTransactionsTrend,
   getCustomerAcquisition,
@@ -1511,6 +1541,7 @@ const Admin_AnalyticsController = {
   getTopCoupons,
   getMostWishlistedProducts,
   getMostReviewedProducts,
+  getLowStockProducts,
 };
 
 export default Admin_AnalyticsController;

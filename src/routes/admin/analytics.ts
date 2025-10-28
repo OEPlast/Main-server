@@ -630,6 +630,14 @@ router.get(
   Admin_AnalyticsController.getCustomerAcquisition
 );
 router.get(
+  '/profit-loss-chart',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getProfitLossChart
+);
+router.get(
   '/order-status-distribution',
   authenticateUser,
   isAdmin,
@@ -790,6 +798,13 @@ router.get(
   requirePermission('analytics', 'read'),
   validateAnalyticsQuery,
   Admin_AnalyticsController.getMostReviewedProducts
+);
+router.get(
+  '/low-stock-products',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  Admin_AnalyticsController.getLowStockProducts
 );
 
 export default router;

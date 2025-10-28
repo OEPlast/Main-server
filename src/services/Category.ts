@@ -36,10 +36,6 @@ const getAllCategories = async (): Promise<CustomResponseTypeWithMeta<CategoryWi
                 banner: 1,
                 image: 1,
                 slug: 1,
-                description: 1,
-                parent: 1,
-                createdAt: 1,
-                updatedAt: 1,
                 sub_categories: {
                   $map: {
                     input: '$sub_categories',

@@ -4601,6 +4601,10 @@ const getOrdersOverview = async ({
   completed: number;
   cancelled: number;
   failed: number;
+  comparisonPeriod: {
+    orders: number;
+    percentageChange: number;
+  };
 }> => {
   try {
     const stats = await Order.aggregate([
@@ -4630,6 +4634,22 @@ const getOrdersOverview = async ({
       totalOrders += item.count;
     });
 
+    // Calculate comparison period (same duration, before 'from')
+    const duration = to.getTime() - from.getTime();
+    const comparisonFrom = new Date(from.getTime() - duration);
+    const comparisonTo = from;
+
+    const previousOrders = await Order.countDocuments({
+      createdAt: { $gte: comparisonFrom, $lt: comparisonTo },
+    });
+
+    const percentageChange =
+      previousOrders > 0
+        ? ((totalOrders - previousOrders) / previousOrders) * 100
+        : totalOrders > 0
+        ? 100
+        : 0;
+
     return {
       message: 'Orders overview fetched successfully',
       data: {
@@ -4639,6 +4659,10 @@ const getOrdersOverview = async ({
         completed: statusMap.completed,
         cancelled: statusMap.cancelled,
         failed: statusMap.failed,
+        comparisonPeriod: {
+          orders: previousOrders,
+          percentageChange: Math.round(percentageChange * 100) / 100,
+        },
       },
       code: 200,
     };
@@ -4733,6 +4757,10 @@ const getUsersOverview = async ({
   newUsers: number;
   activeUsers: number;
   inactiveUsers: number;
+  comparisonPeriod: {
+    users: number;
+    percentageChange: number;
+  };
 }> => {
   try {
     // Total users in system
@@ -4752,6 +4780,22 @@ const getUsersOverview = async ({
     // Inactive users (total - active)
     const inactiveUsers = totalUsers - activeUsers;
 
+    // Calculate comparison period (same duration, before 'from')
+    const duration = to.getTime() - from.getTime();
+    const comparisonFrom = new Date(from.getTime() - duration);
+    const comparisonTo = from;
+
+    const previousNewUsers = await User.countDocuments({
+      createdAt: { $gte: comparisonFrom, $lt: comparisonTo },
+    });
+
+    const percentageChange =
+      previousNewUsers > 0
+        ? ((newUsers - previousNewUsers) / previousNewUsers) * 100
+        : newUsers > 0
+        ? 100
+        : 0;
+
     return {
       message: 'Users overview fetched successfully',
       data: {
@@ -4759,6 +4803,10 @@ const getUsersOverview = async ({
         newUsers,
         activeUsers,
         inactiveUsers,
+        comparisonPeriod: {
+          users: previousNewUsers,
+          percentageChange: Math.round(percentageChange * 100) / 100,
+        },
       },
       code: 200,
     };
@@ -4953,8 +5001,35 @@ const getRevenueExpenseChart = async ({
   from: Date;
   to: Date;
   groupBy?: string;
-}): CustomResponsePromise<Array<{ month: string; revenue: number; expense: number }>> => {
+}): CustomResponsePromise<Array<{ date: string; revenue: number; expense: number }>> => {
   try {
+    // Group format based on groupBy parameter
+    let groupFormat: any;
+    
+    if (groupBy === 'days') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+        day: { $dayOfMonth: '$createdAt' },
+      };
+    } else if (groupBy === 'weeks') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        week: { $week: '$createdAt' },
+      };
+    } else if (groupBy === 'years') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+      };
+    } else {
+      // Default to months
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+      };
+    }
+
+    // Get revenue from completed orders
     const result = await Order.aggregate([
       { 
         $match: { 
@@ -4964,22 +5039,64 @@ const getRevenueExpenseChart = async ({
       },
       {
         $group: {
-          _id: {
-            year: { $year: '$createdAt' },
-            month: { $month: '$createdAt' },
-          },
+          _id: groupFormat,
           revenue: { $sum: '$total' },
-          expense: { $sum: '$shippingCost' }, // Using shipping as expense example
+          shippingCost: { $sum: '$shippingPrice' },
         },
       },
-      { $sort: { '_id.year': 1, '_id.month': 1 } },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.week': 1, '_id.day': 1 } },
     ]);
 
-    const chartData = result.map((item: any) => ({
-      month: getMonthName(item._id.month),
-      revenue: item.revenue || 0,
-      expense: item.expense || 0,
-    }));
+    // Get refund amounts (expenses)
+    const refunds = await Transaction.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: from, $lte: to },
+          status: { $in: ['refunded', 'partially_refunded'] }
+        }
+      },
+      {
+        $group: {
+          _id: groupFormat,
+          refundAmount: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    // Create a map for refunds
+    const refundMap = new Map();
+    refunds.forEach((item: any) => {
+      const key = JSON.stringify(item._id);
+      refundMap.set(key, item.refundAmount || 0);
+    });
+
+    // Format the data based on groupBy
+    const chartData = result.map((item: any) => {
+      let dateStr: string;
+      const key = JSON.stringify(item._id);
+      const refundAmount = refundMap.get(key) || 0;
+      
+      if (groupBy === 'days') {
+        dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
+      } else if (groupBy === 'weeks') {
+        // Calculate first day of week
+        const firstDayOfYear = new Date(item._id.year, 0, 1);
+        const daysToAdd = (item._id.week - 1) * 7;
+        const weekDate = new Date(firstDayOfYear.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+        dateStr = weekDate.toISOString();
+      } else if (groupBy === 'years') {
+        dateStr = new Date(item._id.year, 0, 1).toISOString();
+      } else {
+        // months
+        dateStr = new Date(item._id.year, item._id.month - 1, 1).toISOString();
+      }
+
+      return {
+        date: dateStr,
+        revenue: item.revenue || 0,
+        expense: (item.shippingCost || 0) + refundAmount,
+      };
+    });
 
     return {
       message: 'Revenue expense chart data fetched successfully',
@@ -4988,6 +5105,164 @@ const getRevenueExpenseChart = async ({
     };
   } catch (error) {
     console.error('Error in getRevenueExpenseChart:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get profit/loss chart data with revenue, expenses, and returns
+ */
+const getProfitLossChart = async ({
+  from,
+  to,
+  groupBy = 'months',
+}: {
+  from: Date;
+  to: Date;
+  groupBy?: string;
+}): CustomResponsePromise<Array<{ date: string; revenue: number; expenses: number; returns: number }>> => {
+  try {
+    // Group format based on groupBy parameter
+    let groupFormat: any;
+    
+    if (groupBy === 'days') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+        day: { $dayOfMonth: '$createdAt' },
+      };
+    } else if (groupBy === 'weeks') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        week: { $week: '$createdAt' },
+      };
+    } else if (groupBy === 'years') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+      };
+    } else {
+      // Default to months
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+      };
+    }
+
+    // Get revenue from completed orders
+    const revenueData = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: 'Completed'
+        } 
+      },
+      {
+        $group: {
+          _id: groupFormat,
+          revenue: { $sum: '$total' },
+        },
+      },
+    ]);
+
+    // Get expenses (shipping costs from all non-cancelled orders)
+    const expenseData = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      {
+        $group: {
+          _id: groupFormat,
+          shippingCosts: { $sum: '$shippingPrice' },
+        },
+      },
+    ]);
+
+    // Get returns/refunds
+    const returnData = await Transaction.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: from, $lte: to },
+          status: { $in: ['refunded', 'partially_refunded'] }
+        }
+      },
+      {
+        $group: {
+          _id: groupFormat,
+          returnAmount: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    // Create maps for quick lookup
+    const revenueMap = new Map();
+    const expenseMap = new Map();
+    const returnMap = new Map();
+
+    revenueData.forEach((item: any) => {
+      const key = JSON.stringify(item._id);
+      revenueMap.set(key, item.revenue || 0);
+    });
+
+    expenseData.forEach((item: any) => {
+      const key = JSON.stringify(item._id);
+      expenseMap.set(key, item.shippingCosts || 0);
+    });
+
+    returnData.forEach((item: any) => {
+      const key = JSON.stringify(item._id);
+      returnMap.set(key, item.returnAmount || 0);
+    });
+
+    // Combine all unique date periods
+    const allPeriods = new Set<string>();
+    Array.from(revenueMap.keys()).forEach(key => allPeriods.add(key));
+    Array.from(expenseMap.keys()).forEach(key => allPeriods.add(key));
+    Array.from(returnMap.keys()).forEach(key => allPeriods.add(key));
+
+    // Format the data
+    const chartData = Array.from(allPeriods).map((key) => {
+      const period = JSON.parse(key);
+      let dateStr: string;
+      
+      if (groupBy === 'days') {
+        dateStr = new Date(period.year, period.month - 1, period.day).toISOString();
+      } else if (groupBy === 'weeks') {
+        const firstDayOfYear = new Date(period.year, 0, 1);
+        const daysToAdd = (period.week - 1) * 7;
+        const weekDate = new Date(firstDayOfYear.getTime() + daysToAdd * 24 * 60 * 60 * 1000);
+        dateStr = weekDate.toISOString();
+      } else if (groupBy === 'years') {
+        dateStr = new Date(period.year, 0, 1).toISOString();
+      } else {
+        // months
+        dateStr = new Date(period.year, period.month - 1, 1).toISOString();
+      }
+
+      const revenue = revenueMap.get(key) || 0;
+      const expenses = expenseMap.get(key) || 0;
+      const returns = returnMap.get(key) || 0;
+
+      return {
+        date: dateStr,
+        revenue,
+        expenses,
+        returns,
+      };
+    });
+
+    // Sort by date
+    chartData.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    return {
+      message: 'Profit/loss chart data fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getProfitLossChart:', error);
     return { message: 'Internal server error', data: null, code: 500 };
   }
 };
@@ -5566,14 +5841,12 @@ const getTopProductsRevenue = async ({
   limit?: number;
 }): CustomResponsePromise<Array<{ productId: string; productName: string; coverImage: string | null; revenue: number }>> => {
   try {
-    console.log('🔍 getTopProductsRevenue - Date range:', { from, to, limit });
     
     // Step 1: Count matching orders
     const matchingOrders = await Order.countDocuments({
       createdAt: { $gte: from, $lte: to },
       status: { $nin: ['Cancelled', 'Failed'] }
     });
-    console.log('📊 Step 1: Matching orders:', matchingOrders);
 
     // Step 2: Check items after unwind
     const afterUnwind = await Order.aggregate([
@@ -5586,7 +5859,6 @@ const getTopProductsRevenue = async ({
       { $unwind: '$products' },
       { $count: 'total' }
     ]);
-    console.log('📊 Step 2: Items after unwind:', afterUnwind[0]?.total || 0);
 
     // Step 3: Check grouped products
     const afterGroup = await Order.aggregate([
@@ -5605,7 +5877,6 @@ const getTopProductsRevenue = async ({
       },
       { $count: 'total' }
     ]);
-    console.log('📊 Step 3: Unique products with revenue:', afterGroup[0]?.total || 0);
 
     // Step 4: Check after product lookup
     const afterLookup = await Order.aggregate([
@@ -5646,10 +5917,7 @@ const getTopProductsRevenue = async ({
         }
       }
     ]);
-    console.log('📊 Step 4: After product lookup:', {
-      withProduct: afterLookup[0]?.withProduct[0]?.total || 0,
-      withoutProduct: afterLookup[0]?.withoutProduct[0]?.total || 0
-    });
+
 
     const result = await Order.aggregate([
       { 
@@ -5709,7 +5977,6 @@ const getTopProductsRevenue = async ({
       },
     ]);
 
-    console.log('✅ getTopProductsRevenue - Result count:', result.length);
     if (result.length > 0) {
       console.log('📊 Sample data:', result.slice(0, 2));
     }
@@ -5994,10 +6261,6 @@ const getSalesByCategory = async ({
         }
       }
     ]);
-    console.log('📊 Step 4: After category lookup:', {
-      withCategory: afterCategoryLookup[0]?.withCategory[0]?.total || 0,
-      withoutCategory: afterCategoryLookup[0]?.withoutCategory[0]?.total || 0
-    });
 
     const result = await Order.aggregate([
       { 
@@ -6790,6 +7053,110 @@ const getMostReviewedProducts = async ({
   }
 };
 
+/**
+ * Get low stock products for stock report
+ */
+const getLowStockProducts = async ({
+  page = 1,
+  limit = 10,
+}: {
+  page?: number;
+  limit?: number;
+}): CustomResponsePromise<{
+  products: Array<{
+    productId: string;
+    name: string;
+    sku: number;
+    stock: number;
+    lowStockThreshold: number;
+    category: string;
+    coverImage: string | null;
+  }>;
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+
+    // Get total count
+    const total = await Product.countDocuments({
+      $expr: { $lte: ['$stock', '$lowStockThreshold'] }
+    });
+
+    // Get low stock products
+    const products = await Product.aggregate([
+      {
+        $match: {
+          $expr: { $lte: ['$stock', '$lowStockThreshold'] }
+        }
+      },
+      { $sort: { stock: 1 } }, // Sort by stock ascending (lowest first)
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'categoryData',
+        },
+      },
+      { $unwind: { path: '$categoryData', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          productId: '$_id',
+          name: 1,
+          sku: 1,
+          stock: 1,
+          lowStockThreshold: 1,
+          category: '$categoryData.name',
+          coverImage: {
+            $let: {
+              vars: {
+                coverImg: {
+                  $arrayElemAt: [
+                    {
+                      $filter: {
+                        input: '$description_images',
+                        cond: { $eq: ['$$this.cover_image', true] }
+                      }
+                    },
+                    0
+                  ]
+                }
+              },
+              in: { $ifNull: ['$$coverImg.url', null] }
+            }
+          },
+        },
+      },
+    ]);
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      message: 'Low stock products fetched successfully',
+      data: {
+        products,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+        },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getLowStockProducts:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
 export default {
   getSellerStatistics,
   getTotalSales,
@@ -6866,6 +7233,7 @@ export default {
   getReviewsOverview,
   getCouponsOverview,
   getRevenueExpenseChart,
+  getProfitLossChart,
   getOrdersTrend,
   getTransactionsTrend,
   getCustomerAcquisition,
@@ -6889,4 +7257,5 @@ export default {
   getTopCoupons,
   getMostWishlistedProducts,
   getMostReviewedProducts,
+  getLowStockProducts,
 };

@@ -31,6 +31,7 @@ const categorySchema = new mongoose.Schema(
         ref: 'Category',
       },
     ],
+    
   },
   {
     timestamps: true,
