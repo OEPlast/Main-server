@@ -124,6 +124,17 @@ const updateShipment = async (
       };
     }
 
+    // Delivered lock: prevent updates to status/notes/tracking-related fields when already Delivered
+    if (shipment.status === 'Delivered') {
+      if (
+        typeof updates.status !== 'undefined' ||
+        typeof updates.notes !== 'undefined' ||
+        typeof (updates as Partial<IShipment> & { trackingHistory?: unknown }).trackingHistory !== 'undefined'
+      ) {
+        return { message: 'Delivered shipments cannot be modified', data: null, code: 409 };
+      }
+    }
+
     // If status is being updated, add to tracking history
     if (updates.status && updates.status !== shipment.status) {
       shipment.trackingHistory.push({
@@ -198,6 +209,11 @@ const addTrackingUpdate = async (
       };
     }
 
+    // Delivered lock
+    if (shipment.status === 'Delivered') {
+      return { message: 'Delivered shipments cannot be modified', data: null, code: 409 };
+    }
+
     shipment.trackingHistory.push({
       location: trackingUpdate.location || 'Unknown',
       timestamp: new Date(),
@@ -206,6 +222,11 @@ const addTrackingUpdate = async (
 
     // Update current status
     shipment.status = trackingUpdate.status as IShipment['status'];
+
+    // Auto-set deliveredOn when transitioning to Delivered
+    if (shipment.status === 'Delivered' && !shipment.deliveredOn) {
+      shipment.deliveredOn = new Date();
+    }
 
     await shipment.save();
     await shipment.populate('orderId');
@@ -270,6 +291,24 @@ const updateShipmentStatus = async (
       };
     }
 
+    // Delivered lock
+    if (shipment.status === 'Delivered') {
+      return { message: 'Delivered shipments cannot be modified', data: null, code: 409 };
+    }
+
+    // Validate transition (state machine)
+    const allowedTransitions: Record<ShipmentStatus, ShipmentStatus[]> = {
+      'In-Warehouse': ['Shipped', 'Dispatched', 'Delivered', 'Returned', 'Failed'],
+      Shipped: ['Dispatched', 'Delivered', 'Returned', 'Failed'],
+      Dispatched: ['Delivered', 'Returned', 'Failed'],
+      Delivered: [],
+      Returned: [],
+      Failed: [],
+    };
+    if (!allowedTransitions[shipment.status as ShipmentStatus].includes(status)) {
+      return { message: `Invalid status transition from ${shipment.status} to ${status}`, data: null, code: 409 };
+    }
+
     // Add to tracking history
     shipment.trackingHistory.push({
       location: 'Updated',
@@ -278,6 +317,9 @@ const updateShipmentStatus = async (
     });
 
     shipment.status = status as IShipment['status'];
+    if (shipment.status === 'Delivered' && !shipment.deliveredOn) {
+      shipment.deliveredOn = new Date();
+    }
     await shipment.save();
     await shipment.populate('orderId');
 
@@ -399,6 +441,114 @@ const getShipmentsByStatus = async (
   }
 };
 
+// List shipments assigned to a specific courier user
+const listByCourierUser = async (
+  userId: string,
+  page = 1,
+  limit = 20,
+  status?: ShipmentStatus
+): Promise<CustomResponseType<{ shipments: IShipment[]; total: number; page: number; limit: number }>> => {
+  try {
+    const filter: Record<string, unknown> = { courierUser: userId };
+    if (status) filter.status = status;
+
+    const [shipments, total] = await Promise.all([
+      Shipment.find(filter)
+        .populate('orderId', 'orderNumber totalAmount')
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .sort({ createdAt: -1 }),
+      Shipment.countDocuments(filter),
+    ]);
+
+    return {
+      message: 'Deliveries retrieved successfully',
+      data: { shipments: shipments as unknown as IShipment[], total, page, limit },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error listing deliveries by courier user:', error);
+    return { message: 'Failed to retrieve deliveries', data: null, code: 500 };
+  }
+};
+
+// Stats for shipments assigned to a courier
+const statsByCourierUser = async (
+  userId: string
+): Promise<CustomResponseType<Record<ShipmentStatus | 'total', number>>> => {
+  try {
+    const pipeline = [
+      { $match: { courierUser: new (require('mongoose').Types.ObjectId)(userId) } },
+      { $group: { _id: '$status', count: { $sum: 1 } } },
+    ];
+    const results = await Shipment.aggregate(pipeline);
+    const statMap: Record<ShipmentStatus | 'total', number> = {
+      'In-Warehouse': 0,
+      Shipped: 0,
+      Dispatched: 0,
+      Delivered: 0,
+      Returned: 0,
+      Failed: 0,
+      total: 0,
+    };
+    for (const r of results) {
+      statMap[r._id as ShipmentStatus] = r.count || 0;
+      statMap.total += r.count || 0;
+    }
+    return { message: 'Delivery stats retrieved successfully', data: statMap, code: 200 };
+  } catch (error) {
+    console.error('Error getting delivery stats:', error);
+    return { message: 'Failed to retrieve delivery stats', data: null, code: 500 };
+  }
+};
+
+// Global shipment stats
+const statsAll = async (): Promise<CustomResponseType<Record<ShipmentStatus | 'total', number>>> => {
+  try {
+    const results = await Shipment.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
+    const statMap: Record<ShipmentStatus | 'total', number> = {
+      'In-Warehouse': 0,
+      Shipped: 0,
+      Dispatched: 0,
+      Delivered: 0,
+      Returned: 0,
+      Failed: 0,
+      total: 0,
+    };
+    for (const r of results) {
+      statMap[r._id as ShipmentStatus] = r.count || 0;
+      statMap.total += r.count || 0;
+    }
+    return { message: 'Shipment stats retrieved successfully', data: statMap, code: 200 };
+  } catch (error) {
+    console.error('Error getting shipment stats:', error);
+    return { message: 'Failed to retrieve shipment stats', data: null, code: 500 };
+  }
+};
+
+// Update notes separately with delivered lock
+const updateNotes = async (
+  shipmentId: string,
+  notes: string
+): Promise<CustomResponseType<IShipment>> => {
+  try {
+    const shipment = await Shipment.findById(shipmentId);
+    if (!shipment) {
+      return { message: 'Shipment not found', data: null, code: 404 };
+    }
+    if (shipment.status === 'Delivered') {
+      return { message: 'Delivered shipments cannot be modified', data: null, code: 409 };
+    }
+    shipment.notes = notes;
+    await shipment.save();
+    await shipment.populate('orderId');
+    return { message: 'Shipment notes updated successfully', data: shipment as unknown as IShipment, code: 200 };
+  } catch (error) {
+    console.error('Error updating shipment notes:', error);
+    return { message: 'Failed to update shipment notes', data: null, code: 500 };
+  }
+};
+
 const ShipmentService = {
   createShipment,
   getAllShipments,
@@ -411,6 +561,10 @@ const ShipmentService = {
   getShipmentsByStatus,
   trackShipment,
   addTrackingUpdate,
+  listByCourierUser,
+  statsByCourierUser,
+  statsAll,
+  updateNotes,
 };
 
 export default ShipmentService;

@@ -22,6 +22,16 @@ router.get(
   Admin_UserController.getStaff
 );
 
+// Couriers listing: owners or users with delivery read permission
+router.get(
+  '/couriers',
+  authenticateUser,
+  isAdmin,
+  requirePermission('delivery', 'read'),
+  Admin_UserValidator.getCouriersValidator,
+  Admin_UserController.listCouriers
+);
+
 // Search users for autocomplete/selector
 router.get(
   '/search',

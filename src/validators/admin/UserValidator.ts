@@ -220,6 +220,20 @@ const searchUsersValidator = async (req: Request, res: Response, next: NextFunct
   next();
 };
 
+const getCouriersValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      // Pagination removed: only accept optional search string
+      search: { in: ['query'], optional: true, isString: true },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+  next();
+};
+
 const Admin_UserValidator = {
   getAllUsersValidator,
   getUserByIdValidator,
@@ -229,6 +243,7 @@ const Admin_UserValidator = {
   usersByRole,
   getStaffValidator,
   searchUsersValidator,
+  getCouriersValidator,
 };
 
 export default Admin_UserValidator;

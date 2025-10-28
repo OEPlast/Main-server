@@ -29,6 +29,16 @@ const getAllShipments = async (req: Request, res: Response) => {
   }
 };
 
+const getShipmentStats = async (_req: Request, res: Response) => {
+  try {
+    const result = await ShipmentService.statsAll();
+    return res.status(result.code).json({ message: result.message, data: result.data });
+  } catch (error) {
+    console.error('Error in getShipmentStats:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 const getShipmentById = async (req: Request, res: Response) => {
   try {
     const { shipmentId } = req.params;
@@ -154,4 +164,5 @@ export default {
   addTrackingUpdate,
   bulkUpdateStatus,
   getShipmentsByStatus,
+  getShipmentStats,
 };

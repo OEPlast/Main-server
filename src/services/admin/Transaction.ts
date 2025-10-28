@@ -198,8 +198,30 @@ const getTransactionById = async (transactionId: string): Promise<CustomResponse
           ],
         },
       },
+      {
+        $lookup: {
+          from: 'returns',
+          localField: 'returnId',
+          foreignField: '_id',
+          as: 'return',
+          pipeline: [
+            {
+              $project: {
+                _id: 1,
+                orderId: 1,
+                reason: 1,
+                status: 1,
+                refundAmount: 1,
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            },
+          ],
+        },
+      },
       { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
       { $unwind: { path: '$order', preserveNullAndEmptyArrays: true } },
+      { $unwind: { path: '$return', preserveNullAndEmptyArrays: true } },
     ];
 
     const result = await Transaction.aggregate(pipeline);

@@ -3,7 +3,7 @@ import User, { UserType } from '@/models/User';
 import { CustomResponsePromise } from '@/types';
 import Order, { OrderType } from '@/models/Order';
 import Review, { ReviewType } from '@/models/Review';
-import Wishlist from '@/models/wishlist';
+import Wishlist from '@/models/Wishlist';
 
 /**
  * Updates the role of a user.
@@ -492,6 +492,47 @@ const searchUsers = async (
   }
 };
 
+/**
+ * List courier-eligible staff: owners or staff with DELIVERY permission.
+ * Returns minimal fields for dropdowns.
+ */
+const listCouriers = async ({
+  search,
+}: {
+  search?: string;
+}): CustomResponsePromise<Array<{ _id: string; name: string; email: string }>> => {
+  try {
+    const query: Record<string, unknown> = {
+      role: { $in: ['owner', 'employee'] },
+    };
+    if (search) {
+      const regex = new RegExp(search.trim(), 'i');
+      query.$or = [{ name: regex }, { email: regex }, { firstName: regex }, { lastName: regex }];
+    }
+
+    const users = await User.find(query)
+      .select('_id name email role roles')
+      .populate({ path: 'roles', select: 'permissions isActive name' })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    const couriers = (users as Array<any>).filter((u) => {
+      if (u.role === 'owner') return true;
+      const roles: Array<{ isActive: boolean; permissions: Array<{ resource: string; actions: string[] }> }> =
+        (u.roles as any[]) || [];
+      return roles.some(
+        (r) => r?.isActive && r.permissions?.some((p) => p.resource === 'delivery' || p.resource === 'all')
+      );
+    });
+
+    const minimal = couriers.map((u) => ({ _id: String(u._id), name: u.name || 'Unknown', email: u.email }));
+    return { message: 'Couriers fetched successfully', data: minimal, code: 200 };
+  } catch (error) {
+    console.error('Error listing couriers:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
 const Admin_UserService = {
   updateUserRole,
   suspendedStatus,
@@ -501,6 +542,7 @@ const Admin_UserService = {
   getUsersByRole,
   getStaff,
   searchUsers,
+  listCouriers,
 };
 
 export default Admin_UserService;

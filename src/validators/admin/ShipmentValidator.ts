@@ -141,6 +141,12 @@ const updateShipmentValidator = (req: Request, res: Response, next: NextFunction
       optional: true,
       errorMessage: 'Courier should be a string',
     },
+    courierUser: {
+      in: ['body'],
+      optional: true,
+      isMongoId: true,
+      errorMessage: 'courierUser must be a valid MongoDB ID',
+    },
     shippingAddress: {
       in: ['body'],
       isObject: true,

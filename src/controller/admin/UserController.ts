@@ -109,6 +109,20 @@ const searchUsers = async (req: Request, res: Response) => {
   }
 };
 
+// List courier-eligible staff: owners or staff with DELIVERY permission
+const listCouriers = async (req: Request, res: Response) => {
+  try {
+    const { search } = req.query;
+    const { data, code, message } = await Admin_UserService.listCouriers({
+      search: search ? String(search) : undefined,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in listCouriers:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 const Admin_UserController = {
   getAllUsers,
   getUserById,
@@ -117,5 +131,6 @@ const Admin_UserController = {
   deleteUser,
   getStaff,
   searchUsers,
+  listCouriers,
 };
 export default Admin_UserController;

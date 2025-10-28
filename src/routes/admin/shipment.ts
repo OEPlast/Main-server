@@ -16,6 +16,7 @@ router.post(
   ShipmentController.createShipment
 );
 router.get('/', requirePermission('logistics', 'read'), ShipmentController.getAllShipments);
+router.get('/stats', requirePermission('logistics', 'read'), ShipmentController.getShipmentStats);
 router.get(
   '/:shipmentId',
   requirePermission('logistics', 'read'),

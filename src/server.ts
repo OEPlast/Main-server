@@ -43,6 +43,7 @@ import {
   AdminTransactionRoute,
   AdminReturnRoute,
   AdminReviewRoute,
+  AdminDeliveryRoute,
 } from './routes/admin';
 import FileUploadRoute from '@/routes/general/fileUpload';
 import EmailProcessor from './services/EmailProcessor';
@@ -117,6 +118,7 @@ app.use('/admin/reviews', AdminReviewRoute);
 app.use('/admin/returns', AdminReturnRoute);
 
 app.use('/admin/shipment', AdminShipmentRoute);
+app.use('/admin/delivery', AdminDeliveryRoute);
 
 app.use('/admin/analytics', AdminAnalyticsRoute);
 

@@ -935,6 +935,483 @@ const getSalesDiscountTotalByYears = async (req: Request, res: Response) => {
   }
 };
 
+// ============================================
+// NEW ANALYTICS CONTROLLER METHODS
+// ============================================
+
+const getSalesOverview = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getSalesOverview({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getSalesOverview:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getOrdersOverview = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getOrdersOverview({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getOrdersOverview:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getTransactionsOverview = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getTransactionsOverview({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTransactionsOverview:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getUsersOverview = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getUsersOverview({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getUsersOverview:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getProductsOverview = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getProductsOverview({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getProductsOverview:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getReviewsOverview = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getReviewsOverview({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getReviewsOverview:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getCouponsOverview = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getCouponsOverview({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getCouponsOverview:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getRevenueExpenseChart = async (req: Request, res: Response) => {
+  try {
+    const { from, to, groupBy } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getRevenueExpenseChart({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      groupBy: (groupBy as string) || 'months',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getRevenueExpenseChart:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getOrdersTrend = async (req: Request, res: Response) => {
+  try {
+    const { from, to, groupBy } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getOrdersTrend({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      groupBy: (groupBy as string) || 'months',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getOrdersTrend:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getTransactionsTrend = async (req: Request, res: Response) => {
+  try {
+    const { from, to, groupBy } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getTransactionsTrend({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      groupBy: (groupBy as string) || 'months',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTransactionsTrend:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getCustomerAcquisition = async (req: Request, res: Response) => {
+  try {
+    const { from, to, groupBy } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getCustomerAcquisition({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      groupBy: (groupBy as string) || 'months',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getCustomerAcquisition:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getOrderStatusDistribution = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getOrderStatusDistribution({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getOrderStatusDistribution:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getTransactionStatusDistribution = async (req: Request, res: Response) => {
+  try {
+    const { from, to, groupBy } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getTransactionStatusDistribution({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      groupBy: groupBy as string,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTransactionStatusDistribution:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getRatingDistribution = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getRatingDistribution({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getRatingDistribution:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getReviewSentiment = async (req: Request, res: Response) => {
+  try {
+    const { from, to, groupBy } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getReviewSentiment({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      groupBy: (groupBy as string) || 'months',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getReviewSentiment:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getCouponRedemptionTrend = async (req: Request, res: Response) => {
+  try {
+    const { from, to, groupBy } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getCouponRedemptionTrend({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      groupBy: (groupBy as string) || 'months',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getCouponRedemptionTrend:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getPaymentMethods = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getPaymentMethods({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getPaymentMethods:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getTopProductsRevenue = async (req: Request, res: Response) => {
+  try {
+    const { from, to, limit } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getTopProductsRevenue({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      limit: limit ? parseInt(limit as string, 10) : 10,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTopProductsRevenue:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getCategoriesPerformance = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getCategoriesPerformance({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getCategoriesPerformance:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getUserDemographics = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getUserDemographics({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getUserDemographics:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getCouponTypeDistribution = async (req: Request, res: Response) => {
+  try {
+    const { from, to } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getCouponTypeDistribution({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getCouponTypeDistribution:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getSalesByCategory = async (req: Request, res: Response) => {
+  try {
+    const { from, to, page, limit, sortBy, sortOrder } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getSalesByCategory({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 10,
+      sortBy: (sortBy as string) || 'totalRevenue',
+      sortOrder: (sortOrder as string) || 'desc',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getSalesByCategory:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getTopSellingProducts = async (req: Request, res: Response) => {
+  try {
+    const { from, to, limit } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getTopSellingProducts({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      limit: limit ? parseInt(limit as string, 10) : 10,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTopSellingProducts:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getOrdersTable = async (req: Request, res: Response) => {
+  try {
+    const { from, to, page, limit, status, sortBy, sortOrder } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getOrdersTable({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 10,
+      status: status as string,
+      sortBy: (sortBy as string) || 'createdAt',
+      sortOrder: (sortOrder as string) || 'desc',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getOrdersTable:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getTransactionsTable = async (req: Request, res: Response) => {
+  try {
+    const { from, to, page, limit, status, method, sortBy, sortOrder } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getTransactionsTable({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 10,
+      status: status as string,
+      method: method as string,
+      sortBy: (sortBy as string) || 'createdAt',
+      sortOrder: (sortOrder as string) || 'desc',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTransactionsTable:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getTopCustomers = async (req: Request, res: Response) => {
+  try {
+    const { from, to, page, limit } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getTopCustomers({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 10,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTopCustomers:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getProductPerformance = async (req: Request, res: Response) => {
+  try {
+    const { from, to, page, limit, sortBy, sortOrder } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getProductPerformance({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 10,
+      sortBy: (sortBy as string) || 'revenue',
+      sortOrder: (sortOrder as string) || 'desc',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getProductPerformance:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getReviewsTable = async (req: Request, res: Response) => {
+  try {
+    const { from, to, page, limit, rating, status, sortBy } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getReviewsTable({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 10,
+      rating: rating ? parseInt(rating as string, 10) : undefined,
+      status: status as string,
+      sortBy: (sortBy as string) || 'createdAt',
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getReviewsTable:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getTopCoupons = async (req: Request, res: Response) => {
+  try {
+    const { from, to, page, limit } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getTopCoupons({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      page: page ? parseInt(page as string, 10) : 1,
+      limit: limit ? parseInt(limit as string, 10) : 10,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTopCoupons:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getMostWishlistedProducts = async (req: Request, res: Response) => {
+  try {
+    const { from, to, limit } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getMostWishlistedProducts({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      limit: limit ? parseInt(limit as string, 10) : 10,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getMostWishlistedProducts:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const getMostReviewedProducts = async (req: Request, res: Response) => {
+  try {
+    const { from, to, limit } = req.query;
+    const { data, code, message } = await Admin_AnalyticsService.getMostReviewedProducts({
+      from: parseAnalyticsDate(from as string, 'from'),
+      to: parseAnalyticsDate(to as string, 'to'),
+      limit: limit ? parseInt(limit as string, 10) : 10,
+    });
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getMostReviewedProducts:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 const Admin_AnalyticsController = {
   getSellerStatistics,
   getTotalSales,
@@ -1002,6 +1479,38 @@ const Admin_AnalyticsController = {
   getSalesDiscountTotalByDays,
   getSalesDiscountTotalByMonths,
   getSalesDiscountTotalByYears,
+  // New analytics endpoints
+  getSalesOverview,
+  getOrdersOverview,
+  getTransactionsOverview,
+  getUsersOverview,
+  getProductsOverview,
+  getReviewsOverview,
+  getCouponsOverview,
+  getRevenueExpenseChart,
+  getOrdersTrend,
+  getTransactionsTrend,
+  getCustomerAcquisition,
+  getOrderStatusDistribution,
+  getTransactionStatusDistribution,
+  getRatingDistribution,
+  getReviewSentiment,
+  getCouponRedemptionTrend,
+  getPaymentMethods,
+  getTopProductsRevenue,
+  getCategoriesPerformance,
+  getUserDemographics,
+  getCouponTypeDistribution,
+  getSalesByCategory,
+  getTopSellingProducts,
+  getOrdersTable,
+  getTransactionsTable,
+  getTopCustomers,
+  getProductPerformance,
+  getReviewsTable,
+  getTopCoupons,
+  getMostWishlistedProducts,
+  getMostReviewedProducts,
 };
 
 export default Admin_AnalyticsController;

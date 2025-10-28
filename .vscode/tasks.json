@@ -6,6 +6,24 @@
 			"type": "shell",
 			"command": "cd /Users/chocos/Documents/CODE/oslold/oslbackend/old-main-server && npm run build",
 			"group": "build"
+		},
+		{
+			"label": "typecheck: old-main-server",
+			"type": "shell",
+			"command": "cd /Users/chocos/Documents/CODE/oslold/oslbackend/old-main-server && npm run build",
+			"group": "build"
+		},
+		{
+			"label": "typecheck: old-main-server",
+			"type": "shell",
+			"command": "cd /Users/chocos/Documents/CODE/oslold/oslbackend/old-main-server && npm run build",
+			"group": "build"
+		},
+		{
+			"label": "typecheck: old-main-server",
+			"type": "shell",
+			"command": "cd /Users/chocos/Documents/CODE/oslold/oslbackend/old-main-server && npm run build",
+			"group": "build"
 		}
 	]
 }

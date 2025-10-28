@@ -44,6 +44,15 @@ const shipmentSchema = new Schema(
   { timestamps: true }
 );
 
+// Indexes for integrity and performance
+// Unique tracking number already defined at field level, keep an explicit index for clarity
+shipmentSchema.index({ trackingNumber: 1 }, { unique: true });
+// Ensure one shipment per order (if orderId exists)
+shipmentSchema.index({ orderId: 1 }, { unique: true, partialFilterExpression: { orderId: { $exists: true } } });
+// Performance indexes for courier assignments and status filtering
+shipmentSchema.index({ courierUser: 1, status: 1, createdAt: -1 });
+shipmentSchema.index({ status: 1, createdAt: -1 });
+
 export type IShipment = InferSchemaType<typeof shipmentSchema>;
 const Shipment = model('Shipment', shipmentSchema);
 export default Shipment;

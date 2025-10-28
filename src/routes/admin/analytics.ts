@@ -534,4 +534,262 @@ router.get(
   Admin_AnalyticsController.getSalesDiscountTotalByYears
 );
 
+// ============================================
+// NEW ANALYTICS ENDPOINTS FOR ADMIN DASHBOARD
+// ============================================
+
+// Overview Endpoints (Stats Cards with Mini Charts)
+router.get(
+  '/sales-overview',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getSalesOverview
+);
+router.get(
+  '/orders-overview',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getOrdersOverview
+);
+router.get(
+  '/transactions-overview',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getTransactionsOverview
+);
+router.get(
+  '/users-overview',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getUsersOverview
+);
+router.get(
+  '/products-overview',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getProductsOverview
+);
+router.get(
+  '/reviews-overview',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getReviewsOverview
+);
+router.get(
+  '/coupons-overview',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getCouponsOverview
+);
+
+// Chart Endpoints
+router.get(
+  '/revenue-expense-chart',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getRevenueExpenseChart
+);
+router.get(
+  '/orders-trend',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getOrdersTrend
+);
+router.get(
+  '/transactions-trend',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getTransactionsTrend
+);
+router.get(
+  '/customer-acquisition',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getCustomerAcquisition
+);
+router.get(
+  '/order-status-distribution',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getOrderStatusDistribution
+);
+router.get(
+  '/transaction-status-distribution',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getTransactionStatusDistribution
+);
+router.get(
+  '/rating-distribution',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getRatingDistribution
+);
+router.get(
+  '/review-sentiment',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getReviewSentiment
+);
+router.get(
+  '/coupon-redemption-trend',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getCouponRedemptionTrend
+);
+router.get(
+  '/payment-methods',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getPaymentMethods
+);
+router.get(
+  '/top-products-revenue',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getTopProductsRevenue
+);
+router.get(
+  '/categories-performance',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getCategoriesPerformance
+);
+router.get(
+  '/user-demographics',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getUserDemographics
+);
+router.get(
+  '/coupon-type-distribution',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getCouponTypeDistribution
+);
+
+// Table Endpoints (with Pagination)
+router.get(
+  '/sales-by-category',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getSalesByCategory
+);
+router.get(
+  '/top-selling-products',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getTopSellingProducts
+);
+router.get(
+  '/orders-table',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getOrdersTable
+);
+router.get(
+  '/transactions-table',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getTransactionsTable
+);
+router.get(
+  '/top-customers',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getTopCustomers
+);
+router.get(
+  '/product-performance',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getProductPerformance
+);
+router.get(
+  '/reviews-table',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getReviewsTable
+);
+router.get(
+  '/top-coupons',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getTopCoupons
+);
+router.get(
+  '/most-wishlisted-products',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getMostWishlistedProducts
+);
+router.get(
+  '/most-reviewed-products',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateAnalyticsQuery,
+  Admin_AnalyticsController.getMostReviewedProducts
+);
+
 export default router;

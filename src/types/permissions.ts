@@ -20,6 +20,7 @@ export enum PermissionResource {
   INVOICES = 'invoices',
   LOGISTICS = 'logistics',
   TRANSACTIONS = 'transactions',
+  DELIVERY = 'delivery',
 }
 
 export enum PermissionAction {

@@ -4,11 +4,12 @@ import Order from '@/models/Order';
 import Transaction from '@/models/Transaction';
 import Shipment from '@/models/Shipment';
 import User from '@/models/User';
-import Wishlist from '@/models/wishlist';
+import Wishlist from '@/models/Wishlist';
 import Review from '@/models/Review';
 import CouponRedemption from '@/models/CouponRedemption';
 import Cart from '@/models/Cart';
 import Product from '@/models/Product';
+import Coupon from '@/models/Coupon';
 
 type AnalyticsResult = {
   _id: Record<string, unknown>;
@@ -20,6 +21,14 @@ type AnalyticsResult = {
   returns?: number;
   totalRevenue?: number;
   totalItems?: number;
+};
+
+/**
+ * Helper function to convert month number to short month name
+ */
+const getMonthName = (month: number): string => {
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return monthNames[month - 1] || 'Unknown';
 };
 
 /**
@@ -4477,6 +4486,2310 @@ const getSalesDiscountTotalByYears = async ({
   }
 };
 
+// ============================================
+// NEW ANALYTICS SERVICE METHODS
+// ============================================
+
+/**
+ * Get sales overview with key metrics
+ */
+const getSalesOverview = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{
+  totalRevenue: number;
+  totalOrders: number;
+  averageOrderValue: number;
+  comparisonPeriod: {
+    revenue: number;
+    orders: number;
+    percentageChange: number;
+  };
+}> => {
+  try {
+    console.log('🔍 getSalesOverview - Date range:', { from, to });
+    
+    // Current period stats
+    const currentStats = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: '$total' },
+          totalOrders: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const current = currentStats[0] || { totalRevenue: 0, totalOrders: 0 };
+    const averageOrderValue = current.totalOrders > 0 ? current.totalRevenue / current.totalOrders : 0;
+
+    // Previous period (same duration)
+    const duration = to.getTime() - from.getTime();
+    const previousFrom = new Date(from.getTime() - duration);
+    const previousTo = new Date(from.getTime() - 1);
+
+    const previousStats = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: previousFrom, $lte: previousTo },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: '$total' },
+          totalOrders: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const previous = previousStats[0] || { totalRevenue: 0, totalOrders: 0 };
+    const percentageChange = previous.totalRevenue > 0 
+      ? ((current.totalRevenue - previous.totalRevenue) / previous.totalRevenue) * 100 
+      : 0;
+
+    console.log('✅ getSalesOverview - Results:', { 
+      currentRevenue: current.totalRevenue, 
+      currentOrders: current.totalOrders,
+      previousRevenue: previous.totalRevenue,
+      previousOrders: previous.totalOrders
+    });
+
+    return {
+      message: 'Sales overview fetched successfully',
+      data: {
+        totalRevenue: current.totalRevenue,
+        totalOrders: current.totalOrders,
+        averageOrderValue,
+        comparisonPeriod: {
+          revenue: previous.totalRevenue,
+          orders: previous.totalOrders,
+          percentageChange,
+        },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getSalesOverview:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get orders overview with status breakdown
+ */
+const getOrdersOverview = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{
+  totalOrders: number;
+  pending: number;
+  processing: number;
+  completed: number;
+  cancelled: number;
+  failed: number;
+}> => {
+  try {
+    const stats = await Order.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const statusMap: Record<string, number> = {
+      pending: 0,
+      processing: 0,
+      completed: 0,
+      cancelled: 0,
+      failed: 0,
+    };
+
+    let totalOrders = 0;
+    stats.forEach((item) => {
+      const status = item._id?.toLowerCase() || 'pending';
+      if (statusMap.hasOwnProperty(status)) {
+        statusMap[status] = item.count;
+      }
+      totalOrders += item.count;
+    });
+
+    return {
+      message: 'Orders overview fetched successfully',
+      data: {
+        totalOrders,
+        pending: statusMap.pending,
+        processing: statusMap.processing,
+        completed: statusMap.completed,
+        cancelled: statusMap.cancelled,
+        failed: statusMap.failed,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getOrdersOverview:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get transactions overview with status breakdown
+ */
+const getTransactionsOverview = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{
+  totalTransactions: number;
+  pending: number;
+  completed: number;
+  failed: number;
+  totalAmount: number;
+}> => {
+  try {
+    const stats = await Transaction.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+          amount: { $sum: '$amount' },
+        },
+      },
+    ]);
+
+    let totalTransactions = 0;
+    let totalAmount = 0;
+    let pending = 0;
+    let completed = 0;
+    let failed = 0;
+
+    stats.forEach((item) => {
+      const status = item._id?.toLowerCase() || 'pending';
+      const count = item.count || 0;
+      const amount = item.amount || 0;
+
+      totalTransactions += count;
+      totalAmount += amount;
+
+      // Group statuses for display
+      if (status === 'pending') {
+        pending += count;
+      } else if (status === 'completed' || status === 'refunded' || status === 'partially_refunded') {
+        // Count refunds as completed since they were successful transactions
+        completed += count;
+      } else if (status === 'failed' || status === 'cancelled') {
+        // Group failed and cancelled together
+        failed += count;
+      }
+    });
+
+    return {
+      message: 'Transactions overview fetched successfully',
+      data: {
+        totalTransactions,
+        pending,
+        completed,
+        failed,
+        totalAmount,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getTransactionsOverview:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get users overview with metrics
+ */
+const getUsersOverview = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{
+  totalUsers: number;
+  newUsers: number;
+  activeUsers: number;
+  inactiveUsers: number;
+}> => {
+  try {
+    // Total users in system
+    const totalUsers = await User.countDocuments();
+
+    // New users in period
+    const newUsers = await User.countDocuments({
+      createdAt: { $gte: from, $lte: to },
+    });
+
+    // Active users (made order in period)
+    const activeUserIds = await Order.distinct('userId', {
+      createdAt: { $gte: from, $lte: to },
+    });
+    const activeUsers = activeUserIds.length;
+
+    // Inactive users (total - active)
+    const inactiveUsers = totalUsers - activeUsers;
+
+    return {
+      message: 'Users overview fetched successfully',
+      data: {
+        totalUsers,
+        newUsers,
+        activeUsers,
+        inactiveUsers,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getUsersOverview:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get products overview with stock status
+ */
+const getProductsOverview = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{
+  totalProducts: number;
+  inStock: number;
+  outOfStock: number;
+  lowStock: number;
+}> => {
+  try {
+    const totalProducts = await Product.countDocuments();
+    const outOfStock = await Product.countDocuments({ stock: { $lte: 0 } });
+    
+    // Low stock: products where stock > 0 but <= lowStockThreshold
+    const lowStock = await Product.countDocuments({
+      $expr: {
+        $and: [
+          { $gt: ['$stock', 0] },
+          { $lte: ['$stock', '$lowStockThreshold'] }
+        ]
+      }
+    });
+    
+    // In stock: products where stock > lowStockThreshold
+    const inStock = await Product.countDocuments({
+      $expr: { $gt: ['$stock', '$lowStockThreshold'] }
+    });
+
+    return {
+      message: 'Products overview fetched successfully',
+      data: {
+        totalProducts,
+        inStock,
+        outOfStock,
+        lowStock,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getProductsOverview:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get reviews overview with rating analysis
+ */
+const getReviewsOverview = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{
+  totalReviews: number;
+  averageRating: number;
+  positiveReviews: number;
+  negativeReviews: number;
+}> => {
+  try {
+    const stats = await Review.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: null,
+          totalReviews: { $sum: 1 },
+          averageRating: { $avg: '$rating' },
+          positive: {
+            $sum: { $cond: [{ $gte: ['$rating', 4] }, 1, 0] },
+          },
+          negative: {
+            $sum: { $cond: [{ $lte: ['$rating', 2] }, 1, 0] },
+          },
+          neutral: {
+            $sum: { $cond: [{ $eq: ['$rating', 3] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+
+    const result = stats[0] || {
+      totalReviews: 0,
+      averageRating: 0,
+      positive: 0,
+      negative: 0,
+      neutral: 0,
+    };
+
+    return {
+      message: 'Reviews overview fetched successfully',
+      data: {
+        totalReviews: result.totalReviews,
+        averageRating: result.averageRating,
+        positiveReviews: result.positive,
+        negativeReviews: result.negative,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getReviewsOverview:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get coupons overview
+ */
+const getCouponsOverview = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<{
+  totalCoupons: number;
+  activeCoupons: number;
+  expiredCoupons: number;
+  totalRedemptions: number;
+  totalDiscountGiven: number;
+}> => {
+  try {
+    const now = new Date();
+    const totalCoupons = await Coupon.countDocuments({ deleted: { $ne: true } });
+    
+    // Active coupons: active=true AND current date is between startDate and endDate
+    const activeCoupons = await Coupon.countDocuments({
+      active: true,
+      deleted: { $ne: true },
+      startDate: { $lte: now },
+      endDate: { $gte: now },
+    });
+    
+    // Expired coupons: endDate has passed
+    const expiredCoupons = await Coupon.countDocuments({
+      deleted: { $ne: true },
+      endDate: { $lt: now },
+    });
+
+    const redemptionStats = await CouponRedemption.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: null,
+          totalRedemptions: { $sum: 1 },
+          totalDiscountGiven: { $sum: '$amountDiscounted' },
+        },
+      },
+    ]);
+
+    const redemptions = redemptionStats[0] || { totalRedemptions: 0, totalDiscountGiven: 0 };
+
+    return {
+      message: 'Coupons overview fetched successfully',
+      data: {
+        totalCoupons,
+        activeCoupons,
+        expiredCoupons,
+        totalRedemptions: redemptions.totalRedemptions,
+        totalDiscountGiven: redemptions.totalDiscountGiven,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getCouponsOverview:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get revenue vs expense chart data
+ */
+const getRevenueExpenseChart = async ({
+  from,
+  to,
+  groupBy = 'months',
+}: {
+  from: Date;
+  to: Date;
+  groupBy?: string;
+}): CustomResponsePromise<Array<{ month: string; revenue: number; expense: number }>> => {
+  try {
+    const result = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+          },
+          revenue: { $sum: '$total' },
+          expense: { $sum: '$shippingCost' }, // Using shipping as expense example
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+    ]);
+
+    const chartData = result.map((item: any) => ({
+      month: getMonthName(item._id.month),
+      revenue: item.revenue || 0,
+      expense: item.expense || 0,
+    }));
+
+    return {
+      message: 'Revenue expense chart data fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getRevenueExpenseChart:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get orders trend chart data
+ */
+const getOrdersTrend = async ({
+  from,
+  to,
+  groupBy = 'months',
+}: {
+  from: Date;
+  to: Date;
+  groupBy?: string;
+}): CustomResponsePromise<Array<{ date: string; count: number }>> => {
+  try {
+    // Group format based on groupBy parameter
+    let groupFormat: any;
+    
+    if (groupBy === 'days') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+        day: { $dayOfMonth: '$createdAt' },
+      };
+    } else if (groupBy === 'years') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+      };
+    } else {
+      // Default to months
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+      };
+    }
+
+    const result = await Order.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: groupFormat,
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+    ]);
+
+    // Format the data based on groupBy
+    const chartData = result.map((item: any) => {
+      let dateStr: string;
+      
+      if (groupBy === 'days') {
+        dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
+      } else if (groupBy === 'years') {
+        dateStr = new Date(item._id.year, 0, 1).toISOString();
+      } else {
+        // months
+        dateStr = new Date(item._id.year, item._id.month - 1, 1).toISOString();
+      }
+
+      return {
+        date: dateStr,
+        count: item.count,
+      };
+    });
+
+    return {
+      message: 'Orders trend data fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getOrdersTrend:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get transactions trend chart data
+ */
+const getTransactionsTrend = async ({
+  from,
+  to,
+  groupBy = 'months',
+}: {
+  from: Date;
+  to: Date;
+  groupBy?: string;
+}): CustomResponsePromise<Array<{ date: string; count: number }>> => {
+  try {
+    // Group format based on groupBy parameter
+    let groupFormat: any;
+    
+    if (groupBy === 'days') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+        day: { $dayOfMonth: '$createdAt' },
+      };
+    } else if (groupBy === 'years') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+      };
+    } else {
+      // Default to months
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+      };
+    }
+
+    const result = await Transaction.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: groupFormat,
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+    ]);
+
+    // Format the data based on groupBy
+    const chartData = result.map((item: any) => {
+      let dateStr: string;
+      
+      if (groupBy === 'days') {
+        dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
+      } else if (groupBy === 'years') {
+        dateStr = new Date(item._id.year, 0, 1).toISOString();
+      } else {
+        // months
+        dateStr = new Date(item._id.year, item._id.month - 1, 1).toISOString();
+      }
+
+      return {
+        date: dateStr,
+        count: item.count,
+      };
+    });
+
+    return {
+      message: 'Transactions trend data fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getTransactionsTrend:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get customer acquisition chart data
+ */
+const getCustomerAcquisition = async ({
+  from,
+  to,
+  groupBy = 'months',
+}: {
+  from: Date;
+  to: Date;
+  groupBy?: string;
+}): CustomResponsePromise<Array<{ date: string; count: number }>> => {
+  try {
+    // Group format based on groupBy parameter
+    let groupFormat: any;
+    
+    if (groupBy === 'days') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+        day: { $dayOfMonth: '$createdAt' },
+      };
+    } else if (groupBy === 'years') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+      };
+    } else {
+      // Default to months
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+      };
+    }
+
+    // Get new users grouped by time period
+    const newUsers = await User.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: groupFormat,
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+    ]);
+
+    // Format the data based on groupBy
+    const chartData = newUsers.map((item: any) => {
+      let dateStr: string;
+      
+      if (groupBy === 'days') {
+        dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
+      } else if (groupBy === 'years') {
+        dateStr = new Date(item._id.year, 0, 1).toISOString();
+      } else {
+        // months
+        dateStr = new Date(item._id.year, item._id.month - 1, 1).toISOString();
+      }
+
+      return {
+        date: dateStr,
+        count: item.count,
+      };
+    });
+
+    return {
+      message: 'Customer acquisition data fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getCustomerAcquisition:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get order status distribution for pie chart
+ */
+const getOrderStatusDistribution = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<Array<{ status: string; count: number }>> => {
+  try {
+    const result = await Order.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const chartData = result.map((item: any) => ({
+      status: item._id || 'Unknown',
+      count: item.count || 0,
+    }));
+
+    return {
+      message: 'Order status distribution fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getOrderStatusDistribution:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get transaction status distribution for pie chart
+ */
+const getTransactionStatusDistribution = async ({
+  from,
+  to,
+  groupBy = 'months',
+}: {
+  from: Date;
+  to: Date;
+  groupBy?: string;
+}): CustomResponsePromise<Array<{ date: string; [key: string]: any }>> => {
+  try {
+    // Group format based on groupBy parameter
+    let groupFormat: any;
+    
+    if (groupBy === 'days') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+        day: { $dayOfMonth: '$createdAt' },
+      };
+    } else if (groupBy === 'years') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+      };
+    } else {
+      // Default to months
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+      };
+    }
+
+    const result = await Transaction.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: {
+            ...groupFormat,
+            status: '$status',
+          },
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+    ]);
+
+    // Transform data into time-series format with status columns
+    const dataMap = new Map<string, any>();
+
+    result.forEach((item: any) => {
+      let dateStr: string;
+      
+      if (groupBy === 'days') {
+        dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
+      } else if (groupBy === 'years') {
+        dateStr = new Date(item._id.year, 0, 1).toISOString();
+      } else {
+        // months
+        dateStr = new Date(item._id.year, item._id.month - 1, 1).toISOString();
+      }
+
+      if (!dataMap.has(dateStr)) {
+        dataMap.set(dateStr, {
+          date: dateStr,
+          pending: 0,
+          completed: 0,
+          failed: 0,
+          cancelled: 0,
+          refunded: 0,
+          partially_refunded: 0,
+        });
+      }
+
+      const status = item._id.status || 'pending';
+      const entry = dataMap.get(dateStr);
+      entry[status] = item.count;
+    });
+
+    const chartData = Array.from(dataMap.values()).sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+
+    return {
+      message: 'Transaction status distribution fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getTransactionStatusDistribution:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get rating distribution for pie chart
+ */
+const getRatingDistribution = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<Array<{ rating: number; count: number }>> => {
+  try {
+    const result = await Review.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: '$rating',
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { _id: 1 } },
+    ]);
+
+    const chartData = result.map((item: any) => ({
+      rating: item._id,
+      count: item.count || 0,
+    }));
+
+    return {
+      message: 'Rating distribution fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getRatingDistribution:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get review sentiment over time
+ */
+const getReviewSentiment = async ({
+  from,
+  to,
+  groupBy = 'months',
+}: {
+  from: Date;
+  to: Date;
+  groupBy?: string;
+}): CustomResponsePromise<Array<{ month: string; positive: number; negative: number; neutral: number }>> => {
+  try {
+    const result = await Review.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+          },
+          positive: {
+            $sum: { $cond: [{ $gte: ['$rating', 4] }, 1, 0] },
+          },
+          negative: {
+            $sum: { $cond: [{ $lte: ['$rating', 2] }, 1, 0] },
+          },
+          neutral: {
+            $sum: { $cond: [{ $eq: ['$rating', 3] }, 1, 0] },
+          },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } },
+    ]);
+
+    const chartData = result.map((item: any) => ({
+      month: getMonthName(item._id.month),
+      positive: item.positive || 0,
+      negative: item.negative || 0,
+      neutral: item.neutral || 0,
+    }));
+
+    return {
+      message: 'Review sentiment data fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getReviewSentiment:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get coupon redemption trend
+ */
+const getCouponRedemptionTrend = async ({
+  from,
+  to,
+  groupBy = 'months',
+}: {
+  from: Date;
+  to: Date;
+  groupBy?: string;
+}): CustomResponsePromise<Array<{ date: string; count: number }>> => {
+  try {
+    // Group format based on groupBy parameter
+    let groupFormat: any;
+    
+    if (groupBy === 'days') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+        day: { $dayOfMonth: '$createdAt' },
+      };
+    } else if (groupBy === 'years') {
+      groupFormat = {
+        year: { $year: '$createdAt' },
+      };
+    } else {
+      // Default to months
+      groupFormat = {
+        year: { $year: '$createdAt' },
+        month: { $month: '$createdAt' },
+      };
+    }
+
+    const result = await CouponRedemption.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: groupFormat,
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1, '_id.day': 1 } },
+    ]);
+
+    // Format the data based on groupBy
+    const chartData = result.map((item: any) => {
+      let dateStr: string;
+      
+      if (groupBy === 'days') {
+        dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
+      } else if (groupBy === 'years') {
+        dateStr = new Date(item._id.year, 0, 1).toISOString();
+      } else {
+        // months
+        dateStr = new Date(item._id.year, item._id.month - 1, 1).toISOString();
+      }
+
+      return {
+        date: dateStr,
+        count: item.count,
+      };
+    });
+
+    return {
+      message: 'Coupon redemption trend fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getCouponRedemptionTrend:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get payment methods distribution
+ */
+const getPaymentMethods = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<Array<{ name: string; value: number }>> => {
+  try {
+    const result = await Transaction.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: '$paymentMethod',
+          value: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const chartData = result.map((item: any) => ({
+      name: item._id || 'Unknown',
+      value: item.value || 0,
+    }));
+
+    return {
+      message: 'Payment methods distribution fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getPaymentMethods:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get top products by revenue (bar chart)
+ */
+const getTopProductsRevenue = async ({
+  from,
+  to,
+  limit = 10,
+}: {
+  from: Date;
+  to: Date;
+  limit?: number;
+}): CustomResponsePromise<Array<{ productId: string; productName: string; coverImage: string | null; revenue: number }>> => {
+  try {
+    console.log('🔍 getTopProductsRevenue - Date range:', { from, to, limit });
+    
+    // Step 1: Count matching orders
+    const matchingOrders = await Order.countDocuments({
+      createdAt: { $gte: from, $lte: to },
+      status: { $nin: ['Cancelled', 'Failed'] }
+    });
+    console.log('📊 Step 1: Matching orders:', matchingOrders);
+
+    // Step 2: Check items after unwind
+    const afterUnwind = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      { $unwind: '$products' },
+      { $count: 'total' }
+    ]);
+    console.log('📊 Step 2: Items after unwind:', afterUnwind[0]?.total || 0);
+
+    // Step 3: Check grouped products
+    const afterGroup = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      { $unwind: '$products' },
+      {
+        $group: {
+          _id: '$products.product',
+          revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
+        },
+      },
+      { $count: 'total' }
+    ]);
+    console.log('📊 Step 3: Unique products with revenue:', afterGroup[0]?.total || 0);
+
+    // Step 4: Check after product lookup
+    const afterLookup = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      { $unwind: '$products' },
+      {
+        $group: {
+          _id: '$products.product',
+          revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
+        },
+      },
+      { $sort: { revenue: -1 } },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      {
+        $facet: {
+          withProduct: [
+            { $match: { 'product': { $exists: true, $ne: null } } },
+            { $count: 'total' }
+          ],
+          withoutProduct: [
+            { $match: { 'product': null } },
+            { $count: 'total' }
+          ]
+        }
+      }
+    ]);
+    console.log('📊 Step 4: After product lookup:', {
+      withProduct: afterLookup[0]?.withProduct[0]?.total || 0,
+      withoutProduct: afterLookup[0]?.withoutProduct[0]?.total || 0
+    });
+
+    const result = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      { $unwind: '$products' },
+      {
+        $group: {
+          _id: '$products.product',
+          revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
+        },
+      },
+      { $sort: { revenue: -1 } },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      // Only filter out if product is completely missing
+      {
+        $match: {
+          'product': { $exists: true, $ne: null }
+        }
+      },
+      {
+        $project: {
+          productId: '$_id',
+          productName: '$product.name',
+          coverImage: {
+            $let: {
+              vars: {
+                coverImg: {
+                  $arrayElemAt: [
+                    {
+                      $filter: {
+                        input: '$product.description_images',
+                        cond: { $eq: ['$$this.cover_image', true] }
+                      }
+                    },
+                    0
+                  ]
+                }
+              },
+              in: { $ifNull: ['$$coverImg.url', null] }
+            }
+          },
+          revenue: 1,
+        },
+      },
+    ]);
+
+    console.log('✅ getTopProductsRevenue - Result count:', result.length);
+    if (result.length > 0) {
+      console.log('📊 Sample data:', result.slice(0, 2));
+    }
+
+    return {
+      message: 'Top products by revenue fetched successfully',
+      data: result,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getTopProductsRevenue:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get categories performance
+ */
+const getCategoriesPerformance = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<Array<{ categoryId: string; name: string; image: string; revenue: number; orders: number }>> => {
+  try {
+    const result = await Order.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'product.category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      {
+        $match: {
+          'category.name': { $exists: true, $ne: null }
+        }
+      },
+      {
+        $group: {
+          _id: '$category._id',
+          categoryName: { $first: '$category.name' },
+          categoryImage: { $first: '$category.image' },
+          revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
+          orders: { $sum: 1 },
+        },
+      },
+      { $sort: { revenue: -1 } },
+      {
+        $project: {
+          categoryId: '$_id',
+          name: '$categoryName',
+          image: '$categoryImage',
+          revenue: 1,
+          orders: 1,
+        },
+      },
+    ]);
+
+    return {
+      message: 'Categories performance fetched successfully',
+      data: result,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getCategoriesPerformance:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get user demographics (for world map)
+ */
+const getUserDemographics = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<Array<{ country: string; count: number }>> => {
+  try {
+    const result = await User.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: '$country',
+          count: { $sum: 1 },
+        },
+      },
+      { $sort: { count: -1 } },
+    ]);
+
+    const chartData = result.map((item: any) => ({
+      country: item._id || 'Unknown',
+      count: item.count || 0,
+    }));
+
+    return {
+      message: 'User demographics fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getUserDemographics:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get coupon type distribution
+ */
+const getCouponTypeDistribution = async ({
+  from,
+  to,
+}: {
+  from: Date;
+  to: Date;
+}): CustomResponsePromise<Array<{ type: string; count: number }>> => {
+  try {
+    const result = await Coupon.aggregate([
+      { $match: { deleted: { $ne: true } } }, // Only count non-deleted coupons
+      {
+        $group: {
+          _id: '$discountType',
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+
+    const chartData = result.map((item: any) => ({
+      type: item._id, // Keep as 'percentage' or 'fixed' - frontend will format it
+      count: item.count || 0,
+    }));
+
+    return {
+      message: 'Coupon type distribution fetched successfully',
+      data: chartData,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getCouponTypeDistribution:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+// Table endpoint service methods
+
+/**
+ * Get sales by category (paginated table)
+ */
+const getSalesByCategory = async ({
+  from,
+  to,
+  page = 1,
+  limit = 10,
+  sortBy = 'totalRevenue',
+  sortOrder = 'desc',
+}: {
+  from: Date;
+  to: Date;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: string;
+}): CustomResponsePromise<{
+  data: Array<{ category: string; totalRevenue: number; totalOrders: number; averageOrderValue: number }>;
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    console.log('🔍 getSalesByCategory - Date range:', { from, to, page, limit });
+    
+    const skip = (page - 1) * limit;
+    const sortDirection = sortOrder === 'desc' ? -1 : 1;
+
+    // Step 1: Count matching orders
+    const matchingOrders = await Order.countDocuments({
+      createdAt: { $gte: from, $lte: to },
+      status: { $nin: ['Cancelled', 'Failed'] }
+    });
+    console.log('📊 Step 1: Matching orders:', matchingOrders);
+
+    // Step 2: Check items after unwind
+    const afterUnwind = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      { $unwind: '$products' },
+      { $count: 'total' }
+    ]);
+    console.log('📊 Step 2: Items after unwind:', afterUnwind[0]?.total || 0);
+
+    // Step 3: Check after product lookup
+    const afterProductLookup = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      {
+        $facet: {
+          withProduct: [
+            { $match: { 'product': { $exists: true, $ne: null } } },
+            { $count: 'total' }
+          ],
+          withoutProduct: [
+            { $match: { 'product': null } },
+            { $count: 'total' }
+          ]
+        }
+      }
+    ]);
+    console.log('📊 Step 3: After product lookup:', {
+      withProduct: afterProductLookup[0]?.withProduct[0]?.total || 0,
+      withoutProduct: afterProductLookup[0]?.withoutProduct[0]?.total || 0
+    });
+
+    // Step 4: Check after category lookup
+    const afterCategoryLookup = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'product.category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      {
+        $facet: {
+          withCategory: [
+            { $match: { 'category': { $exists: true, $ne: null } } },
+            { $count: 'total' }
+          ],
+          withoutCategory: [
+            { $match: { 'category': null } },
+            { $count: 'total' }
+          ]
+        }
+      }
+    ]);
+    console.log('📊 Step 4: After category lookup:', {
+      withCategory: afterCategoryLookup[0]?.withCategory[0]?.total || 0,
+      withoutCategory: afterCategoryLookup[0]?.withoutCategory[0]?.total || 0
+    });
+
+    const result = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'product.category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      // Only filter out if product or category is completely missing
+      {
+        $match: {
+          'product': { $exists: true, $ne: null },
+          'category': { $exists: true, $ne: null }
+        }
+      },
+      {
+        $group: {
+          _id: { orderId: '$_id', categoryId: '$category._id' },
+          categoryName: { $first: '$category.name' },
+          orderRevenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
+        },
+      },
+      {
+        $group: {
+          _id: '$_id.categoryId',
+          categoryName: { $first: '$categoryName' },
+          totalRevenue: { $sum: '$orderRevenue' },
+          totalOrders: { $sum: 1 },
+        },
+      },
+      {
+        $project: {
+          category: '$categoryName',
+          totalRevenue: 1,
+          totalOrders: 1,
+          averageOrderValue: { $divide: ['$totalRevenue', '$totalOrders'] },
+        },
+      },
+      { $sort: { [sortBy]: sortDirection } },
+      { $skip: skip },
+      { $limit: limit },
+    ]);
+
+    console.log('✅ getSalesByCategory - Result count:', result.length);
+    if (result.length > 0) {
+      console.log('📊 Sample data:', result.slice(0, 2));
+    }
+
+    const totalResult = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      { $unwind: '$products' },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'product.category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      // Only filter out if product or category is completely missing
+      {
+        $match: {
+          'product': { $exists: true, $ne: null },
+          'category': { $exists: true, $ne: null }
+        }
+      },
+      {
+        $group: {
+          _id: { orderId: '$_id', categoryId: '$category._id' },
+        },
+      },
+      {
+        $group: {
+          _id: '$_id.categoryId',
+        },
+      },
+      { $count: 'total' },
+    ]);
+
+    const totalRecords = totalResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return {
+      message: 'Sales by category fetched successfully',
+      data: {
+        data: result,
+        pagination: { currentPage: page, totalPages, totalRecords },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getSalesByCategory:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get top selling products
+ */
+const getTopSellingProducts = async ({
+  from,
+  to,
+  limit = 10,
+}: {
+  from: Date;
+  to: Date;
+  limit?: number;
+}): CustomResponsePromise<Array<{ productName: string; unitsSold: number; revenue: number }>> => {
+  try {
+    const result = await Order.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      { $unwind: '$products' },
+      {
+        $group: {
+          _id: '$products.product',
+          unitsSold: { $sum: '$products.qty' },
+          revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
+        },
+      },
+      { $sort: { unitsSold: -1 } },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          productName: '$product.name',
+          unitsSold: 1,
+          revenue: 1,
+        },
+      },
+    ]);
+
+    return {
+      message: 'Top selling products fetched successfully',
+      data: result,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getTopSellingProducts:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get orders table with pagination and filters
+ */
+const getOrdersTable = async ({
+  from,
+  to,
+  page = 1,
+  limit = 10,
+  status,
+  sortBy = 'createdAt',
+  sortOrder = 'desc',
+}: {
+  from: Date;
+  to: Date;
+  page?: number;
+  limit?: number;
+  status?: string;
+  sortBy?: string;
+  sortOrder?: string;
+}): CustomResponsePromise<{
+  data: any[];
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+    const sortDirection = sortOrder === 'desc' ? -1 : 1;
+
+    const matchQuery: any = { createdAt: { $gte: from, $lte: to } };
+    if (status) {
+      matchQuery.status = status;
+    }
+
+    const orders = await Order.find(matchQuery)
+      .sort({ [sortBy]: sortDirection })
+      .skip(skip)
+      .limit(limit)
+      .populate('user', 'firstName lastName email')
+      .lean();
+
+    const totalRecords = await Order.countDocuments(matchQuery);
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    // Map 'total' field to 'totalAmount' for frontend compatibility
+    const mappedOrders = orders.map((order: any) => ({
+      ...order,
+      totalAmount: order.total,
+    }));
+
+    return {
+      message: 'Orders table fetched successfully',
+      data: {
+        data: mappedOrders,
+        pagination: { currentPage: page, totalPages, totalRecords },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getOrdersTable:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get transactions table with pagination and filters
+ */
+const getTransactionsTable = async ({
+  from,
+  to,
+  page = 1,
+  limit = 10,
+  status,
+  method,
+  sortBy = 'createdAt',
+  sortOrder = 'desc',
+}: {
+  from: Date;
+  to: Date;
+  page?: number;
+  limit?: number;
+  status?: string;
+  method?: string;
+  sortBy?: string;
+  sortOrder?: string;
+}): CustomResponsePromise<{
+  data: any[];
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+    const sortDirection = sortOrder === 'desc' ? -1 : 1;
+
+    const matchQuery: any = { createdAt: { $gte: from, $lte: to } };
+    if (status) {
+      matchQuery.status = status;
+    }
+    if (method) {
+      matchQuery.paymentMethod = method;
+    }
+
+    const transactions = await Transaction.find(matchQuery)
+      .sort({ [sortBy]: sortDirection })
+      .skip(skip)
+      .limit(limit)
+      .populate('userId', 'firstName lastName email')
+      .lean();
+
+    const totalRecords = await Transaction.countDocuments(matchQuery);
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return {
+      message: 'Transactions table fetched successfully',
+      data: {
+        data: transactions,
+        pagination: { currentPage: page, totalPages, totalRecords },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getTransactionsTable:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get top customers by total spend
+ */
+const getTopCustomers = async ({
+  from,
+  to,
+  page = 1,
+  limit = 10,
+}: {
+  from: Date;
+  to: Date;
+  page?: number;
+  limit?: number;
+}): CustomResponsePromise<{
+  data: Array<{ customerId: string; customerName: string; customerEmail: string; totalSpent: number; orderCount: number }>;
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+
+    const result = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      {
+        $group: {
+          _id: '$userId',
+          totalSpent: { $sum: '$total' },
+          orderCount: { $sum: 1 },
+        },
+      },
+      { $sort: { totalSpent: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'user',
+        },
+      },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          customerId: '$_id',
+          customerName: { $concat: ['$user.firstName', ' ', '$user.lastName'] },
+          customerEmail: '$user.email',
+          totalSpent: 1,
+          orderCount: 1,
+        },
+      },
+    ]);
+
+    const totalResult = await Order.aggregate([
+      { 
+        $match: { 
+          createdAt: { $gte: from, $lte: to },
+          status: { $nin: ['Cancelled', 'Failed'] }
+        } 
+      },
+      { $group: { _id: '$userId' } },
+      { $count: 'total' },
+    ]);
+
+    const totalRecords = totalResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return {
+      message: 'Top customers fetched successfully',
+      data: {
+        data: result,
+        pagination: { currentPage: page, totalPages, totalRecords },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getTopCustomers:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get product performance table
+ */
+const getProductPerformance = async ({
+  from,
+  to,
+  page = 1,
+  limit = 10,
+  sortBy = 'revenue',
+  sortOrder = 'desc',
+}: {
+  from: Date;
+  to: Date;
+  page?: number;
+  limit?: number;
+  sortBy?: string;
+  sortOrder?: string;
+}): CustomResponsePromise<{
+  data: Array<{ productId: string; productName: string; coverImage: string | null; revenue: number; unitsSold: number; averageRating: number; reviewCount: number }>;
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+    const sortDirection = sortOrder === 'desc' ? -1 : 1;
+
+    const result = await Order.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      { $unwind: '$products' },
+      {
+        $group: {
+          _id: '$products.product',
+          revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
+          unitsSold: { $sum: '$products.qty' },
+        },
+      },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'reviews',
+          localField: '_id',
+          foreignField: 'product',
+          as: 'reviews',
+        },
+      },
+      {
+        $project: {
+          productId: '$_id',
+          productName: '$product.name',
+          coverImage: {
+            $let: {
+              vars: {
+                coverImg: {
+                  $arrayElemAt: [
+                    {
+                      $filter: {
+                        input: '$product.description_images',
+                        cond: { $eq: ['$$this.cover_image', true] }
+                      }
+                    },
+                    0
+                  ]
+                }
+              },
+              in: { $ifNull: ['$$coverImg.url', null] }
+            }
+          },
+          revenue: { $ifNull: ['$revenue', 0] },
+          unitsSold: { $ifNull: ['$unitsSold', 0] },
+          averageRating: { $ifNull: [{ $avg: '$reviews.rating' }, 0] },
+          reviewCount: { $ifNull: [{ $size: '$reviews' }, 0] },
+        },
+      },
+      { $sort: { [sortBy]: sortDirection } },
+      { $skip: skip },
+      { $limit: limit },
+    ]);
+
+    const totalResult = await Order.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      { $unwind: '$products' },
+      { $group: { _id: '$products.product' } },
+      { $count: 'total' },
+    ]);
+
+    const totalRecords = totalResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return {
+      message: 'Product performance fetched successfully',
+      data: {
+        data: result,
+        pagination: { currentPage: page, totalPages, totalRecords },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getProductPerformance:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get reviews table with pagination and filters
+ */
+const getReviewsTable = async ({
+  from,
+  to,
+  page = 1,
+  limit = 10,
+  rating,
+  status,
+  sortBy = 'createdAt',
+}: {
+  from: Date;
+  to: Date;
+  page?: number;
+  limit?: number;
+  rating?: number;
+  status?: string;
+  sortBy?: string;
+}): CustomResponsePromise<{
+  data: any[];
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+
+    const matchQuery: any = { createdAt: { $gte: from, $lte: to } };
+    if (rating) {
+      matchQuery.rating = rating;
+    }
+    if (status) {
+      matchQuery.status = status;
+    }
+
+    const reviews = await Review.find(matchQuery)
+      .sort({ [sortBy]: -1 })
+      .skip(skip)
+      .limit(limit)
+      .populate('reviewBy', 'firstName lastName email')
+      .populate('product', 'name')
+      .lean();
+
+    const totalRecords = await Review.countDocuments(matchQuery);
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    // Map 'review' field to 'comment' and 'isApproved' to 'status' for frontend compatibility
+    const mappedReviews = reviews.map((review: any) => ({
+      ...review,
+      comment: review.review || '', // Map review -> comment
+      status: review.isApproved ? 'Approved' : 'Pending', // Map isApproved -> status
+    }));
+
+    return {
+      message: 'Reviews table fetched successfully',
+      data: {
+        data: mappedReviews,
+        pagination: { currentPage: page, totalPages, totalRecords },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getReviewsTable:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get top coupons by redemption count
+ */
+const getTopCoupons = async ({
+  from,
+  to,
+  page = 1,
+  limit = 10,
+}: {
+  from: Date;
+  to: Date;
+  page?: number;
+  limit?: number;
+}): CustomResponsePromise<{
+  data: Array<{ couponCode: string; redemptionCount: number; totalDiscount: number }>;
+  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+}> => {
+  try {
+    const skip = (page - 1) * limit;
+
+    const result = await CouponRedemption.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: '$coupon',
+          redemptionCount: { $sum: 1 },
+          totalDiscount: { $sum: '$amountDiscounted' },
+        },
+      },
+      { $sort: { redemptionCount: -1 } },
+      { $skip: skip },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'coupons',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'couponData',
+        },
+      },
+      { $unwind: { path: '$couponData', preserveNullAndEmptyArrays: true } },
+      {
+        $project: {
+          couponCode: '$couponData.coupon',
+          redemptionCount: 1,
+          totalDiscount: 1,
+        },
+      },
+    ]);
+
+    const totalResult = await CouponRedemption.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      { $group: { _id: '$coupon' } },
+      { $count: 'total' },
+    ]);
+
+    const totalRecords = totalResult[0]?.total || 0;
+    const totalPages = Math.ceil(totalRecords / limit);
+
+    return {
+      message: 'Top coupons fetched successfully',
+      data: {
+        data: result,
+        pagination: { currentPage: page, totalPages, totalRecords },
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getTopCoupons:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get most wishlisted products
+ */
+const getMostWishlistedProducts = async ({
+  from,
+  to,
+  limit = 10,
+}: {
+  from: Date;
+  to: Date;
+  limit?: number;
+}): CustomResponsePromise<Array<{ productId: string; productName: string; coverImage: string | null; wishlistCount: number }>> => {
+  try {
+    const result = await Wishlist.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: '$product',
+          wishlistCount: { $sum: 1 },
+        },
+      },
+      { $sort: { wishlistCount: -1 } },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      {
+        $match: {
+          'product.name': { $exists: true, $ne: null }
+        }
+      },
+      {
+        $project: {
+          productId: '$_id',
+          productName: '$product.name',
+          coverImage: {
+            $let: {
+              vars: {
+                coverImg: {
+                  $arrayElemAt: [
+                    {
+                      $filter: {
+                        input: '$product.description_images',
+                        cond: { $eq: ['$$this.cover_image', true] }
+                      }
+                    },
+                    0
+                  ]
+                }
+              },
+              in: { $ifNull: ['$$coverImg.url', null] }
+            }
+          },
+          wishlistCount: 1,
+        },
+      },
+    ]);
+
+    return {
+      message: 'Most wishlisted products fetched successfully',
+      data: result,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getMostWishlistedProducts:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get most reviewed products
+ */
+const getMostReviewedProducts = async ({
+  from,
+  to,
+  limit = 10,
+}: {
+  from: Date;
+  to: Date;
+  limit?: number;
+}): CustomResponsePromise<Array<{ productId: string; productName: string; coverImage: string | null; reviewCount: number; averageRating: number }>> => {
+  try {
+    const result = await Review.aggregate([
+      { $match: { createdAt: { $gte: from, $lte: to } } },
+      {
+        $group: {
+          _id: '$product',
+          reviewCount: { $sum: 1 },
+          averageRating: { $avg: '$rating' },
+        },
+      },
+      { $sort: { reviewCount: -1 } },
+      { $limit: limit },
+      {
+        $lookup: {
+          from: 'products',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
+      {
+        $match: {
+          'product.name': { $exists: true, $ne: null }
+        }
+      },
+      {
+        $project: {
+          productId: '$_id',
+          productName: '$product.name',
+          coverImage: {
+            $let: {
+              vars: {
+                coverImg: {
+                  $arrayElemAt: [
+                    {
+                      $filter: {
+                        input: '$product.description_images',
+                        cond: { $eq: ['$$this.cover_image', true] }
+                      }
+                    },
+                    0
+                  ]
+                }
+              },
+              in: { $ifNull: ['$$coverImg.url', null] }
+            }
+          },
+          reviewCount: 1,
+          averageRating: 1,
+        },
+      },
+    ]);
+
+    return {
+      message: 'Most reviewed products fetched successfully',
+      data: result,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getMostReviewedProducts:', error);
+    return { message: 'Internal server error', data: null, code: 500 };
+  }
+};
+
 export default {
   getSellerStatistics,
   getTotalSales,
@@ -4544,4 +6857,36 @@ export default {
   getSalesDiscountTotalByDays,
   getSalesDiscountTotalByMonths,
   getSalesDiscountTotalByYears,
+  // New analytics endpoints
+  getSalesOverview,
+  getOrdersOverview,
+  getTransactionsOverview,
+  getUsersOverview,
+  getProductsOverview,
+  getReviewsOverview,
+  getCouponsOverview,
+  getRevenueExpenseChart,
+  getOrdersTrend,
+  getTransactionsTrend,
+  getCustomerAcquisition,
+  getOrderStatusDistribution,
+  getTransactionStatusDistribution,
+  getRatingDistribution,
+  getReviewSentiment,
+  getCouponRedemptionTrend,
+  getPaymentMethods,
+  getTopProductsRevenue,
+  getCategoriesPerformance,
+  getUserDemographics,
+  getCouponTypeDistribution,
+  getSalesByCategory,
+  getTopSellingProducts,
+  getOrdersTable,
+  getTransactionsTable,
+  getTopCustomers,
+  getProductPerformance,
+  getReviewsTable,
+  getTopCoupons,
+  getMostWishlistedProducts,
+  getMostReviewedProducts,
 };
