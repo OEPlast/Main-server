@@ -36,6 +36,8 @@ This plan covers end-to-end backend and admin frontend changes for shipments and
 - Courier users are users that either:
   - Have permission to the `delivery` resource, OR
   - Have role `owner`.
+  
+  Frontend alignment (admin): Ensure the admin app’s permission types and hooks include `'delivery'` and provide `hasPermission` helpers. See "Admin Frontend Changes → 0) Permissions" for details.
 
 ### 2) Auto-create Shipment on checkout
 
@@ -172,6 +174,27 @@ try {
 
 ## Admin Frontend Changes (apps/isomorphic)
 
+### 0) Permissions: surface the new DELIVERY resource across the app
+
+- Types and contracts
+  - Add 'delivery' to the central PermissionResource type/enum (e.g., `apps/isomorphic/src/types/permissions.ts` if present). Ensure it’s part of any discriminated unions used in the app.
+  - Confirm backend me/permissions response already includes the new resource. If shape differs, extend the TS interfaces accordingly.
+
+- Hook and helpers
+  - Update `apps/isomorphic/src/hooks/queries/usePermissions.ts` to include the DELIVERY resource in its types and to expose a stable `hasPermission` helper: `hasPermission(resource: 'delivery', action: 'read' | 'update')`.
+  - Enforce React Query best practices: use a stable placeholder (e.g., `placeholderData: { role: 'staff', permissions: [] as const }`) to avoid flicker and re-render loops.
+  - Memoize derived helpers with `useMemo` to keep referential stability.
+
+- UI gating
+  - Navigation: add the Delivery menu item and show it only if `hasPermission('delivery','read') || role === 'owner'`.
+  - Routes/pages: protect Delivery pages client-side by checking the same predicate; optionally add a lightweight server guard if the layout supports it.
+  - Actions: gate update actions (status, tracking, notes) behind `hasPermission('delivery','update')`.
+  - Shipments pages: if Delivery actions are surfaced inside Shipment views, gate the same buttons by the update permission.
+
+- QA
+  - Verify three personas: owner (see all Delivery), delivery-staff (see Delivery; limited actions), normal-staff (no Delivery in nav; 403 on direct route).
+  - Confirm no UI flicker on initial load due to placeholder usage in `usePermissions`.
+
 ### 1) Shipments page: add stats header
 
 - Add stats section to Shipments page, similar to Transactions stats.
@@ -295,6 +318,7 @@ ShipmentSchema.index({ status: 1, createdAt: -1 });
 - Delivery user sees only their deliveries, with stats and a filterable table.
 - Delivery user can update notes, tracking, and status until Delivered; blocked afterward.
 - `deliveredOn` gets set automatically upon Delivered transition.
+- Admin frontend recognizes the new `'delivery'` permission: Delivery menu visibility, route access, and action buttons are correctly gated by `hasPermission('delivery','read'|'update')` or owner role, with no flicker on initial render.
 
 ---
 
@@ -302,7 +326,7 @@ ShipmentSchema.index({ status: 1, createdAt: -1 });
 
 1) Backend: permission constant, shipment auto-create, shipment stats API, couriers list endpoint.
 2) Backend: delivery routes + validators + controller + service with guards.
-3) Frontend: hooks for stats, couriers, my deliveries; shipments stats UI; delivery pages.
+3) Frontend: permissions alignment (types + `usePermissions` + UI gating), hooks for stats, couriers, my deliveries; shipments stats UI; delivery pages.
 4) UI guards for Delivered; connect mutations.
 5) QA: Typecheck, run build, and test a few flows.
 

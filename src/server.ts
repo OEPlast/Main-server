@@ -13,6 +13,7 @@ import AuthRoute from '@/routes/auth/user';
 import OrderRoute from '@/routes/users/orders';
 import CartRoute from '@/routes/users/cart';
 import BannersRoute from '@/routes/general/banners';
+import UserBannersRoute from '@/routes/user/banners';
 import WishlistRoute from '@/routes/users/wishlist';
 import CheckoutRoute from '@/routes/users/checkout';
 import UserReviewsRoute from '@/routes/users/reviews';
@@ -80,6 +81,7 @@ app.use(morganMiddleware);
 // Root Route
 app.use('/auth', AuthRoute);
 app.use('/user', UserRoute);
+app.use('/banners', UserBannersRoute);
 app.use('/files', FileUploadRoute);
 app.use('/categories', CategoriesRoute);
 app.use('/banners', BannersRoute);

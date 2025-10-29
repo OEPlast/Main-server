@@ -710,6 +710,96 @@ async function getProductBySlug(slug: string): Promise<CustomResponseType<Produc
   }
 }
 
+/**
+ * Fetches top categories based on product purchase volume.
+ * Returns at most 10 categories sorted by total products sold.
+ */
+const getTopCategories = async (
+  limit = 10
+): Promise<
+  CustomResponseType<
+    Array<{
+      _id: string;
+      name: string;
+      slug: string;
+      image: string;
+    }>
+  >
+> => {
+  try {
+    const maxLimit = Math.min(limit, 10); // Cap at 10
+
+    const pipeline: PipelineStage[] = [
+      // Match completed orders only
+      { $match: { status: 'Completed' } },
+      // Unwind products array to get individual products
+      { $unwind: '$products' },
+      // Lookup product details
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'productDetails',
+        },
+      },
+      { $unwind: { path: '$productDetails', preserveNullAndEmptyArrays: false } },
+      // Lookup category details
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'productDetails.category',
+          foreignField: '_id',
+          as: 'categoryDetails',
+        },
+      },
+      { $unwind: { path: '$categoryDetails', preserveNullAndEmptyArrays: false } },
+      // Group by category
+      {
+        $group: {
+          _id: '$categoryDetails._id',
+          name: { $first: '$categoryDetails.name' },
+          slug: { $first: '$categoryDetails.slug' },
+          image: { $first: '$categoryDetails.image' },
+          totalSold: { $sum: '$products.qty' },
+          productCount: { $addToSet: '$products.product' },
+        },
+      },
+      // Count unique products per category
+      { $addFields: { productCount: { $size: '$productCount' } } },
+      // Sort by total sold descending
+      { $sort: { totalSold: -1 } },
+      // Limit to top N categories
+      { $limit: maxLimit },
+      // Format output
+      {
+        $project: {
+          _id: { $toString: '$_id' },
+          name: 1,
+          slug: 1,
+          image: 1,
+        },
+      },
+    ];
+
+    const results = await Order.aggregate(pipeline).exec();
+
+    return {
+      message: 'Top categories retrieved successfully',
+      data: results as Array<{
+        _id: string;
+        name: string;
+        slug: string;
+        image: string;
+      }>,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching top categories:', error);
+    return { message: 'Failed to fetch top categories', data: null, code: 500 };
+  }
+};
+
 const ProductService = {
   getAllProducts,
   getProductById,
@@ -722,6 +812,7 @@ const ProductService = {
   getHotSalesProducts,
   getProductRecommendations,
   recommendBasedOnCurrentProduct,
+  getTopCategories,
 };
 
 export default ProductService;

@@ -10,6 +10,7 @@ router.get('/search', ...ProductValidator.validateSearchQuery, ProductController
 router.get('/week', ProductController.getWeekProducts);
 router.get('/top-sold', ProductController.getTopSoldProducts);
 router.get('/hot-sales', ProductController.getHotSalesProducts);
+router.get('/top-categories', ProductController.getTopCategories);
 router.get('/recommendation', ProductController.getRecommendation);
 router.get('/recommendation4u', ProductController.getProductRecommendations);
 

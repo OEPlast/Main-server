@@ -280,6 +280,7 @@ const getProductById = async (id: string): Promise<CustomResponseType<ProductTyp
 
 /**
  * Duplicates an existing product.
+ * Creates a copy with unique name and slug by appending incrementing numbers (-1, -2, etc.)
  * @param id - The ID of the product to duplicate.
  */
 const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductType>> => {
@@ -293,23 +294,78 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
       };
     }
 
+    // Helper function to find next available suffix
+    const findNextAvailableName = async (baseName: string): Promise<string> => {
+      let counter = 1;
+      let productName = `${baseName}-${counter}`;
+      
+      while (await Product.exists({ name: productName })) {
+        counter++;
+        productName = `${baseName}-${counter}`;
+      }
+      
+      return productName;
+    };
+
+    const findNextAvailableSlug = async (baseSlug: string): Promise<string> => {
+      let counter = 1;
+      let productSlug = `${baseSlug}-${counter}`;
+      
+      while (await Product.exists({ slug: productSlug })) {
+        counter++;
+        productSlug = `${baseSlug}-${counter}`;
+      }
+      
+      return productSlug;
+    };
+
+    // Generate unique name and slug
+    const newName = await findNextAvailableName(product.name);
+    const newSlug = await findNextAvailableSlug(product.slug);
+
+    // Prepare duplicated product data by spreading and overriding
+    const productObj: any = product.toObject();
+    
     const duplicatedProductData = {
-      ...product.toObject(),
-      createdAt: undefined,
-      updatedAt: undefined,
-      status: 'inactive',
-      _id: undefined,
-      slug: `${product.slug}-copy`,
-      name: `${product.name} (Copy)`,
+      sku: productObj.sku,
+      name: newName,
+      description: productObj.description,
+      price: productObj.price,
+      slug: newSlug,
+      category: productObj.category,
+      tags: productObj.tags,
+      description_images: productObj.description_images,
+      specifications: productObj.specifications,
+      dimension: productObj.dimension,
+      shipping: productObj.shipping,
+      pricingTiers: productObj.pricingTiers,
+      stock: 0, // Reset stock to 0
+      lowStockThreshold: productObj.lowStockThreshold,
+      status: 'inactive' as const, // New duplicates start as inactive
+      // Reset attribute children stock to 0
+      attributes: productObj.attributes?.map((attr: any) => ({
+        name: attr.name,
+        children: attr.children?.map((child: any) => ({
+          name: child.name,
+          price: child.price,
+          stock: 0, // Reset stock
+          colorCode: child.colorCode,
+          pricingTiers: child.pricingTiers,
+        })),
+      })),
     };
 
     const duplicatedProduct = await Product.create(duplicatedProductData);
+    
     return {
       message: 'Product duplicated successfully',
       data: duplicatedProduct,
       code: 201,
     };
   } catch (error) {
+    if (isDuplicateKeyError(error)) {
+      return { message: duplicateMessage(error, 'Product'), data: null, code: 400 };
+    }
     console.error('Error duplicating product:', error);
     return {
       message: 'Failed to duplicate product',

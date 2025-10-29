@@ -85,12 +85,13 @@ router.patch(
   Admin_ProductController.updateProduct
 );
 
-// Update sub-product
+// Duplicate product
 router.post(
   '/duplicate/:id',
   authenticateUser,
   isAdmin,
   requirePermission('products', 'create'),
+  ProductValidator.duplicateProductValidator,
   Admin_ProductController.duplicateProduct
 );
 

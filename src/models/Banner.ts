@@ -21,6 +21,23 @@ const bannerSchema = new mongoose.Schema(
         message: `not a valid page link! Must start with '/'`,
       },
     },
+    headerText: {
+      type: String,
+      trim: true,
+    },
+    mainText: {
+      type: String,
+      trim: true,
+    },
+    CTA: {
+      type: String,
+      default: '#',
+      trim: true,
+    },
+    fullImage: {
+      type: Boolean,
+      default: true,
+    },
     active: {
       type: Boolean,
       default: false,

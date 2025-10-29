@@ -177,6 +177,19 @@ const getProductBySlug = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+// Get top categories by sales volume
+const getTopCategories = async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+    const { data, message, code } = await ProductService.getTopCategories(limit);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTopCategories:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export default {
   getAllProducts,
   searchProducts,
@@ -188,4 +201,5 @@ export default {
   getProductBySlug,
   getProductById,
   getRecommendation,
+  getTopCategories,
 };

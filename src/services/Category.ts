@@ -18,7 +18,10 @@ type CategoryWithSubs = CategoryType & {
 const getAllCategories = async (): Promise<CustomResponseTypeWithMeta<CategoryWithSubs[], { total: number }>> => {
   try {
     const pipeline: PipelineStage[] = [
-      { $sort: { createdAt: -1 } },
+      {
+        $match: { priority: true },
+      },
+      { $sort: { name: 1, createdAt: -1 } },
       {
         $facet: {
           data: [
@@ -111,6 +114,7 @@ const getCategoryById = async (categoryId: string): CustomResponseTypeWithMeta<C
                 slug: '$$sc.slug',
                 banner: '$$sc.banner',
                 description: '$$sc.description',
+                priority: '$$sc.priority',
               },
             },
           },
@@ -125,6 +129,7 @@ const getCategoryById = async (categoryId: string): CustomResponseTypeWithMeta<C
           slug: 1,
           description: 1,
           parent: 1,
+          priority: 1,
           createdAt: 1,
           updatedAt: 1,
           sub_categories: 1,

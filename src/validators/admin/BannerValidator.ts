@@ -34,6 +34,41 @@ const createBannerValidator = (req: Request, res: Response, next: NextFunction) 
       },
       errorMessage: 'Page link is required and must start with "/"',
     },
+    headerText: {
+      in: ['body'],
+      isString: true,
+      optional: true,
+      errorMessage: 'Header text should be a string',
+      isLength: {
+        options: { min: 1, max: 200 },
+        errorMessage: 'Header text should be between 1 and 200 characters',
+      },
+    },
+    mainText: {
+      in: ['body'],
+      isString: true,
+      optional: true,
+      errorMessage: 'Main text should be a string',
+      isLength: {
+        options: { min: 1, max: 500 },
+        errorMessage: 'Main text should be between 1 and 500 characters',
+      },
+    },
+    CTA: {
+      in: ['body'],
+      isString: true,
+      optional: true,
+      errorMessage: 'CTA should be a string',
+      isLength: {
+        options: { min: 1, max: 100 },
+        errorMessage: 'CTA should be between 1 and 100 characters',
+      },
+    },
+    fullImage: {
+      in: ['body'],
+      isBoolean: true,
+      errorMessage: 'Full image should be a boolean',
+    },
     active: {
       in: ['body'],
       isBoolean: true,
@@ -99,6 +134,39 @@ const updateBannerValidator = (req: Request, res: Response, next: NextFunction) 
           return true;
         },
       },
+    },
+    headerText: {
+      in: ['body'],
+      isString: true,
+      optional: true,
+      isLength: {
+        options: { min: 1, max: 200 },
+        errorMessage: 'Header text should be between 1 and 200 characters',
+      },
+    },
+    mainText: {
+      in: ['body'],
+      isString: true,
+      optional: true,
+      isLength: {
+        options: { min: 1, max: 500 },
+        errorMessage: 'Main text should be between 1 and 500 characters',
+      },
+    },
+    CTA: {
+      in: ['body'],
+      isString: true,
+      optional: true,
+      isLength: {
+        options: { min: 1, max: 100 },
+        errorMessage: 'CTA should be between 1 and 100 characters',
+      },
+    },
+    fullImage: {
+      in: ['body'],
+      isBoolean: true,
+      optional: true,
+      errorMessage: 'Full image should be a boolean',
     },
     active: {
       in: ['body'],

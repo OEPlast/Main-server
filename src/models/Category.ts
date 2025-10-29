@@ -31,7 +31,10 @@ const categorySchema = new mongoose.Schema(
         ref: 'Category',
       },
     ],
-    
+    priority: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

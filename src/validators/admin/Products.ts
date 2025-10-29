@@ -480,6 +480,22 @@ const checkSlugValidator = async (req: Request, res: Response, next: NextFunctio
   next();
 };
 
+const duplicateProductValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      id: {
+        in: ['params'],
+        isMongoId: true,
+        notEmpty: true,
+        errorMessage: 'Product ID is required and must be a valid MongoDB ObjectId',
+      },
+    })
+  ).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  next();
+};
+
 const ProductValidator = {
   createProductValidator,
   updateProductValidator,
@@ -496,6 +512,7 @@ const ProductValidator = {
   removeSpecificationValidator,
   checkSkuValidator,
   checkSlugValidator,
+  duplicateProductValidator,
 };
 
 export default ProductValidator;
