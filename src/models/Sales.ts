@@ -44,14 +44,18 @@ const salesSchema = new mongoose.Schema(
       unique: true,
     },
     isActive: {
-      type: Boolean,
-      default: false,
-    },
-    createdBy: {
-      type: mongoose.Schema.ObjectId,
-      ref: 'User',
-      required: true,
-    },
+    type: Boolean,
+    default: false,
+  },
+  isHot: {
+    type: Boolean,
+    default: false,
+  },
+  createdBy: {
+    type: mongoose.Schema.ObjectId,
+    ref: 'User',
+    required: true,
+  },
     updatedBy: {
       type: mongoose.Schema.ObjectId,
       ref: 'User',

@@ -31,6 +31,37 @@ pricingTierSchema.path('maxQty').validate(function (this: { minQty: number }, v:
   return v == null || v >= this.minQty;
 }, 'maxQty must be >= minQty');
 
+// Pack size schema for bulk/wholesale products
+// Defines how a product can be sold (e.g., Single, Bag of 10, Carton of 50)
+const packSizeSchema = new mongoose.Schema(
+  {
+    label: {
+      type: String,
+      required: true, // e.g., "Single", "Bag of 10", "Carton of 50"
+    },
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1, // how many base units in this pack
+    },
+    price: {
+      type: Number,
+      min: 0,
+      required: false, // optional — falls back to base product price * quantity
+    },
+    stock: {
+      type: Number,
+      min: 0,
+      required: false, // optional — falls back to base product stock
+    },
+    enableAttributes: {
+      type: Boolean,
+      default: false, // true => allow attribute selection (e.g., color/material)
+    },
+  },
+  { _id: false }
+);
+
 const attributeSchema = new mongoose.Schema(
   {
     name: {
@@ -151,11 +182,23 @@ const productSchema = new mongoose.Schema(
       type: [pricingTierSchema],
       default: undefined,
     },
+    packSizes: {
+      type: [packSizeSchema],
+      default: undefined, // optional — product may have no pack sizes defined
+    },
     stock: {
       type: Number,
       required: true,
       default: 0,
       min: 0,
+    },
+    originStock: {
+      type: Number,
+      required: true,
+      default: 0,
+      min: 0,
+      // This field captures the initial stock value when stock is set/updated
+      // Used to calculate sold quantity from sales data
     },
     lowStockThreshold: {
       type: Number,
@@ -177,4 +220,3 @@ const productSchema = new mongoose.Schema(
 export type ProductType = InferSchemaType<typeof productSchema>;
 const Product = mongoose.model('Product', productSchema);
 export default Product;
-//dimenaions

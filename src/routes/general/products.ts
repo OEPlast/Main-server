@@ -6,13 +6,16 @@ const router = Router();
 
 router.get('/all', ...ProductValidator.validateProductQuery, ProductController.getAllProducts);
 router.get('/search', ...ProductValidator.validateSearchQuery, ProductController.searchProducts);
+router.get('/autocomplete', ProductController.searchAutocomplete);
 
-router.get('/week', ProductController.getWeekProducts);
+router.get('/new-products', ProductController.getNewProducts);
+router.get('/top-week', ProductController.getWeekProducts);
 router.get('/top-sold', ProductController.getTopSoldProducts);
 router.get('/hot-sales', ProductController.getHotSalesProducts);
-router.get('/top-categories', ProductController.getTopCategories);
+router.get('/deals-of-the-day', ProductController.getDealsOfTheDay);
 router.get('/recommendation', ProductController.getRecommendation);
 router.get('/recommendation4u', ProductController.getProductRecommendations);
+router.get('/top-categories', ProductController.getTopCategories);
 
 router.get('/category/:slug', ...ProductValidator.validateCategorySlug, ProductController.getByCategorySlug);
 router.get('/by-slug/:slug', ...validateProductSlug, ProductController.getProductBySlug);

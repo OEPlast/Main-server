@@ -68,6 +68,37 @@ const getOrders = async (
       });
     }
 
+    // Calculate total items (sum of all product quantities)
+    pipeline.push({
+      $addFields: {
+        totalQty: {
+          $sum: '$products.qty'
+        }
+      }
+    });
+
+    // Lookup transaction to get payment status
+    pipeline.push({
+      $lookup: {
+        from: 'transactions',
+        localField: 'transactionId',
+        foreignField: '_id',
+        as: 'transactionDetails'
+      }
+    });
+
+    // Add paymentStatus field from transaction
+    pipeline.push({
+      $addFields: {
+        paymentStatus: {
+          $ifNull: [
+            { $arrayElemAt: ['$transactionDetails.status', 0] },
+            'pending'
+          ]
+        }
+      }
+    });
+
     // Sort by creation date
     pipeline.push({ $sort: { createdAt: -1 } });
 
@@ -84,10 +115,11 @@ const getOrders = async (
       );
     }
 
-    // Remove transaction field from final result (keeping it lean)
+    // Remove transaction fields from final result (keeping it lean)
     pipeline.push({
       $project: {
-        transaction: 0
+        transaction: 0,
+        transactionDetails: 0
       }
     });
 

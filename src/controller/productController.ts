@@ -80,7 +80,7 @@ const searchProducts = async (req: Request, res: Response) => {
 const getWeekProducts = async (req: Request, res: Response) => {
   try {
     const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
-    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
     const { data, message, code, meta } = await ProductService.getWeekProducts(page, limit);
     return res.status(code).json({ message, data, meta });
   } catch (error) {
@@ -93,7 +93,7 @@ const getWeekProducts = async (req: Request, res: Response) => {
 const getTopSoldProducts = async (req: Request, res: Response) => {
   try {
     const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
-    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
     const { data, message, code, meta } = await ProductService.getTopSoldProducts(page, limit);
     return res.status(code).json({ message, data, meta });
   } catch (error) {
@@ -106,7 +106,7 @@ const getTopSoldProducts = async (req: Request, res: Response) => {
 const getHotSalesProducts = async (req: Request, res: Response) => {
   try {
     const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
-    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
     const { data, message, code, meta } = await ProductService.getHotSalesProducts(page, limit);
     return res.status(code).json({ message, data, meta });
   } catch (error) {
@@ -159,8 +159,31 @@ const getByCategorySlug = async (req: Request, res: Response) => {
     const { slug } = req.params;
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
-    const sort = (req.query.sort as 'newest' | 'price_asc' | 'price_desc' | 'popular') || 'newest';
-    const { data, message, code, meta } = await ProductService.getByCategorySlug(slug, page, limit, sort);
+    
+    // Parse sort parameter - can be array or single value
+    // Examples:
+    // ?sort=alphabetical (single)
+    // ?sort=alphabetical,newest (comma-separated)
+    // ?sort[]=price_asc&sort[]=alphabetical (array notation)
+    let sortOptions: Array<'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'>;
+    
+    if (req.query.sort) {
+      if (Array.isArray(req.query.sort)) {
+        // Array notation: ?sort[]=alphabetical&sort[]=newest
+        sortOptions = req.query.sort as any[];
+      } else if (typeof req.query.sort === 'string') {
+        // Comma-separated: ?sort=alphabetical,newest or single: ?sort=alphabetical
+        sortOptions = req.query.sort.split(',').map(s => s.trim()) as any[];
+      } else {
+        // Default if invalid
+        sortOptions = ['alphabetical', 'newest'];
+      }
+    } else {
+      // No sort parameter provided - use default
+      sortOptions = ['alphabetical', 'newest'];
+    }
+
+    const { data, message, code, meta } = await ProductService.getByCategorySlug(slug, page, limit, sortOptions);
     return res.status(code).json({ message, data, meta });
   } catch (error) {
     console.error('Error in getByCategorySlug:', error);
@@ -190,6 +213,45 @@ const getTopCategories = async (req: Request, res: Response) => {
   }
 };
 
+// Get new products
+const getNewProducts = async (req: Request, res: Response) => {
+  try {
+    const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
+    const { data, message, code, meta } = await ProductService.getNewProducts(page, limit);
+    return res.status(code).json({ message, data, meta });
+  } catch (error) {
+    console.error('Error in getNewProducts:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Search autocomplete
+const searchAutocomplete = async (req: Request, res: Response) => {
+  try {
+    const query = (req.query.q as string) || '';
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+    const { data, message, code } = await ProductService.searchAutocomplete(query, limit);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in searchAutocomplete:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Get products from "Deals of the Day" campaign
+const getDealsOfTheDay = async (req: Request, res: Response) => {
+  try {
+    const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
+    const { data, message, code, meta } = await ProductService.getDealsOfTheDay(page, limit);
+    return res.status(code).json({ message, data, meta });
+  } catch (error) {
+    console.error('Error in getDealsOfTheDay:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export default {
   getAllProducts,
   searchProducts,
@@ -202,4 +264,7 @@ export default {
   getProductById,
   getRecommendation,
   getTopCategories,
+  getNewProducts,
+  searchAutocomplete,
+  getDealsOfTheDay,
 };

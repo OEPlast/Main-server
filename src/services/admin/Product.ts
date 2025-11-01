@@ -108,7 +108,13 @@ const createProduct = async (data: CreateProductData): Promise<CustomResponseTyp
       }
     }
 
-    const newProduct = await Product.create(newData);
+    // Set originStock to the initial stock value
+    const productDataWithOriginStock = {
+      ...newData,
+      originStock: newData.stock,
+    };
+
+    const newProduct = await Product.create(productDataWithOriginStock);
     return {
       message: 'Product created successfully',
       data: newProduct as unknown as ProductType,
@@ -175,6 +181,11 @@ const updateProduct = async (
         }
         (data as Partial<ProductType>).slug = candidate as unknown as ProductType['slug'];
       }
+    }
+
+    // Update originStock when stock is being updated
+    if (data.stock !== undefined && data.stock !== existing.stock) {
+      (data as any).originStock = data.stock;
     }
 
     const updatedProduct = await Product.findByIdAndUpdate(id, data, { new: true });

@@ -99,6 +99,7 @@ const getAllCategories = async ({
                 image: 1,
                 slug: 1,
                 description: 1,
+                priority: 1,
                 parent: 1,
                 createdAt: 1,
                 updatedAt: 1,

@@ -1,5 +1,6 @@
 import Order from '@/models/Order';
 import Product, { ProductType } from '../models/Product';
+import Sales, { SalesType } from '../models/Sales';
 import Category from '@/models/Category';
 import mongoose, { PipelineStage } from 'mongoose';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
@@ -7,6 +8,43 @@ import AnalyticsService from './MainAnalyticsService';
 
 function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Adds sale lookup stages to aggregation pipeline.
+ * Populates active sales for products (one sale per product).
+ */
+function addSaleLookupStages(): any[] {
+  return [
+    {
+      $lookup: {
+        from: 'sales',
+        let: { productId: '$_id' },
+        pipeline: [
+          {
+            $match: {
+              $expr: { $eq: ['$product', '$$productId'] },
+              isActive: true,
+              deleted: false,
+            },
+          },
+          { $limit: 1 }, // Only one sale per product
+        ],
+        as: 'saleData',
+      },
+    },
+    {
+      $addFields: {
+        sale: { $arrayElemAt: ['$saleData', 0] },
+                packSizes: 1,
+      },
+    },
+    {
+      $project: {
+        saleData: 0, // Remove temporary field
+      },
+    },
+  ];
 }
 
 /**
@@ -140,41 +178,45 @@ const getAllProducts = async (
     pipeline.push({ $sort: sortStage });
 
     // Facet for data and total count
-    pipeline.push(
-      {
-        $facet: {
-          data: [
-            { $skip: (page - 1) * limit },
-            { $limit: limit },
-            {
-              $project: {
-                _id: 1,
-                name: 1,
-                price: 1,
-                sku: 1,
-                tags: 1,
-                slug: 1,
-                attributes: 1,
-                category: {
-                  _id: '$category._id',
-                  name: '$category.name',
-                  image: '$category.image',
-                  slug: '$category.slug',
-                },
-                description_images: 1,
+    pipeline.push({
+      $facet: {
+        data: [
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          ...addSaleLookupStages(), // Add sale population
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              price: 1,
+              sku: 1,
+              tags: 1,
+              slug: 1,
+              stock: 1,
+              originStock: 1,
+              packSizes: 1,
+              attributes: 1,
+              category: {
+                _id: '$category._id',
+                name: '$category.name',
+                image: '$category.image',
+                slug: '$category.slug',
               },
+              description_images: 1,
+              sale: 1, // Include sale field
             },
-          ],
-          totalCount: [{ $count: 'total' }],
-        },
+          },
+        ],
+        totalCount: [{ $count: 'total' }],
       },
-      {
-        $project: {
-          data: 1,
-          total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
-        },
-      }
-    );
+    });
+
+    pipeline.push({
+      $project: {
+        data: 1,
+        total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
+      },
+    });
 
     const agg = await Product.aggregate(pipeline).exec();
     const products = (agg[0]?.data as ProductType[]) || [];
@@ -196,9 +238,25 @@ const getAllProducts = async (
  * Fetches a product by its ID.
  * @param productId - The ID of the product.
  */
-const getProductById = async (productId: string): Promise<CustomResponseType<ProductType>> => {
+const getProductById = async (productId: string): Promise<CustomResponseType<ProductType & { sale?: SalesType | null }>> => {
   try {
-    const product = await Product.findById(productId);
+    const pipeline: PipelineStage[] = [
+      { $match: { _id: new mongoose.Types.ObjectId(productId) } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      ...addSaleLookupStages(),
+    ];
+
+    const products = await Product.aggregate(pipeline).exec();
+    const product = products[0];
+
     if (!product) {
       return {
         message: 'Product not found',
@@ -339,16 +397,46 @@ const searchProducts = async (
     if (sortBy === 'name') sort.name = -1;
     // bestseller would require order aggregation; skipping here for performance
 
-    const products = await Product.find(filterConditions)
-      .sort(sort)
-      .skip((page - 1) * limit)
-      .limit(limit);
+    // Use aggregation for consistent sale population
+    const pipeline: PipelineStage[] = [
+      { $match: filterConditions },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      ...addSaleLookupStages(),
+    ];
 
-    const total = await Product.countDocuments(filterConditions);
+    if (Object.keys(sort).length) {
+      pipeline.push({ $sort: sort });
+    }
+
+    pipeline.push({
+      $facet: {
+        data: [{ $skip: (page - 1) * limit }, { $limit: limit }],
+        totalCount: [{ $count: 'total' }],
+      },
+    });
+
+    pipeline.push({
+      $project: {
+        data: 1,
+        total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
+      },
+    });
+
+    const agg = await Product.aggregate(pipeline).exec();
+    const products = (agg[0]?.data as ProductType[]) || [];
+    const total = (agg[0]?.total as number) || 0;
 
     return {
       message: 'Products retrieved successfully',
-      data: products as unknown as ProductType[],
+      data: products,
       code: 200,
       meta: { total, page, limit, pages: Math.ceil(total / limit) },
     };
@@ -363,7 +451,7 @@ const searchProducts = async (
  */
 const getWeekProducts = async (
   page = 1,
-  limit = 10
+  limit = 20
 ): CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; pages: number }> => {
   try {
     const weekStart = new Date();
@@ -389,6 +477,22 @@ const getWeekProducts = async (
             },
             { $unwind: '$productDetails' },
             { $replaceRoot: { newRoot: '$productDetails' } },
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                slug: 1,
+                price: 1,
+                sku: 1,
+                stock: 1,
+                originStock: 1,
+                rating: 1,
+                images: '$description_images', // Rename description_images to images
+                category: 1,
+                packSizes: 1,
+                attributes: 1,
+              },
+            },
           ],
           totalCount: [{ $count: 'total' }],
         },
@@ -439,6 +543,22 @@ const getTopSoldProducts = async (
             },
             { $unwind: '$productDetails' },
             { $replaceRoot: { newRoot: '$productDetails' } },
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                slug: 1,
+                price: 1,
+                sku: 1,
+                stock: 1,
+                originStock: 1,
+                rating: 1,
+                images: '$description_images', // Rename description_images to images
+                category: 1,
+                packSizes: 1,
+                attributes: 1,
+              },
+            },
           ],
           totalCount: [{ $count: 'total' }],
         },
@@ -453,7 +573,7 @@ const getTopSoldProducts = async (
       message: 'Top sold products retrieved successfully',
       data: results,
       code: 200,
-      meta: { total, page, limit, pages: Math.ceil(total / limit) },
+      meta: { total, page, limit, pages: Math.min(Math.ceil(total / limit), 9) },
     };
   } catch (error) {
     console.error('Error fetching top sold products:', error);
@@ -492,6 +612,22 @@ const getHotSalesProducts = async (
             },
             { $unwind: '$productDetails' },
             { $replaceRoot: { newRoot: '$productDetails' } },
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                slug: 1,
+                price: 1,
+                sku: 1,
+                stock: 1,
+                originStock: 1,
+                rating: 1,
+                images: '$description_images', // Rename description_images to images
+                category: 1,
+                packSizes: 1,
+                attributes: 1,
+              },
+            },
           ],
           totalCount: [{ $count: 'total' }],
         },
@@ -602,87 +738,304 @@ const recommendBasedOnCurrentProduct = async (
   }
 };
 // New: products by category slug (includes descendants)
+/**
+ * Get all products by category slug with subcategory support and multi-level sorting.
+ * 
+ * **Subcategory Handling**:
+ * - If category has subcategories, gets products from all subcategories
+ * - If category has no subcategories, gets products from that category only
+ * 
+ * **Multi-Sort Support**:
+ * - Accepts an array of sort options to apply in priority order
+ * - Default: ['alphabetical', 'newest'] - sorts A-Z first, then by newest
+ * - Example: ['price_asc', 'popular', 'alphabetical'] - price first, then popularity, then name
+ * 
+ * **Sort Options**:
+ * - alphabetical: A-Z by product name
+ * - newest: Recently added products first
+ * - price_asc: Lowest to highest price
+ * - price_desc: Highest to lowest price
+ * - popular: Trending products (30-day order volume)
+ * - order_frequency: Most ordered products (completed orders)
+ * - stock: By inventory quantity (may be commented)
+ * - rating: By review ratings (may be commented, requires Review model)
+ * 
+ * @param slug - Category slug
+ * @param page - Page number for pagination (default: 1)
+ * @param limit - Number of items per page (default: 20)
+ * @param sortOptions - Array of sort options in priority order (default: ['alphabetical', 'newest'])
+ * 
+ * @example
+ * // Default: alphabetical then newest
+ * getByCategorySlug('electronics', 1, 20, ['alphabetical', 'newest'])
+ * 
+ * @example
+ * // Price ascending, then most ordered, then name
+ * getByCategorySlug('fashion', 1, 20, ['price_asc', 'order_frequency', 'alphabetical'])
+ */
 async function getByCategorySlug(
   slug: string,
   page = 1,
   limit = 20,
-  sort: 'newest' | 'price_asc' | 'price_desc' | 'popular' = 'newest'
+  sortOptions: Array<'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'> = ['alphabetical', 'newest']
 ): CustomResponseTypeWithMeta<
   ProductType[],
-  { total: number; page: number; limit: number; pages: number; slug: string }
+  { total: number; page: number; limit: number; pages: number; slug: string; hasSubcategories: boolean }
 > {
   try {
-    const base = await Category.findOne({ slug });
-    if (!base) return { message: 'Category not found', data: null, code: 404 };
+    // Find the base category
+    const baseCategory = await Category.findOne({ slug });
+    if (!baseCategory) {
+      return { message: 'Category not found', data: null, code: 404 };
+    }
 
-    const sortStage: Record<string, 1 | -1> = {};
-    if (sort === 'newest') sortStage.createdAt = -1;
-    if (sort === 'price_asc') sortStage.price = 1;
-    if (sort === 'price_desc') sortStage.price = -1;
+    // Find all subcategories where this category is in their parent array
+    const subcategories = await Category.find({
+      parent: { $elemMatch: { $eq: baseCategory._id } },
+    }).select('_id');
+
+    const hasSubcategories = subcategories.length > 0;
+
+    // Build category match condition
+    let categoryIds: mongoose.Types.ObjectId[];
+    if (hasSubcategories) {
+      // Include base category + all subcategories
+      categoryIds = [baseCategory._id, ...subcategories.map((sub) => sub._id)];
+    } else {
+      // Only base category
+      categoryIds = [baseCategory._id];
+    }
 
     const pipeline: PipelineStage[] = [
-      // match all categories where base._id is in parent list or itself
+      // Step 1: Match products in the category or its subcategories
+      {
+        $match: {
+          category: { $in: categoryIds },
+          status: 'active',
+        },
+      },
+
+      // Step 2: Lookup category details
       {
         $lookup: {
           from: 'categories',
           localField: 'category',
           foreignField: '_id',
-          as: 'cat',
+          as: 'category',
         },
       },
-      { $unwind: '$cat' },
-      {
-        $match: {
-          $or: [
-            { 'cat._id': base._id },
-            { 'cat.parent': { $elemMatch: { $eq: new mongoose.Types.ObjectId(base._id) } } },
-          ],
-          status: 'active',
-        },
-      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
     ];
 
-    if (sort === 'popular') {
+    // Step 3: Build multi-level sorting based on sortOptions array
+    // Process each sort option in the array to determine which aggregation stages are needed
+    const needsOrderFrequency = sortOptions.includes('order_frequency');
+    const needsPopular = sortOptions.includes('popular');
+    const needsRating = sortOptions.includes('rating');
+
+    // Add aggregation stages for advanced sorting options
+    if (needsOrderFrequency) {
+      // Add order frequency calculation
       pipeline.push(
         {
           $lookup: {
             from: 'orders',
-            localField: '_id',
-            foreignField: 'products.product',
-            as: 'ord',
+            let: { productId: '$_id' },
+            pipeline: [
+              { $match: { status: 'Completed' } },
+              { $unwind: '$products' },
+              {
+                $match: {
+                  $expr: { $eq: ['$products.product', '$$productId'] },
+                },
+              },
+              {
+                $group: {
+                  _id: null,
+                  orderCount: { $sum: 1 },
+                  totalQuantity: { $sum: '$products.qty' },
+                },
+              },
+            ],
+            as: 'orderStats',
           },
         },
-        { $addFields: { salesCount: { $size: '$ord' } } },
-        { $sort: { salesCount: -1, createdAt: -1 } },
-        { $project: { ord: 0 } }
+        {
+          $addFields: {
+            orderFrequency: {
+              $ifNull: [{ $arrayElemAt: ['$orderStats.orderCount', 0] }, 0],
+            },
+            totalSold: {
+              $ifNull: [{ $arrayElemAt: ['$orderStats.totalQuantity', 0] }, 0],
+            },
+          },
+        }
       );
-    } else if (Object.keys(sortStage).length) {
+    }
+
+    if (needsPopular) {
+      // Add popularity calculation (30-day order volume)
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+      pipeline.push(
+        {
+          $lookup: {
+            from: 'orders',
+            let: { productId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  status: 'Completed',
+                  createdAt: { $gte: thirtyDaysAgo },
+                },
+              },
+              { $unwind: '$products' },
+              {
+                $match: {
+                  $expr: { $eq: ['$products.product', '$$productId'] },
+                },
+              },
+              {
+                $group: {
+                  _id: null,
+                  recentOrders: { $sum: 1 },
+                  recentQuantity: { $sum: '$products.qty' },
+                },
+              },
+            ],
+            as: 'popularityStats',
+          },
+        },
+        {
+          $addFields: {
+            popularityScore: {
+              $ifNull: [{ $arrayElemAt: ['$popularityStats.recentOrders', 0] }, 0],
+            },
+          },
+        }
+      );
+    }
+
+    // OPTION: Rating sorting (commented - requires Review model)
+    // Uncomment when Review model is implemented
+    // if (needsRating) {
+    //   pipeline.push(
+    //     {
+    //       $lookup: {
+    //         from: 'reviews',
+    //         localField: '_id',
+    //         foreignField: 'product',
+    //         as: 'reviews',
+    //       },
+    //     },
+    //     {
+    //       $addFields: {
+    //         averageRating: {
+    //           $cond: {
+    //             if: { $gt: [{ $size: '$reviews' }, 0] },
+    //             then: { $avg: '$reviews.rating' },
+    //             else: 0,
+    //           },
+    //         },
+    //         reviewCount: { $size: '$reviews' },
+    //       },
+    //     }
+    //   );
+    // }
+
+    // Build the combined sort stage from sortOptions array
+    const sortStage: Record<string, 1 | -1> = {};
+
+    for (const sortOption of sortOptions) {
+      switch (sortOption) {
+        case 'alphabetical':
+          sortStage.name = 1; // A-Z
+          break;
+        case 'newest':
+          sortStage.createdAt = -1; // Recent first
+          break;
+        case 'price_asc':
+          sortStage.price = 1; // Low to high
+          break;
+        case 'price_desc':
+          sortStage.price = -1; // High to low
+          break;
+        case 'order_frequency':
+          sortStage.orderFrequency = -1; // Most ordered first
+          sortStage.totalSold = -1; // Then by total quantity sold
+          break;
+        case 'popular':
+          sortStage.popularityScore = -1; // Most popular first (30-day)
+          break;
+        case 'stock':
+          // OPTION: Uncomment when ready to use stock sorting
+          // sortStage.stock = -1; // Highest stock first
+          break;
+        case 'rating':
+          // OPTION: Uncomment when Review model is implemented
+          // sortStage.averageRating = -1; // Highest rating first
+          // sortStage.reviewCount = -1; // Then by review count
+          break;
+      }
+    }
+
+    // Apply the combined sort stage
+    if (Object.keys(sortStage).length) {
       pipeline.push({ $sort: sortStage });
     }
 
-    pipeline.push(
-      {
-        $facet: {
-          data: [{ $skip: (page - 1) * limit }, { $limit: limit }],
-          total: [{ $count: 'count' }],
-        },
-      },
-      {
-        $project: {
-          data: 1,
-          total: { $ifNull: [{ $arrayElemAt: ['$total.count', 0] }, 0] },
-        },
-      }
-    );
+    // Clean up temporary fields
+    const cleanupFields: Record<string, 0> = {};
+    if (needsOrderFrequency) {
+      cleanupFields.orderStats = 0;
+    }
+    if (needsPopular) {
+      cleanupFields.popularityStats = 0;
+    }
+    if (Object.keys(cleanupFields).length) {
+      pipeline.push({ $project: cleanupFields });
+    }
 
+    // Step 4: Pagination with facet
+    pipeline.push({
+      $facet: {
+        data: [
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          ...addSaleLookupStages(), // Add sale information
+        ],
+        total: [{ $count: 'count' }],
+      },
+    });
+
+    // Step 5: Project final structure
+    pipeline.push({
+      $project: {
+        data: 1,
+        total: { $ifNull: [{ $arrayElemAt: ['$total.count', 0] }, 0] },
+      },
+    });
+
+    // Execute aggregation
     const agg = await Product.aggregate(pipeline).exec();
     const data = (agg[0]?.data as ProductType[]) || [];
     const total = (agg[0]?.total as number) || 0;
+
     return {
-      message: 'Products retrieved successfully',
-      data,
+      message: hasSubcategories
+        ? `Products retrieved from ${baseCategory.name} and its subcategories`
+        : `Products retrieved from ${baseCategory.name}`,
+      data: data,
       code: 200,
-      meta: { total, page, limit, pages: Math.ceil(total / limit), slug },
+      meta: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+        slug,
+        hasSubcategories,
+      },
     };
   } catch (e) {
     console.error('getByCategorySlug error:', e);
@@ -691,9 +1044,25 @@ async function getByCategorySlug(
 }
 
 // New: get single product by slug
-async function getProductBySlug(slug: string): Promise<CustomResponseType<ProductType>> {
+async function getProductBySlug(slug: string): Promise<CustomResponseType<ProductType & { sale?: SalesType | null }>> {
   try {
-    const product = await Product.findOne({ slug });
+    const pipeline: PipelineStage[] = [
+      { $match: { slug } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      ...addSaleLookupStages(),
+    ];
+
+    const products = await Product.aggregate(pipeline).exec();
+    const product = products[0];
+
     if (!product) {
       return { message: 'Product not found', data: null, code: 404 };
     }
@@ -712,7 +1081,7 @@ async function getProductBySlug(slug: string): Promise<CustomResponseType<Produc
 
 /**
  * Fetches top categories based on product purchase volume.
- * Returns at most 10 categories sorted by total products sold.
+ * Returns exactly 10 categories - top sellers first, then fills with other categories.
  */
 const getTopCategories = async (
   limit = 10
@@ -783,6 +1152,31 @@ const getTopCategories = async (
     ];
 
     const results = await Order.aggregate(pipeline).exec();
+    
+    // If we have fewer than the requested limit, fill with other categories
+    if (results.length < maxLimit) {
+      const topCategoryIds = results.map((cat) => new mongoose.Types.ObjectId(cat._id));
+      const remaining = maxLimit - results.length;
+
+      // Fetch additional categories that aren't in the top results
+      const additionalCategories = await Category.find({
+        _id: { $nin: topCategoryIds },
+      })
+        .select('_id name slug image')
+        .limit(remaining)
+        .lean();
+
+      // Format additional categories to match the output format
+      const formattedAdditional = additionalCategories.map((cat) => ({
+        _id: String(cat._id),
+        name: cat.name,
+        slug: cat.slug,
+        image: cat.image || '',
+      }));
+
+      // Combine top categories with additional ones
+      results.push(...formattedAdditional);
+    }
 
     return {
       message: 'Top categories retrieved successfully',
@@ -800,6 +1194,322 @@ const getTopCategories = async (
   }
 };
 
+/**
+ * Fetches newly added products (sorted by createdAt descending).
+ * Returns products with variants and sale information.
+ */
+const getNewProducts = async (
+  page = 1,
+  limit = 20
+): Promise<
+  CustomResponseTypeWithMeta<
+    (ProductType & { sale?: SalesType | null })[],
+    { total: number; page: number; limit: number; pages: number }
+  >
+> => {
+  try {
+    const pipeline: PipelineStage[] = [
+      { $match: { status: 'active' } },
+      { $sort: { createdAt: -1 } },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      {
+        $facet: {
+          data: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            ...addSaleLookupStages(), // Add sale population
+            {
+              $project: {
+                _id: 1,
+                name: 1,
+                slug: 1,
+                price: 1,
+                sku: 1,
+                stock: 1,
+                originStock: 1,
+                rating: 1,
+                images: '$description_images', // Rename description_images to images
+                category: 1,
+                attributes: 1,
+                sale: 1,
+              },
+            },
+          ],
+          totalCount: [{ $count: 'total' }],
+        },
+      },
+      {
+        $project: {
+          data: 1,
+          total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
+        },
+      },
+    ];
+
+    const agg = await Product.aggregate(pipeline).exec();
+    const products = (agg[0]?.data as ProductType[]) || [];
+    const total = (agg[0]?.total as number) || 0;
+
+    return {
+      message: 'New products retrieved successfully',
+      data: products,
+      code: 200,
+      meta: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching new products:', error);
+    return {
+      message: 'Failed to fetch new products',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Search autocomplete - returns quick product suggestions based on query.
+ * Returns minimal product info for fast autocomplete responses.
+ */
+const searchAutocomplete = async (
+  query: string,
+  limit = 10
+): Promise<
+  CustomResponseType<
+    Array<{
+      _id: string;
+      name: string;
+      slug: string;
+      price: number;
+      image?: string;
+      category?: { name: string; slug: string };
+    }>
+  >
+> => {
+  try {
+    if (!query || query.trim().length < 2) {
+      return {
+        message: 'Query too short',
+        data: [],
+        code: 200,
+      };
+    }
+
+    const escapedQuery = escapeRegex(query.trim());
+
+    const products = await Product.find({
+      status: 'active',
+      $or: [
+        { name: { $regex: escapedQuery, $options: 'i' } },
+        { description: { $regex: escapedQuery, $options: 'i' } },
+        { tags: { $elemMatch: { $regex: escapedQuery, $options: 'i' } } },
+      ],
+    })
+      .select('name slug price description_images')
+      .populate('category', 'name slug')
+      .limit(limit)
+      .lean();
+
+    const results = products.map((p: any) => ({
+      _id: p._id.toString(),
+      name: p.name,
+      slug: p.slug,
+      price: p.price,
+      image: p.description_images?.find((img: any) => img.cover_image)?.url || p.description_images?.[0]?.url,
+      category: p.category
+        ? {
+            name: p.category.name,
+            slug: p.category.slug,
+          }
+        : undefined,
+    }));
+
+    return {
+      message: 'Autocomplete results retrieved successfully',
+      data: results,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in search autocomplete:', error);
+    return {
+      message: 'Failed to fetch autocomplete results',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Get products from "Deals of the Day" campaign with pagination
+ * Uses full aggregation pipeline for efficient campaign lookup and product fetching
+ */
+const getDealsOfTheDay = async (
+  page = 1,
+  limit = 20
+): Promise<
+  CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; pages: number }>
+> => {
+  try {
+    const skip = (page - 1) * limit;
+    const now = new Date();
+    
+    // Single aggregation pipeline that:
+    // 1. Looks up the active campaign
+    // 2. Unwinds campaign products
+    // 3. Looks up product details
+    // 4. Adds sale and category information
+    // 5. Paginates results
+    const pipeline: PipelineStage[] = [
+      // Step 1: Match the active "Deals of the Day" campaign
+      {
+        $match: {
+          title: 'Deals of the Day',
+          status: 'active',
+          startDate: { $lte: now },
+          endDate: { $gte: now },
+        },
+      },
+      // Step 2: Limit to one campaign (should only be one anyway)
+      { $limit: 1 },
+      // Step 3: Unwind the products array to get individual product IDs
+      { $unwind: '$products' },
+      // Step 4: Lookup product details from products collection
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products',
+          foreignField: '_id',
+          as: 'productDetails',
+        },
+      },
+      // Step 5: Unwind product details
+      { $unwind: { path: '$productDetails', preserveNullAndEmptyArrays: false } },
+      // Step 6: Filter out inactive products
+      {
+        $match: {
+          'productDetails.status': 'active',
+        },
+      },
+      // Step 7: Replace root with product details for cleaner structure
+      { $replaceRoot: { newRoot: '$productDetails' } },
+      // Step 8: Lookup category information
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      {
+        $unwind: {
+          path: '$category',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Step 9: Add sale lookup
+      ...addSaleLookupStages(),
+      // Step 10: Project required fields and rename description_images to images
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          slug: 1,
+          price: 1,
+          sku: 1,
+          stock: 1,
+          originStock: 1,
+          rating: 1,
+          images: '$description_images', // Rename description_images to images
+          sale: 1,
+          attributes: 1,
+          packSizes: 1,
+          'category._id': 1,
+          'category.name': 1,
+          'category.slug': 1,
+          'category.image': 1,
+        },
+      },
+      // Step 11: Use facet for pagination and count in single aggregation
+      {
+        $facet: {
+          data: [{ $skip: skip }, { $limit: limit }],
+          totalCount: [{ $count: 'total' }],
+        },
+      },
+      // Step 12: Project final structure
+      {
+        $project: {
+          data: 1,
+          total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
+        },
+      },
+    ];
+    
+    // Execute the aggregation on Campaign collection
+    const Campaign = mongoose.model('Campaign');
+    const agg = await Campaign.aggregate(pipeline).exec();
+    
+    // Extract results
+    const products = (agg[0]?.data as ProductType[]) || [];
+    const total = (agg[0]?.total as number) || 0;
+    
+    // If no results, campaign doesn't exist or has no products
+    if (total === 0 && products.length === 0) {
+      return {
+        message: 'No active "Deals of the Day" campaign found or campaign has no active products',
+        data: [],
+        code: 404,
+        meta: {
+          total: 0,
+          page,
+          limit,
+          pages: 0,
+        },
+      };
+    }
+    
+    const pages = Math.ceil(total / limit);
+    
+    return {
+      message: 'Deals of the Day products retrieved successfully',
+      data: products,
+      code: 200,
+      meta: {
+        total,
+        page,
+        limit,
+        pages,
+      },
+    };
+  } catch (error) {
+    console.error('Error in getDealsOfTheDay:', error);
+    return {
+      message: 'Failed to fetch Deals of the Day products',
+      data: [],
+      code: 500,
+      meta: {
+        total: 0,
+        page,
+        limit,
+        pages: 0,
+      },
+    };
+  }
+};
+
 const ProductService = {
   getAllProducts,
   getProductById,
@@ -813,6 +1523,9 @@ const ProductService = {
   getProductRecommendations,
   recommendBasedOnCurrentProduct,
   getTopCategories,
+  getNewProducts,
+  searchAutocomplete,
+  getDealsOfTheDay,
 };
 
 export default ProductService;

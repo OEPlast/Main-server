@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.get('/all', UserCampaignValidator.listQueryValidator, UserCampaignController.getAllActiveCampaigns);
 router.get(
-  '/one/:campaignId',
+  '/campaign/:campaignId',
   UserCampaignValidator.campaignIdWithProductsQueryValidator,
   UserCampaignController.getActiveCampaignById
 );
