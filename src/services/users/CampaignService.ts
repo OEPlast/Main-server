@@ -5,6 +5,7 @@ import mongoose, { FilterQuery, Types } from 'mongoose';
 
 type ListInput = { page: number; limit: number; q?: string };
 type ByIdInput = { campaignId: string; page: number; limit: number };
+type BySlugInput = { slug: string; page: number; limit: number };
 
 const getAllActiveCampaigns = async ({
   page,
@@ -90,4 +91,58 @@ const getActiveCampaignById = async ({
   }
 };
 
-export default { getAllActiveCampaigns, getActiveCampaignById };
+const getActiveCampaignBySlug = async ({
+  slug,
+  page,
+  limit,
+}: BySlugInput): Promise<
+  CustomResponseType<{
+    campaign: ICampaign;
+    products: ProductType[];
+    total: number;
+    page: number;
+    limit: number;
+    sales: ICampaign['sales'];
+  }>
+> => {
+  try {
+    const normalized = slug.trim().toLowerCase();
+
+    // Fetch base doc to get unpopulated product IDs for accurate total count
+    const baseDoc = await Campaign.findOne({ slug: normalized, status: 'active' });
+    if (!baseDoc) {
+      return { message: 'Campaign not found or inactive', data: null, code: 404 };
+    }
+
+    const productIds = (baseDoc.products as unknown as Types.ObjectId[]) ?? [];
+    const total = await Product.countDocuments({ _id: { $in: productIds }, status: 'active' });
+
+    // Populate paginated products and all sales
+    await baseDoc.populate([
+      {
+        path: 'products',
+        match: { status: 'active' },
+        options: { sort: { createdAt: -1 }, skip: (page - 1) * limit, limit },
+      },
+      {
+        path: 'sales',
+        options: { sort: { createdAt: -1 } },
+      },
+    ]);
+
+    const campaign = baseDoc.toObject() as ICampaign;
+    const products = (campaign.products as unknown as ProductType[]) ?? [];
+    const sales = campaign.sales ?? [];
+
+    return {
+      message: 'Campaign retrieved successfully',
+      data: { campaign, products, sales, total, page, limit },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching campaign by slug:', error);
+    return { message: 'Failed to retrieve campaign', data: null, code: 500 };
+  }
+};
+
+export default { getAllActiveCampaigns, getActiveCampaignById, getActiveCampaignBySlug };

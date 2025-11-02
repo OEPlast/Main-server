@@ -2,6 +2,14 @@ import { model, Schema, InferSchemaType } from 'mongoose';
 
 const campaignSchema = new Schema(
   {
+    slug: {
+      type: String,
+      required: true,
+      unique: true,
+      trim: true,
+      lowercase: true,
+      match: [/^[a-z0-9-]+$/, 'slug may only contain lowercase letters, numbers, and hyphens'],
+    },
     image: { type: String, required: true },
     title: { type: String, required: true },
     description: { type: String },
@@ -13,6 +21,9 @@ const campaignSchema = new Schema(
   },
   { timestamps: true }
 );
+
+// Unique index for slug
+campaignSchema.index({ slug: 1 }, { unique: true });
 
 // Custom validation using pre hook
 campaignSchema.pre('validate', function (next) {

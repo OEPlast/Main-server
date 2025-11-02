@@ -147,6 +147,7 @@ export const getSaleById = async (id: string): CustomResponsePromise<AggregatedS
           deleted: 1,
           createdAt: 1,
           updatedAt: 1,
+          isHot:1,
           product: '$productInfo',
           createdBy: {
             _id: '$creator._id',

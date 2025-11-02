@@ -32,4 +32,20 @@ const getActiveCampaignById = async (req: Request, res: Response) => {
   }
 };
 
-export default { getAllActiveCampaigns, getActiveCampaignById };
+const getActiveCampaignBySlug = async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params as { slug: string };
+    const { page = '1', limit = '20' } = req.query as { page?: string; limit?: string };
+    const result = await UserCampaignService.getActiveCampaignBySlug({
+      slug,
+      page: Number(page),
+      limit: Number(limit),
+    });
+    return res.status(result.code).json({ message: result.message, data: result.data });
+  } catch (error) {
+    console.error('Error in getActiveCampaignBySlug:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export default { getAllActiveCampaigns, getActiveCampaignById, getActiveCampaignBySlug };

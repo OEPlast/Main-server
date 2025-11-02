@@ -44,4 +44,7 @@ router.patch(
   CampaignController.toggleCampaignStatus
 );
 
+// Slug availability check
+router.get('/check-slug', requirePermission('campaigns', 'read'), CampaignController.checkSlug);
+
 export default router;

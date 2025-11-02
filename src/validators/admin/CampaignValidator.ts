@@ -3,6 +3,18 @@ import { checkSchema, validationResult } from 'express-validator';
 
 const createCampaignValidator = async (req: Request, res: Response, next: NextFunction) => {
   await checkSchema({
+    slug: {
+      in: ['body'],
+      isString: true,
+      trim: true,
+      toLowerCase: true,
+      notEmpty: true,
+      matches: {
+        options: [/^[a-z0-9-]+$/],
+        errorMessage: 'slug may only contain lowercase letters, numbers, and hyphens',
+      },
+      errorMessage: 'slug is required',
+    },
     image: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'image is required' },
     title: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'title is required' },
     description: { in: ['body'], optional: true, isString: true },
@@ -51,6 +63,17 @@ const createCampaignValidator = async (req: Request, res: Response, next: NextFu
 const updateCampaignValidator = async (req: Request, res: Response, next: NextFunction) => {
   await checkSchema({
     campaignId: { in: ['params'], isMongoId: true, errorMessage: 'Campaign ID must be a valid MongoDB ID' },
+    slug: {
+      in: ['body'],
+      optional: true,
+      isString: true,
+      trim: true,
+      toLowerCase: true,
+      matches: {
+        options: [/^[a-z0-9-]+$/],
+        errorMessage: 'slug may only contain lowercase letters, numbers, and hyphens',
+      },
+    },
     image: { in: ['body'], optional: true, isString: true },
     title: { in: ['body'], optional: true, isString: true },
     description: { in: ['body'], optional: true, isString: true },

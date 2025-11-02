@@ -11,4 +11,10 @@ router.get(
   UserCampaignController.getActiveCampaignById
 );
 
+router.get(
+  '/slug/:slug',
+  UserCampaignValidator.slugWithProductsQueryValidator,
+  UserCampaignController.getActiveCampaignBySlug
+);
+
 export default router;

@@ -103,7 +103,20 @@ const getCampaignsList = async (req: Request, res: Response) => {
   }
 };
 
+const checkSlug = async (req: Request, res: Response) => {
+  try {
+    const { slug, excludeId } = req.query as { slug?: string; excludeId?: string };
+    if (!slug) return res.status(400).json({ message: 'slug is required', data: null, code: 400 });
+    const result = await CampaignService.checkSlugAvailability(slug, excludeId);
+    return res.status(result.code).json({ message: result.message, data: result.data });
+  } catch (error) {
+    console.error('Error in checkSlug:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
 export default {
+  checkSlug,
   createCampaign,
   getAllCampaigns,
   getCampaignsList,

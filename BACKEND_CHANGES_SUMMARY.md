@@ -1,15 +1,54 @@
 # Returns & Refunds Backend - Implementation Summary
 
 ## Overview
+
 Complete backend implementation of the Returns & Refunds system, tested end-to-end with all workflows validated.
 
 ---
 
 ## 🎯 Key Changes Summary
 
+### New: Campaign Slugs (Global, Lowercase) — November 2, 2025
+
+- Added `slug` field to `Campaign` model (`src/models/Campaign.ts`):
+
+  - `slug: string` required, unique, lowercase, trimmed, regex `^[a-z0-9-]+$`
+  - Unique index on `{ slug: 1 }`
+  - Editable after creation (validated on update)
+
+- Admin API updates:
+
+  - Validators (`src/validators/admin/CampaignValidator.ts`): require `slug` on create, optional on update with regex/normalization
+  - Service (`src/services/admin/CampaignService.ts`):
+    - Create/Update normalize `slug` to lowercase, handle duplicate key (409 'Slug already exists')
+    - New `checkSlugAvailability(slug, excludeId?)` returning `{ available: boolean }`
+    - Admin list projection now includes `slug`
+  - Routes (`src/routes/admin/campaign.ts`): `GET /admin/campaigns/check-slug?slug=...&excludeId=...`
+  - Controller (`src/controller/admin/CampaignController.ts`): `checkSlug`
+
+- Public/User API updates:
+
+  - Routes (`src/routes/users/campaigns.ts`): `GET /users/campaigns/slug/:slug` to fetch active campaign by slug with paginated products
+  - Validators (`src/validators/users/CampaignValidator.ts`): `slugWithProductsQueryValidator`
+  - Controller (`src/controller/users/CampaignController.ts`): `getActiveCampaignBySlug`
+  - Service (`src/services/users/CampaignService.ts`): `getActiveCampaignBySlug`
+
+- Migration:
+
+  - Script: `scripts/migrations/backfill-campaign-slugs.ts`
+    - Generate slugs from title, normalize, ensure uniqueness with numeric suffix
+    - Usage: `ts-node -r tsconfig-paths/register scripts/migrations/backfill-campaign-slugs.ts`
+
+- Rollout Order:
+  1. Deploy code changes (slug optional for existing docs; update uses `runValidators: true`)
+  2. Run backfill script in staging then production
+  3. Rebuild unique index in background if needed
+  4. Update admin UI (see Admin Dashboard notes)
+
 ### 1. **Database Models**
 
 #### **Return Model** (`src/models/Return.ts`)
+
 - **returnNumber**: Auto-generated in pre-save hook (optional field, not required validation)
 - **9 Status States**: `pending`, `approved`, `rejected`, `items_received`, `inspecting`, `inspection_passed`, `inspection_failed`, `completed`, `cancelled`
 - **Business Logic**:
@@ -18,6 +57,7 @@ Complete backend implementation of the Returns & Refunds system, tested end-to-e
   - Refund only processed at `approved` status (after inspection passes)
 
 #### **Transaction Model** (`src/models/Transaction.ts`)
+
 - **orderId**: Made optional (not all transactions are order payments)
 - **returnId**: Added field for return transactions
 - **transactionType**: Enum `['order_payment', 'return_refund']` (default: `'order_payment'`)
@@ -28,6 +68,7 @@ Complete backend implementation of the Returns & Refunds system, tested end-to-e
 ### 2. **Services**
 
 #### **returnService.ts**
+
 8 methods implemented:
 
 1. **initiateReturn**: Validates order status, 7-day window, item quantities
@@ -39,9 +80,11 @@ Complete backend implementation of the Returns & Refunds system, tested end-to-e
 7. **getReturnsStatistics**: Aggregated metrics
 
 #### **returnTransactionService.ts**
+
 2 methods implemented:
 
-1. **createReturnTransaction**: 
+1. **createReturnTransaction**:
+
    - Generates reference: `REF-{timestamp}-{random}`
    - Stores amount as **positive value** (`Math.abs(amount)`)
    - Sets `transactionType='return_refund'`
@@ -51,6 +94,7 @@ Complete backend implementation of the Returns & Refunds system, tested end-to-e
 2. **getReturnTransactions**: Filter by returnId and type
 
 #### **transactionService.ts** (Updated)
+
 - Fixed **13 locations** with `orderId` null checks
 - Pattern: `if (isSuccess && transaction.orderId)` before accessing order
 - Prevents errors when transaction is a return_refund (no orderId)
@@ -60,6 +104,7 @@ Complete backend implementation of the Returns & Refunds system, tested end-to-e
 ### 3. **Controllers**
 
 #### **Customer Controller** (`src/controller/returnController.ts`)
+
 4 endpoints:
 
 1. **POST /returns** - Initiate return (validates ownership, 7-day window)
@@ -68,6 +113,7 @@ Complete backend implementation of the Returns & Refunds system, tested end-to-e
 4. **POST /returns/:id/cancel** - Cancel pending return only
 
 #### **Admin Controller** (`src/controller/admin/returnController.ts`)
+
 6 endpoints:
 
 1. **GET /admin/returns** - List all returns (filtering, pagination)
@@ -94,6 +140,7 @@ Complete backend implementation of the Returns & Refunds system, tested end-to-e
 6. **getMyReturnsValidator**: Pagination, status filter for customers
 
 #### **TransactionValidator.ts** (Updated)
+
 - **Added `transactionType` field** to `validateTransactionQueryParams`:
   ```typescript
   transactionType: {
@@ -110,6 +157,7 @@ Complete backend implementation of the Returns & Refunds system, tested end-to-e
 ### 5. **Routes**
 
 #### **Customer Routes** (`src/routes/users/returns.ts`)
+
 ```typescript
 POST   /returns              // Initiate return
 GET    /returns              // Get my returns
@@ -118,6 +166,7 @@ POST   /returns/:id/cancel   // Cancel return
 ```
 
 #### **Admin Routes** (`src/routes/admin/returnRoutes.ts`)
+
 ```typescript
 GET    /admin/returns/statistics    // Statistics (before /:id to avoid conflicts)
 GET    /admin/returns                // List all returns
@@ -128,9 +177,10 @@ DELETE /admin/returns/:id            // Delete return
 ```
 
 #### **Server Mounts** (`src/server.ts`)
+
 ```typescript
-app.use('/returns', UserReturnsRoute);           // Line 94
-app.use('/admin/returns', AdminReturnRoute);     // Line 120
+app.use('/returns', UserReturnsRoute); // Line 94
+app.use('/admin/returns', AdminReturnRoute); // Line 120
 ```
 
 ---
@@ -138,31 +188,37 @@ app.use('/admin/returns', AdminReturnRoute);     // Line 120
 ### 6. **Critical Bug Fixes**
 
 #### **Fix #1: Return Number Generation**
+
 - **Issue**: returnNumber was required but not provided during creation
 - **Solution**: Made field optional, auto-generated in pre-save hook
 - **Location**: `src/models/Return.ts` line 37-40
 
 #### **Fix #2: Refund Workflow Logic**
+
 - **Issue**: Original logic checked for `inspection_passed` status, but workflow set to `approved` after inspection
 - **Solution**: Changed refund status check to `['approved']` (comes after inspection)
 - **Location**: `src/controller/admin/returnController.ts` line 133
 
 #### **Fix #3: User ObjectId Extraction**
+
 - **Issue**: `returnData.user.toString()` failed - user is a populated object, not ObjectId
 - **Solution**: Changed to `returnData.user._id.toString()`
 - **Location**: `src/controller/admin/returnController.ts` line 156
 
 #### **Fix #4: Transaction Amount Validation**
+
 - **Issue**: Stored refund as negative value (`-15000`), failed min:0 validation
 - **Solution**: Store as positive (`Math.abs(amount)`), `transactionType` indicates it's a refund
 - **Location**: `src/services/returnTransactionService.ts` line 54
 
 #### **Fix #5: TransactionType Query Parameter**
+
 - **Issue**: GET `/admin/transactions?transactionType=return_refund` rejected as unknown field
 - **Solution**: Added `transactionType` to validator with enum validation
 - **Location**: `src/validators/admin/TransactionValidator.ts` line 88-95
 
 #### **Fix #6: Order Null Checks**
+
 - **Issue**: `orderId` could be null for return_refund transactions
 - **Solution**: Added 13 null checks: `if (transaction.orderId)` before order operations
 - **Location**: `src/services/transactionService.ts` (verifyPayment, handleWebhook)
@@ -176,25 +232,15 @@ app.use('/admin/returns', AdminReturnRoute);     // Line 120
 **18 Steps Covered**:
 1-2. Create admin & customer users in MongoDB (bcrypt hashed passwords)
 3-4. Login both users
-5-6. Create category & product
-7. Create order (handles cart correction)
-8. Complete order (direct MongoDB update)
-9. Initiate return (customer)
-10. View returns (customer)
-11. Approve return (initial approval)
-12. Mark items received
-13. Start inspection
-14. Pass inspection
-15. **Final approval for refund** (status='approved' again)
-16. Process refund (creates transaction, status='completed')
-17. Verify transaction (filter by transactionType)
-18. Get statistics
+5-6. Create category & product 7. Create order (handles cart correction) 8. Complete order (direct MongoDB update) 9. Initiate return (customer) 10. View returns (customer) 11. Approve return (initial approval) 12. Mark items received 13. Start inspection 14. Pass inspection 15. **Final approval for refund** (status='approved' again) 16. Process refund (creates transaction, status='completed') 17. Verify transaction (filter by transactionType) 18. Get statistics
 
 **Error Tests**:
+
 - Cancel completed return (correctly fails ✓)
 - Duplicate refund (correctly fails ✓)
 
 **Cleanup**:
+
 - Delete return
 - Delete product
 - Delete category
@@ -227,6 +273,7 @@ completed (refund transaction created, return finalized)
 ```
 
 **Alternative Paths**:
+
 - `pending` → `cancelled` (customer cancels)
 - `pending` → `rejected` (admin rejects)
 - `inspecting` → `inspection_failed` → `rejected`
@@ -247,11 +294,13 @@ completed (refund transaction created, return finalized)
 ## 🎨 Frontend State (Ready for Phase 3)
 
 ### **Schemas** (`apps/isomorphic/src/validators/return-schema.ts`)
+
 - ✅ returnStatusUpdateSchema
 - ✅ refundProcessSchema
 - ✅ returnFiltersSchema
 
 ### **Endpoints** (`apps/isomorphic/src/libs/endpoints.ts`)
+
 ```typescript
 returns: {
   list: '/returns',
@@ -271,16 +320,19 @@ returns: {
 ### **React Query Hooks**
 
 #### **Queries**:
+
 - ✅ `useReturns()` - List returns with filters
 - ✅ `useReturnById(id)` - Get specific return
 - ✅ `useReturnsStatistics()` - Admin statistics
 
 #### **Mutations**:
+
 - ✅ `useUpdateReturnStatus()` - Admin status updates
 - ✅ `useProcessRefund()` - Admin refund processing
 - ✅ `useDeleteReturn()` - Admin delete return
 
 **All hooks follow patterns**:
+
 - Multi-layer error handling (hook-level toast + component-level state)
 - Accept `UseMutationOptions` for component callbacks
 - Automatic query invalidation on success
@@ -305,7 +357,17 @@ returns: {
 
 **Next Phase**: Phase 3 - Frontend Forms and Pages
 
+### Admin Dashboard Updates (Campaign Slugs)
+
+- Endpoints (`apps/isomorphic/src/libs/endpoints.ts`): `api.campaigns.checkSlug(slug, excludeId?)`
+- Schemas (`apps/isomorphic/src/validators/create-campaign.schema.ts`): added `slug`
+- Hooks (`apps/isomorphic/src/hooks/queries/useCheckCampaignSlug.ts`): live availability check
+- UI:
+  - Create/Edit forms include Slug with live availability
+  - Campaigns list displays `slug`
+
 **Ready for**:
+
 1. ReturnStatusUpdateForm component
 2. RefundProcessForm component
 3. Admin pages: `/admin/returns`, `/admin/returns/[id]`

@@ -189,6 +189,7 @@ const getAllProducts = async (
               _id: 1,
               name: 1,
               price: 1,
+              createdAt: 1,
               sku: 1,
               tags: 1,
               slug: 1,
@@ -483,6 +484,7 @@ const getWeekProducts = async (
                 name: 1,
                 slug: 1,
                 price: 1,
+                createdAt: 1,
                 sku: 1,
                 stock: 1,
                 originStock: 1,
@@ -549,6 +551,7 @@ const getTopSoldProducts = async (
                 name: 1,
                 slug: 1,
                 price: 1,
+                createdAt: 1,
                 sku: 1,
                 stock: 1,
                 originStock: 1,
@@ -618,6 +621,7 @@ const getHotSalesProducts = async (
                 name: 1,
                 slug: 1,
                 price: 1,
+                createdAt: 1,
                 sku: 1,
                 stock: 1,
                 originStock: 1,
@@ -1232,6 +1236,7 @@ const getNewProducts = async (
                 name: 1,
                 slug: 1,
                 price: 1,
+                createdAt: 1,
                 sku: 1,
                 stock: 1,
                 originStock: 1,
@@ -1376,9 +1381,7 @@ const getDealsOfTheDay = async (
       {
         $match: {
           title: 'Deals of the Day',
-          status: 'active',
-          startDate: { $lte: now },
-          endDate: { $gte: now },
+          status: 'active'
         },
       },
       // Step 2: Limit to one campaign (should only be one anyway)
@@ -1428,6 +1431,7 @@ const getDealsOfTheDay = async (
           name: 1,
           slug: 1,
           price: 1,
+          createdAt: 1,
           sku: 1,
           stock: 1,
           originStock: 1,

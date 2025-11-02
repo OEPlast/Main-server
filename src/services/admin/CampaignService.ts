@@ -1,8 +1,16 @@
 import Campaign, { ICampaign } from '../../models/Campaign';
 import { Types } from 'mongoose';
 import { CustomResponseType } from '@/types';
+import { buildUpdateQuery } from '@/helpers/query';
+// Helper: detect duplicate key (Mongo 11000) across Mongoose/Mongo errors
+const isDuplicateKeyError = (err: unknown): boolean => {
+  if (typeof err !== 'object' || err === null) return false;
+  const e = err as { code?: number; keyPattern?: Record<string, number> };
+  return e.code === 11000 || (e.keyPattern && e.keyPattern.slug === 1) || false;
+};
 
 const createCampaign = async (campaignData: {
+  slug: string;
   title: string;
   description?: string;
   image: string;
@@ -15,6 +23,7 @@ const createCampaign = async (campaignData: {
   try {
     const campaign = new Campaign({
       ...campaignData,
+      slug: campaignData.slug?.trim().toLowerCase(),
     });
 
     await campaign.save();
@@ -30,11 +39,10 @@ const createCampaign = async (campaignData: {
     };
   } catch (error) {
     console.error('Error creating campaign:', error);
-    return {
-      message: 'Failed to create campaign',
-      data: null,
-      code: 500,
-    };
+    if (isDuplicateKeyError(error)) {
+      return { message: 'Slug already exists', data: null, code: 409 };
+    }
+    return { message: 'Failed to create campaign', data: null, code: 500 };
   }
 };
 
@@ -102,7 +110,30 @@ const updateCampaign = async (
   updates: Partial<ICampaign>
 ): Promise<CustomResponseType<ICampaign>> => {
   try {
-    const campaign = await Campaign.findByIdAndUpdate(campaignId, updates, { new: true })
+    const updatesFiltered: Partial<ICampaign> = {
+      slug: updates.slug ? (updates.slug as unknown as string).trim().toLowerCase() : undefined,
+      image: updates.image,
+      title: updates.title,
+      description: updates.description,
+      status: updates.status,
+      startDate: updates.startDate ?? null,
+      endDate: updates.endDate ?? null,
+      products: updates.products,
+      sales: updates.sales,
+    };
+
+    const updateQuery = buildUpdateQuery(updatesFiltered);
+
+    // If no updates, return error
+    if (Object.keys(updateQuery).length === 0) {
+      return {
+        message: 'No valid fields to update',
+        data: null,
+        code: 400,
+      };
+    }
+
+    const campaign = await Campaign.findByIdAndUpdate(campaignId, updateQuery, { new: true, runValidators: true })
       .populate({ path: 'products', select: 'name price description slug status' })
       .populate({ path: 'sales', select: 'title type startDate endDate isActive' });
 
@@ -121,11 +152,30 @@ const updateCampaign = async (
     };
   } catch (error) {
     console.error('Error updating campaign:', error);
+    const dup = isDuplicateKeyError(error);
     return {
-      message: 'Failed to update campaign',
+      message: dup ? 'Slug already exists' : 'Failed to update campaign',
       data: null,
-      code: 500,
+      code: dup ? 409 : 500,
     };
+  }
+};
+
+const checkSlugAvailability = async (
+  slug: string,
+  excludeId?: string
+): Promise<CustomResponseType<{ available: boolean }>> => {
+  try {
+    const normalized = slug.trim().toLowerCase();
+    const query: { slug: string; _id?: { $ne: string } } = { slug: normalized };
+    if (excludeId) {
+      query._id = { $ne: excludeId };
+    }
+    const exists = await Campaign.exists(query);
+    return { message: 'OK', data: { available: !exists }, code: 200 };
+  } catch (error) {
+    console.error('Error checking slug availability:', error);
+    return { message: 'Failed to check slug', data: null, code: 500 };
   }
 };
 
@@ -275,15 +325,19 @@ const removeProductFromCampaign = async (
   }
 };
 
+type CampaignListItem = ICampaign & { productsCount: number; salesCount: number };
+
 const getCampaignsList = async (
   status?: string
-): Promise<CustomResponseType<{ campaigns: ICampaign[]; total: number }>> => {
+): Promise<CustomResponseType<{ campaigns: CampaignListItem[]; total: number }>> => {
   try {
     const filter = status ? { status } : {};
 
     // Minimal projection - only fields needed for list view (no population)
     const [campaigns, total] = await Promise.all([
-      Campaign.find(filter).select('_id image title status createdAt updatedAt products sales').sort({ createdAt: -1 }),
+      Campaign.find(filter)
+        .select('_id slug image title status createdAt updatedAt products sales')
+        .sort({ createdAt: -1 }),
       Campaign.countDocuments(filter),
     ]);
 
@@ -296,7 +350,7 @@ const getCampaignsList = async (
 
     return {
       message: 'Campaigns list retrieved successfully',
-      data: { campaigns: campaignsWithCounts as any, total },
+      data: { campaigns: campaignsWithCounts, total },
       code: 200,
     };
   } catch (error) {
@@ -319,6 +373,7 @@ const CampaignService = {
   toggleCampaignStatus,
   addProductToCampaign,
   removeProductFromCampaign,
+  checkSlugAvailability,
 };
 
 export default CampaignService;
