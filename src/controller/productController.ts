@@ -159,21 +159,23 @@ const getByCategorySlug = async (req: Request, res: Response) => {
     const { slug } = req.params;
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 20;
-    
+
     // Parse sort parameter - can be array or single value
     // Examples:
     // ?sort=alphabetical (single)
     // ?sort=alphabetical,newest (comma-separated)
     // ?sort[]=price_asc&sort[]=alphabetical (array notation)
-    let sortOptions: Array<'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'>;
-    
+    let sortOptions: Array<
+      'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'
+    >;
+
     if (req.query.sort) {
       if (Array.isArray(req.query.sort)) {
         // Array notation: ?sort[]=alphabetical&sort[]=newest
         sortOptions = req.query.sort as any[];
       } else if (typeof req.query.sort === 'string') {
         // Comma-separated: ?sort=alphabetical,newest or single: ?sort=alphabetical
-        sortOptions = req.query.sort.split(',').map(s => s.trim()) as any[];
+        sortOptions = req.query.sort.split(',').map((s) => s.trim()) as any[];
       } else {
         // Default if invalid
         sortOptions = ['alphabetical', 'newest'];
@@ -183,7 +185,68 @@ const getByCategorySlug = async (req: Request, res: Response) => {
       sortOptions = ['alphabetical', 'newest'];
     }
 
-    const { data, message, code, meta } = await ProductService.getByCategorySlug(slug, page, limit, sortOptions);
+    // Parse filters
+    const minPrice = req.query.minPrice != null ? parseFloat(String(req.query.minPrice)) : undefined;
+    const maxPrice = req.query.maxPrice != null ? parseFloat(String(req.query.maxPrice)) : undefined;
+    const subcategory = req.query.subcategory ? String(req.query.subcategory) : undefined; // slug
+    const inStock = typeof req.query.inStock !== 'undefined' ? String(req.query.inStock) === 'true' : undefined;
+    const packSize = req.query.packSize ? String(req.query.packSize) : undefined;
+    const includeStats =
+      typeof req.query.includeStats !== 'undefined' ? String(req.query.includeStats) === 'true' : undefined;
+
+    // tags can be array or comma-separated
+    let tags: string[] | undefined;
+    if (typeof req.query.tags === 'string') {
+      tags = req.query.tags
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean);
+    } else if (Array.isArray(req.query.tags)) {
+      tags = (req.query.tags as string[]).map((t) => t.trim()).filter(Boolean);
+    }
+
+    // attributes/specs format: ["Color:Red", "Size:M|L"]
+    const parseKV = (input: string[] | string | undefined): Record<string, string[]> | undefined => {
+      if (!input) return undefined;
+      const arr = Array.isArray(input) ? input : input.split(',');
+      const map = new Map<string, Set<string>>();
+      for (const item of arr) {
+        const [kRaw, vRaw] = item.split(':');
+        if (!kRaw || !vRaw) continue;
+        const key = kRaw.trim();
+        const values = vRaw
+          .split('|')
+          .map((v) => v.trim())
+          .filter(Boolean);
+        if (!map.has(key)) map.set(key, new Set<string>());
+        const set = map.get(key)!;
+        values.forEach((v) => set.add(v));
+      }
+      const out: Record<string, string[]> = {};
+      for (const [k, set] of map.entries()) out[k] = Array.from(set);
+      return Object.keys(out).length ? out : undefined;
+    };
+
+    const attributeFilters = parseKV(req.query.attributes as string[] | string | undefined);
+    const specFilters = parseKV(req.query.specs as string[] | string | undefined);
+
+    const { data, message, code, meta } = await ProductService.getByCategorySlug(
+      slug,
+      page,
+      limit,
+      sortOptions,
+      {
+        minPrice,
+        maxPrice,
+        subcategory,
+        tags,
+        packSize,
+        inStock,
+        attributes: attributeFilters,
+        specs: specFilters,
+      },
+      includeStats
+    );
     return res.status(code).json({ message, data, meta });
   } catch (error) {
     console.error('Error in getByCategorySlug:', error);

@@ -10,6 +10,9 @@
 
 import mongoose from 'mongoose';
 import Campaign from '@/models/Campaign';
+import * as dotenv from 'dotenv';
+
+dotenv.config();
 
 function normalizeSlug(input: string): string {
   const base = input
@@ -33,9 +36,9 @@ async function ensureUniqueSlug(base: string): Promise<string> {
 }
 
 async function run() {
-  const mongoUri = process.env.MONGODB_URI || process.env.DATABASE_URL || '';
+  const mongoUri = process.env.MONGODB_URI;
   if (!mongoUri) {
-    console.error('Missing MONGODB_URI or DATABASE_URL environment variable');
+    console.error('Missing MONGODB_URI environment variable');
     process.exit(1);
   }
 

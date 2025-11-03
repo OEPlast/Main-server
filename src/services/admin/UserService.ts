@@ -3,7 +3,7 @@ import User, { UserType } from '@/models/User';
 import { CustomResponsePromise } from '@/types';
 import Order, { OrderType } from '@/models/Order';
 import Review, { ReviewType } from '@/models/Review';
-import Wishlist from '@/models/Wishlist';
+import Wishlist from '@/models/wishlist';
 
 /**
  * Updates the role of a user.
@@ -452,12 +452,9 @@ const searchUsers = async (
     }
 
     const searchRegex = new RegExp(query.trim(), 'i');
-    
+
     const users = await User.find({
-      $or: [
-        { email: searchRegex },
-        { name: searchRegex },
-      ],
+      $or: [{ email: searchRegex }, { name: searchRegex }],
       role: 'user', // Only search regular users, not staff
     })
       .select('_id name email')

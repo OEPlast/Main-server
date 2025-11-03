@@ -159,8 +159,34 @@ const validateCategorySlug = [
     sort: {
       in: ['query'],
       optional: true,
-      isIn: { options: [['newest', 'price_asc', 'price_desc', 'popular']] },
+      // comma-separated string or array is handled in controller; here ensure values are within allowed set when present
+      custom: {
+        options: (value) => {
+          const arr = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+          const allowed = [
+            'alphabetical',
+            'newest',
+            'price_asc',
+            'price_desc',
+            'popular',
+            'stock',
+            'order_frequency',
+            'rating',
+          ];
+          return arr.every((v: string) => allowed.includes(v.trim()));
+        },
+      },
     },
+    minPrice: { in: ['query'], optional: true, isFloat: { options: { min: 0 } }, toFloat: true },
+    maxPrice: { in: ['query'], optional: true, isFloat: { options: { min: 0 } }, toFloat: true },
+    subcategory: { in: ['query'], optional: true, isString: true, trim: true },
+    tags: { in: ['query'], optional: true },
+    packSize: { in: ['query'], optional: true, isString: true, trim: true },
+    inStock: { in: ['query'], optional: true, isBoolean: true, toBoolean: true },
+    includeStats: { in: ['query'], optional: true, isBoolean: true, toBoolean: true },
+    // attributes/specs can be array or comma-separated "name:value" pairs
+    attributes: { in: ['query'], optional: true },
+    specs: { in: ['query'], optional: true },
   }),
   (req: Request, res: Response, next: NextFunction) => {
     const errors = validationResult(req);

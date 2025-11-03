@@ -1,5 +1,5 @@
 import Product from '@/models/Product';
-import Wishlist, { WishlistType } from '../models/Wishlist';
+import Wishlist, { WishlistType } from '../models/wishlist';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 
 /**

@@ -153,7 +153,7 @@ const cartSchema = new mongoose.Schema(
     lastActivity: {
       type: Date,
       default: Date.now,
-      expires: 60 * 60 * 24 * 15, // TTL index: 15 days
+      expires: 60 * 60 * 24, // TTL index: 24 hours (1 day)
     },
   },
   {

@@ -12,6 +12,52 @@ import {
 } from '@/helpers/pricingUtils';
 import mongoose from 'mongoose';
 
+// Type definitions for aggregation results
+type CartItemDocument = {
+  _id: mongoose.Types.ObjectId;
+  product: mongoose.Types.ObjectId;
+  qty: number;
+  selectedAttributes?: Array<{ name: string; value: string }>;
+  productSnapshot?: {
+    name: string;
+    price: number;
+    sku: number;
+  };
+  unitPrice?: number;
+  totalPrice?: number;
+  appliedDiscount?: number;
+  discountAmount?: number;
+  sale?: mongoose.Types.ObjectId;
+  saleVariantIndex?: number;
+  addedAt?: Date;
+};
+
+type ProductDocument = ProductType & {
+  _id: mongoose.Types.ObjectId;
+};
+
+type SaleDocument = {
+  _id: mongoose.Types.ObjectId;
+  product: mongoose.Types.ObjectId;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+  variants?: Array<{
+    discount?: number;
+    amountOff?: number;
+  }>;
+};
+
+type CouponDocument = CouponType & {
+  _id: mongoose.Types.ObjectId;
+};
+
+type AppliedCouponDocument = {
+  coupon: mongoose.Types.ObjectId;
+  code: string;
+  appliedAt: Date;
+};
+
 // Define changed entry types to avoid any
 type ChangedSaleInfo = {
   sale?: mongoose.Types.ObjectId;
@@ -149,32 +195,6 @@ const addToCart = async (
 
     if (qty > product.stock) {
       return { message: 'Insufficient stock', data: null, code: 400 };
-    }
-
-    // Identify variant
-    const variant = resolveVariant(product as unknown as ProductPricingShape, attributes);
-
-    // Check for active sales
-    const activeSale = product.activeSales.length > 0 ? product.activeSales[0] : null;
-    let saleInfo: Partial<Pick<ChangedSaleInfo, 'sale' | 'saleVariantIndex'>> = {};
-    let saleContext: Partial<{ discount: number; amountOff: number }> = {};
-
-    if (activeSale) {
-      const { available, variantIndex } = checkSaleAvailability(activeSale, attributes);
-      if (available) {
-        saleInfo = {
-          sale: activeSale._id,
-          saleVariantIndex: typeof variantIndex === 'number' ? variantIndex : undefined,
-        };
-
-        if (activeSale.variants && variantIndex !== undefined && activeSale.variants[variantIndex]) {
-          const saleVariant = activeSale.variants[variantIndex];
-          saleContext = {
-            discount: saleVariant.discount || 0,
-            amountOff: saleVariant.amountOff || 0,
-          };
-        }
-      }
     }
 
     // Create product snapshot
@@ -423,7 +443,8 @@ const updateCartItem = async (
  * This function is no longer needed since we calculate totals dynamically
  * Keeping for backward compatibility but it does nothing
  */
-const recalculateCartTotals = async (userId: string): Promise<void> => {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const recalculateCartTotals = async (_userId: string): Promise<void> => {
   // No longer needed - totals are calculated dynamically when fetching cart
   return;
 };
@@ -467,7 +488,7 @@ const applyCoupon = async (userId: string, couponCode: string): Promise<CustomRe
     const coupon = result[0].couponData[0];
 
     // Check if coupon already applied
-    const alreadyApplied = (cart.appliedCoupons as Array<{ coupon: mongoose.Types.ObjectId }> | undefined)?.some(
+    const alreadyApplied = (cart.appliedCoupons as Array<AppliedCouponDocument> | undefined)?.some(
       (ac) => ac.coupon.toString() === coupon._id.toString()
     );
 
@@ -478,13 +499,15 @@ const applyCoupon = async (userId: string, couponCode: string): Promise<CustomRe
     // Calculate minimum order value check (need to calculate dynamically)
     // For now, we'll use a basic price calculation for validation
     let cartSubtotal = 0;
-    for (const item of cart.items as Array<any>) {
+    for (const item of cart.items as Array<CartItemDocument>) {
       const product = await Product.findById(item.product);
       if (product) {
         const itemPrice = product.price * item.qty;
         cartSubtotal += itemPrice;
       }
     }
+
+    // Check minimum order value
 
     // Check minimum order value
     if (cartSubtotal < coupon.minOrderValue) {
@@ -558,20 +581,20 @@ const removeCoupon = async (userId: string, couponId: string): Promise<CustomRes
  * Since we calculate pricing dynamically, this function simply checks
  * if any items in the cart need to be re-evaluated due to sales changes.
  */
-export async function validateCartSales(
+export async function validateCartSales_old(
   userId: string
 ): Promise<{ valid: boolean; message: string; changed: ChangedEntry[] }> {
   try {
     // Since we calculate pricing dynamically, cart is always "valid"
     // but we can still check for product availability and basic validation
     const cart = await Cart.findOne({ user: userId }).populate('items.product');
-    
+
     if (!cart) {
       return { valid: true, message: 'Cart not found', changed: [] };
     }
 
     const changed: ChangedEntry[] = [];
-    
+
     // Check for basic product availability (products that might have been deleted)
     for (const item of cart.items) {
       if (!item.product) {
@@ -661,24 +684,31 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
       return { message: 'Cart not found', data: null, code: 404 };
     }
 
-    const cartData = result[0];
+    const cartData = result[0] as CartType & {
+      productDetails: ProductDocument[];
+      salesDetails: SaleDocument[];
+      couponDetails: CouponDocument[];
+    };
     const items: CartItemWithPricing[] = [];
     let subtotal = 0;
     let totalDiscount = 0;
 
     // Process each cart item and calculate pricing dynamically
     for (const item of cartData.items) {
-      const product = cartData.productDetails.find((p: any) => p._id.toString() === item.product.toString());
-      
+      const product = cartData.productDetails.find((p) => p._id.toString() === item.product.toString());
+
       if (!product) continue;
 
       // Find active sale for this product
-      const activeSale = cartData.salesDetails.find((s: any) => s.product.toString() === item.product.toString());
-      
+      const activeSale = cartData.salesDetails.find((s) => s.product.toString() === item.product.toString());
+
       let saleContext: Partial<{ discount: number; amountOff: number }> = {};
-      
+
       if (activeSale) {
-        const { available, variantIndex, discount, amountOff } = checkSaleAvailability(activeSale, item.selectedAttributes || []);
+        const { available, variantIndex, discount, amountOff } = checkSaleAvailability(
+          activeSale as unknown as Parameters<typeof checkSaleAvailability>[0],
+          item.selectedAttributes || []
+        );
         if (available && variantIndex !== undefined) {
           saleContext = {
             discount: discount || 0,
@@ -698,7 +728,7 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
         saleContext,
       });
 
-      const itemWithPricing: CartItemWithPricing = {
+      const itemWithPricing = {
         ...item,
         productDetails: product,
         unitPrice: pricing.unitPrice,
@@ -706,7 +736,7 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
         appliedDiscount: pricing.appliedDiscount,
         discountAmount: pricing.discountAmount,
         pricingTier: pricing.pricingTier,
-      };
+      } as unknown as CartItemWithPricing;
 
       items.push(itemWithPricing);
       subtotal += pricing.totalPrice;
@@ -714,9 +744,9 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
     }
 
     // Calculate coupon discounts dynamically
-    const appliedCoupons = cartData.appliedCoupons?.map((coupon: any) => {
-      const couponDetails = cartData.couponDetails.find((c: any) => c._id.toString() === coupon.coupon.toString());
-      
+    const appliedCoupons = (cartData.appliedCoupons?.map((coupon) => {
+      const couponDetails = cartData.couponDetails.find((c) => c._id.toString() === coupon.coupon.toString());
+
       let discountAmount = 0;
       if (couponDetails) {
         if (couponDetails.discountType === 'percentage') {
@@ -731,9 +761,9 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
         couponDetails,
         discountAmount,
       };
-    }) || [];
+    }) || []) as CartWithDetails['appliedCoupons'];
 
-    const couponDiscount = appliedCoupons.reduce((sum: number, coupon: any) => sum + coupon.discountAmount, 0);
+    const couponDiscount = appliedCoupons.reduce((sum, coupon) => sum + coupon.discountAmount, 0);
     const total = Math.max(0, subtotal - couponDiscount);
 
     const cartWithDetails: CartWithDetails = {
@@ -757,6 +787,256 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
   }
 };
 
+/**
+ * Validate cart sales and pricing before checkout
+ * Normalizes prices/sale fields and returns a diff without deleting items
+ * Server updates cart with normalized data but keeps all items
+ */
+const validateCartSales = async (
+  userId: string
+): Promise<{
+  valid: boolean;
+  message: string;
+  updatedItems?: Array<{
+    itemId: mongoose.Types.ObjectId;
+    productId: mongoose.Types.ObjectId;
+    productName: string;
+    reason: 'price_changed' | 'sale_expired' | 'sale_reduced';
+    oldPrice: number;
+    newPrice: number;
+    oldDiscount?: number;
+    newDiscount?: number;
+  }>;
+  outOfStockItems?: Array<{
+    itemId: mongoose.Types.ObjectId;
+    productId: mongoose.Types.ObjectId;
+    productName: string;
+    requestedQty: number;
+    availableStock: number;
+  }>;
+  totals?: {
+    oldSubtotal: number;
+    newSubtotal: number;
+    totalDiscount: number;
+    total: number;
+  };
+}> => {
+  try {
+    const cart = await Cart.findOne({ user: userId }).lean();
+
+    if (!cart) {
+      return { valid: false, message: 'Cart not found' };
+    }
+
+    if (!cart.items || cart.items.length === 0) {
+      return { valid: true, message: 'Cart is empty' };
+    }
+
+    const updatedItems: Array<{
+      itemId: mongoose.Types.ObjectId;
+      productId: mongoose.Types.ObjectId;
+      productName: string;
+      reason: 'price_changed' | 'sale_expired' | 'sale_reduced';
+      oldPrice: number;
+      newPrice: number;
+      oldDiscount?: number;
+      newDiscount?: number;
+    }> = [];
+
+    const outOfStockItems: Array<{
+      itemId: mongoose.Types.ObjectId;
+      productId: mongoose.Types.ObjectId;
+      productName: string;
+      requestedQty: number;
+      availableStock: number;
+    }> = [];
+
+    let oldSubtotal = 0;
+    let newSubtotal = 0;
+
+    // Fetch all products and sales in one query
+    const productIds = cart.items.map((item) => item.product);
+    const products = await Product.find({ _id: { $in: productIds } }).lean<ProductDocument[]>();
+    const productMap = new Map(products.map((p) => [p._id.toString(), p]));
+
+    // Fetch active sales for these products
+    const activeSales = await mongoose
+      .model('Sales')
+      .find({
+        product: { $in: productIds },
+        isActive: true,
+        deleted: { $ne: true },
+      })
+      .lean<SaleDocument[]>();
+    const salesMap = new Map(activeSales.map((s) => [s.product.toString(), s]));
+
+    type ItemUpdateData = {
+      _id: mongoose.Types.ObjectId;
+      unitPrice: number;
+      totalPrice: number;
+      appliedDiscount: number;
+      discountAmount: number;
+      sale: mongoose.Types.ObjectId | null;
+      saleVariantIndex: number | null;
+      pricingTier: AppliedPricingTier | null;
+      productSnapshot: {
+        name: string;
+        price: number;
+        sku: number;
+      };
+    };
+
+    const itemsToUpdate: ItemUpdateData[] = [];
+
+    for (const item of cart.items as CartItemDocument[]) {
+      const product = productMap.get(item.product.toString());
+
+      if (!product) {
+        // Product deleted - mark as OOS
+        outOfStockItems.push({
+          itemId: item._id,
+          productId: item.product,
+          productName: item.productSnapshot?.name || 'Unknown Product',
+          requestedQty: item.qty,
+          availableStock: 0,
+        });
+        continue;
+      }
+
+      // Check stock
+      if (product.stock < item.qty) {
+        outOfStockItems.push({
+          itemId: item._id,
+          productId: item.product,
+          productName: product.name,
+          requestedQty: item.qty,
+          availableStock: product.stock || 0,
+        });
+      }
+
+      // Calculate old pricing (from stored values or recalculate)
+      const oldUnitPrice = item.unitPrice || product.price;
+      const oldTotalPrice = oldUnitPrice * item.qty;
+      oldSubtotal += oldTotalPrice;
+
+      // Recalculate current pricing
+      const activeSale = salesMap.get(item.product.toString());
+      let saleContext: Partial<{ discount: number; amountOff: number }> = {};
+      let currentSaleId: mongoose.Types.ObjectId | undefined;
+      let currentSaleVariantIndex: number | undefined;
+
+      if (activeSale) {
+        const { available, variantIndex, discount, amountOff } = checkSaleAvailability(
+          activeSale as unknown as Parameters<typeof checkSaleAvailability>[0],
+          item.selectedAttributes || []
+        );
+        if (available && variantIndex !== undefined) {
+          saleContext = { discount: discount || 0, amountOff: amountOff || 0 };
+          currentSaleId = activeSale._id;
+          currentSaleVariantIndex = variantIndex;
+        }
+      }
+
+      const variant = resolveVariant(product as unknown as ProductPricingShape, item.selectedAttributes || []);
+
+      const newPricing = calculateItemPricing({
+        product: product as unknown as ProductPricingShape,
+        variant,
+        qty: item.qty,
+        saleContext,
+      });
+
+      newSubtotal += newPricing.totalPrice;
+
+      // Detect changes
+      const priceChanged = Math.abs(newPricing.unitPrice - oldUnitPrice) > 0.01;
+      const oldSaleId = item.sale?.toString();
+      const newSaleId = currentSaleId?.toString();
+      const saleChanged = oldSaleId !== newSaleId;
+      const discountChanged = Math.abs((item.appliedDiscount || 0) - newPricing.appliedDiscount) > 0.01;
+
+      if (priceChanged || saleChanged || discountChanged) {
+        let reason: 'price_changed' | 'sale_expired' | 'sale_reduced' = 'price_changed';
+        if (saleChanged && !newSaleId) {
+          reason = 'sale_expired';
+        } else if (discountChanged && newPricing.appliedDiscount < (item.appliedDiscount || 0)) {
+          reason = 'sale_reduced';
+        }
+
+        updatedItems.push({
+          itemId: item._id,
+          productId: item.product,
+          productName: product.name,
+          reason,
+          oldPrice: oldUnitPrice,
+          newPrice: newPricing.unitPrice,
+          oldDiscount: item.appliedDiscount || 0,
+          newDiscount: newPricing.appliedDiscount,
+        });
+      }
+
+      // Normalize item in DB (update pricing and sale fields)
+      itemsToUpdate.push({
+        _id: item._id,
+        unitPrice: newPricing.unitPrice,
+        totalPrice: newPricing.totalPrice,
+        appliedDiscount: newPricing.appliedDiscount,
+        discountAmount: newPricing.discountAmount,
+        sale: currentSaleId || null,
+        saleVariantIndex: currentSaleVariantIndex ?? null,
+        pricingTier: newPricing.pricingTier || null,
+        productSnapshot: {
+          name: product.name,
+          price: product.price,
+          sku: product.sku,
+        },
+      });
+    }
+
+    // Update cart with normalized prices (mutate stored cart)
+    for (const update of itemsToUpdate) {
+      await Cart.updateOne(
+        { user: userId, 'items._id': update._id },
+        {
+          $set: {
+            'items.$.unitPrice': update.unitPrice,
+            'items.$.totalPrice': update.totalPrice,
+            'items.$.appliedDiscount': update.appliedDiscount,
+            'items.$.discountAmount': update.discountAmount,
+            'items.$.sale': update.sale,
+            'items.$.saleVariantIndex': update.saleVariantIndex,
+            'items.$.pricingTier': update.pricingTier,
+            'items.$.productSnapshot': update.productSnapshot,
+            lastActivity: new Date(),
+          },
+        }
+      );
+    }
+
+    // Recalculate totals (coupon discounts remain separate)
+    const totalDiscount = itemsToUpdate.reduce((sum, item) => sum + item.discountAmount, 0);
+    const total = newSubtotal;
+
+    const hasIssues = updatedItems.length > 0 || outOfStockItems.length > 0;
+
+    return {
+      valid: !hasIssues,
+      message: hasIssues ? 'Cart has been updated with current prices and availability' : 'Cart is valid',
+      updatedItems: updatedItems.length > 0 ? updatedItems : undefined,
+      outOfStockItems: outOfStockItems.length > 0 ? outOfStockItems : undefined,
+      totals: {
+        oldSubtotal,
+        newSubtotal,
+        totalDiscount,
+        total,
+      },
+    };
+  } catch (error) {
+    console.error('Error validating cart sales:', error);
+    return { valid: false, message: 'Failed to validate cart' };
+  }
+};
+
 const CartService = {
   getCartItems,
   addToCart,
@@ -764,6 +1044,7 @@ const CartService = {
   clearCart,
   updateCartItem,
   validateCartSales,
+  validateCartSales_old,
   applyCoupon,
   removeCoupon,
   recalculateCartTotals,

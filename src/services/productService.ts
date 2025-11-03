@@ -3,6 +3,7 @@ import Product, { ProductType } from '../models/Product';
 import Sales, { SalesType } from '../models/Sales';
 import Category from '@/models/Category';
 import mongoose, { PipelineStage } from 'mongoose';
+import { buildPriceFilter, buildTagsFilter } from './aggregation';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import AnalyticsService from './MainAnalyticsService';
 
@@ -36,7 +37,7 @@ function addSaleLookupStages(): any[] {
     {
       $addFields: {
         sale: { $arrayElemAt: ['$saleData', 0] },
-                packSizes: 1,
+        packSizes: 1,
       },
     },
     {
@@ -239,7 +240,9 @@ const getAllProducts = async (
  * Fetches a product by its ID.
  * @param productId - The ID of the product.
  */
-const getProductById = async (productId: string): Promise<CustomResponseType<ProductType & { sale?: SalesType | null }>> => {
+const getProductById = async (
+  productId: string
+): Promise<CustomResponseType<ProductType & { sale?: SalesType | null }>> => {
   try {
     const pipeline: PipelineStage[] = [
       { $match: { _id: new mongoose.Types.ObjectId(productId) } },
@@ -744,16 +747,16 @@ const recommendBasedOnCurrentProduct = async (
 // New: products by category slug (includes descendants)
 /**
  * Get all products by category slug with subcategory support and multi-level sorting.
- * 
+ *
  * **Subcategory Handling**:
  * - If category has subcategories, gets products from all subcategories
  * - If category has no subcategories, gets products from that category only
- * 
+ *
  * **Multi-Sort Support**:
  * - Accepts an array of sort options to apply in priority order
  * - Default: ['alphabetical', 'newest'] - sorts A-Z first, then by newest
  * - Example: ['price_asc', 'popular', 'alphabetical'] - price first, then popularity, then name
- * 
+ *
  * **Sort Options**:
  * - alphabetical: A-Z by product name
  * - newest: Recently added products first
@@ -763,25 +766,40 @@ const recommendBasedOnCurrentProduct = async (
  * - order_frequency: Most ordered products (completed orders)
  * - stock: By inventory quantity (may be commented)
  * - rating: By review ratings (may be commented, requires Review model)
- * 
+ *
  * @param slug - Category slug
  * @param page - Page number for pagination (default: 1)
  * @param limit - Number of items per page (default: 20)
  * @param sortOptions - Array of sort options in priority order (default: ['alphabetical', 'newest'])
- * 
+ *
  * @example
  * // Default: alphabetical then newest
  * getByCategorySlug('electronics', 1, 20, ['alphabetical', 'newest'])
- * 
+ *
  * @example
  * // Price ascending, then most ordered, then name
  * getByCategorySlug('fashion', 1, 20, ['price_asc', 'order_frequency', 'alphabetical'])
  */
+type CategoryFilters = {
+  minPrice?: number;
+  maxPrice?: number;
+  subcategory?: string; // slug of direct child to restrict to
+  tags?: string[];
+  packSize?: string;
+  inStock?: boolean;
+  attributes?: Record<string, string[]>; // AttributeName -> values
+  specs?: Record<string, string[]>; // SpecKey -> values
+};
+
 async function getByCategorySlug(
   slug: string,
   page = 1,
   limit = 20,
-  sortOptions: Array<'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'> = ['alphabetical', 'newest']
+  sortOptions: Array<
+    'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'
+  > = ['alphabetical', 'newest'],
+  filters?: CategoryFilters,
+  includeStats?: boolean
 ): CustomResponseTypeWithMeta<
   ProductType[],
   { total: number; page: number; limit: number; pages: number; slug: string; hasSubcategories: boolean }
@@ -800,24 +818,20 @@ async function getByCategorySlug(
 
     const hasSubcategories = subcategories.length > 0;
 
-    // Build category match condition
+    // Build category match condition (respect subcategory filter if provided)
     let categoryIds: mongoose.Types.ObjectId[];
-    if (hasSubcategories) {
-      // Include base category + all subcategories
+    if (filters?.subcategory) {
+      const sub = await Category.findOne({ slug: filters.subcategory }).select('_id');
+      categoryIds = sub ? [sub._id] : [baseCategory._id];
+    } else if (hasSubcategories) {
       categoryIds = [baseCategory._id, ...subcategories.map((sub) => sub._id)];
     } else {
-      // Only base category
       categoryIds = [baseCategory._id];
     }
 
     const pipeline: PipelineStage[] = [
       // Step 1: Match products in the category or its subcategories
-      {
-        $match: {
-          category: { $in: categoryIds },
-          status: 'active',
-        },
-      },
+      { $match: { category: { $in: categoryIds }, status: 'active' } },
 
       // Step 2: Lookup category details
       {
@@ -831,7 +845,68 @@ async function getByCategorySlug(
       { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
     ];
 
-    // Step 3: Build multi-level sorting based on sortOptions array
+    // Step 3: Apply filters
+    if (filters?.minPrice != null || filters?.maxPrice != null) {
+      const priceStage = buildPriceFilter(filters?.minPrice, filters?.maxPrice);
+      if (priceStage) pipeline.push(priceStage);
+    }
+
+    if (filters?.inStock) {
+      pipeline.push({ $match: { stock: { $gt: 0 } } });
+    }
+
+    if (filters?.tags && filters.tags.length) {
+      const tagStage = buildTagsFilter(filters.tags);
+      if (tagStage) pipeline.push(tagStage);
+    }
+
+    if (filters?.packSize) {
+      pipeline.push({ $match: { 'packSizes.label': filters.packSize } });
+    }
+
+    if (filters?.specs && Object.keys(filters.specs).length) {
+      const andSpecs: Array<Record<string, unknown>> = [];
+      for (const [key, values] of Object.entries(filters.specs)) {
+        andSpecs.push({
+          specifications: {
+            $elemMatch: {
+              key: new RegExp(`^${escapeRegex(key)}$`, 'i'),
+              value: { $in: values },
+            },
+          },
+        });
+      }
+      if (andSpecs.length) pipeline.push({ $match: { $and: andSpecs } });
+    }
+
+    if (filters?.attributes && Object.keys(filters.attributes).length) {
+      // Inline attribute OR/AND logic: attribute name AND across attributes, OR within values
+      const andExpr: unknown[] = Object.entries(filters.attributes).map(([attrName, values]) => ({
+        $anyElementTrue: {
+          $map: {
+            input: '$attributes',
+            as: 'attr',
+            in: {
+              $and: [
+                { $eq: ['$$attr.name', attrName] },
+                {
+                  $anyElementTrue: {
+                    $map: {
+                      input: '$$attr.children',
+                      as: 'child',
+                      in: { $in: ['$$child.name', values] },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }));
+      pipeline.push({ $match: { $expr: { $and: andExpr } } });
+    }
+
+    // Step 4: Build multi-level sorting based on sortOptions array
     // Process each sort option in the array to determine which aggregation stages are needed
     const needsOrderFrequency = sortOptions.includes('order_frequency');
     const needsPopular = sortOptions.includes('popular');
@@ -1001,7 +1076,62 @@ async function getByCategorySlug(
       pipeline.push({ $project: cleanupFields });
     }
 
-    // Step 4: Pagination with facet
+    // Optionally include computed stats for UI when requested via includeStats
+    // We only add lookups here if they were NOT already added above by sorting needs
+    if (includeStats) {
+      if (!needsOrderFrequency) {
+        pipeline.push(
+          {
+            $lookup: {
+              from: 'orders',
+              let: { productId: '$_id' },
+              pipeline: [
+                { $match: { status: 'Completed' } },
+                { $unwind: '$products' },
+                { $match: { $expr: { $eq: ['$products.product', '$$productId'] } } },
+                { $group: { _id: null, orderCount: { $sum: 1 }, totalQuantity: { $sum: '$products.qty' } } },
+              ],
+              as: 'orderStats',
+            },
+          },
+          {
+            $addFields: {
+              orderFrequency: { $ifNull: [{ $arrayElemAt: ['$orderStats.orderCount', 0] }, 0] },
+              totalSold: { $ifNull: [{ $arrayElemAt: ['$orderStats.totalQuantity', 0] }, 0] },
+            },
+          }
+        );
+      }
+      if (!needsPopular) {
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        pipeline.push(
+          {
+            $lookup: {
+              from: 'orders',
+              let: { productId: '$_id' },
+              pipeline: [
+                { $match: { status: 'Completed', createdAt: { $gte: thirtyDaysAgo } } },
+                { $unwind: '$products' },
+                { $match: { $expr: { $eq: ['$products.product', '$$productId'] } } },
+                { $group: { _id: null, recentOrders: { $sum: 1 } } },
+              ],
+              as: 'popularityStats',
+            },
+          },
+          { $addFields: { popularityScore: { $ifNull: [{ $arrayElemAt: ['$popularityStats.recentOrders', 0] }, 0] } } }
+        );
+      }
+      // Ensure we don't leak intermediate arrays when includeStats is used
+      const cleanupStats: Record<string, 0> = {};
+      if (!needsOrderFrequency) cleanupStats.orderStats = 0;
+      if (!needsPopular) cleanupStats.popularityStats = 0;
+      if (Object.keys(cleanupStats).length) {
+        pipeline.push({ $project: cleanupStats });
+      }
+    }
+
+    // Step 5: Pagination with facet
     pipeline.push({
       $facet: {
         data: [
@@ -1013,7 +1143,7 @@ async function getByCategorySlug(
       },
     });
 
-    // Step 5: Project final structure
+    // Step 6: Project final structure
     pipeline.push({
       $project: {
         data: 1,
@@ -1156,7 +1286,7 @@ const getTopCategories = async (
     ];
 
     const results = await Order.aggregate(pipeline).exec();
-    
+
     // If we have fewer than the requested limit, fill with other categories
     if (results.length < maxLimit) {
       const topCategoryIds = results.map((cat) => new mongoose.Types.ObjectId(cat._id));
@@ -1369,7 +1499,7 @@ const getDealsOfTheDay = async (
   try {
     const skip = (page - 1) * limit;
     const now = new Date();
-    
+
     // Single aggregation pipeline that:
     // 1. Looks up the active campaign
     // 2. Unwinds campaign products
@@ -1381,7 +1511,7 @@ const getDealsOfTheDay = async (
       {
         $match: {
           title: 'Deals of the Day',
-          status: 'active'
+          status: 'active',
         },
       },
       // Step 2: Limit to one campaign (should only be one anyway)
@@ -1461,15 +1591,15 @@ const getDealsOfTheDay = async (
         },
       },
     ];
-    
+
     // Execute the aggregation on Campaign collection
     const Campaign = mongoose.model('Campaign');
     const agg = await Campaign.aggregate(pipeline).exec();
-    
+
     // Extract results
     const products = (agg[0]?.data as ProductType[]) || [];
     const total = (agg[0]?.total as number) || 0;
-    
+
     // If no results, campaign doesn't exist or has no products
     if (total === 0 && products.length === 0) {
       return {
@@ -1484,9 +1614,9 @@ const getDealsOfTheDay = async (
         },
       };
     }
-    
+
     const pages = Math.ceil(total / limit);
-    
+
     return {
       message: 'Deals of the Day products retrieved successfully',
       data: products,

@@ -26,6 +26,26 @@ const getOneCategoryById = async (req: Request, res: Response) => {
 const CategoryController = {
   getAllCategories,
   getOneCategoryById,
+  async getCategoryBySlug(req: Request, res: Response) {
+    try {
+      const { slug } = req.params as { slug: string };
+      const result = await CategoryService.getCategoryBySlug(slug);
+      return res.status(result.code).json({ message: result.message, data: result.data });
+    } catch (error) {
+      console.error('Error in getCategoryBySlug:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
+  async getCategoryFilters(req: Request, res: Response) {
+    try {
+      const { slug } = req.params as { slug: string };
+      const result = await CategoryService.getCategoryFilters(slug);
+      return res.status(result.code).json({ message: result.message, data: result.data });
+    } catch (error) {
+      console.error('Error in getCategoryFilters:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  },
 };
 
 export default CategoryController;

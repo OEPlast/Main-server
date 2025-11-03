@@ -5,7 +5,7 @@ import Order from '@/models/Order';
 import Transaction from '@/models/Transaction';
 import Shipment from '@/models/Shipment';
 import User from '@/models/User';
-import Wishlist from '@/models/Wishlist';
+import Wishlist from '@/models/wishlist';
 import Review from '@/models/Review';
 import CouponRedemption from '@/models/CouponRedemption';
 import Cart from '@/models/Cart';

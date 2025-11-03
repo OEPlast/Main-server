@@ -4,7 +4,7 @@ import Order from '@/models/Order';
 import Transaction from '@/models/Transaction';
 import Shipment from '@/models/Shipment';
 import User from '@/models/User';
-import Wishlist from '@/models/Wishlist';
+import Wishlist from '@/models/wishlist';
 import Review from '@/models/Review';
 import CouponRedemption from '@/models/CouponRedemption';
 import Cart from '@/models/Cart';
@@ -4511,14 +4511,14 @@ const getSalesOverview = async ({
 }> => {
   try {
     console.log('🔍 getSalesOverview - Date range:', { from, to });
-    
+
     // Current period stats
     const currentStats = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       {
         $group: {
@@ -4538,11 +4538,11 @@ const getSalesOverview = async ({
     const previousTo = new Date(from.getTime() - 1);
 
     const previousStats = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: previousFrom, $lte: previousTo },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       {
         $group: {
@@ -4554,15 +4554,14 @@ const getSalesOverview = async ({
     ]);
 
     const previous = previousStats[0] || { totalRevenue: 0, totalOrders: 0 };
-    const percentageChange = previous.totalRevenue > 0 
-      ? ((current.totalRevenue - previous.totalRevenue) / previous.totalRevenue) * 100 
-      : 0;
+    const percentageChange =
+      previous.totalRevenue > 0 ? ((current.totalRevenue - previous.totalRevenue) / previous.totalRevenue) * 100 : 0;
 
-    console.log('✅ getSalesOverview - Results:', { 
-      currentRevenue: current.totalRevenue, 
+    console.log('✅ getSalesOverview - Results:', {
+      currentRevenue: current.totalRevenue,
       currentOrders: current.totalOrders,
       previousRevenue: previous.totalRevenue,
-      previousOrders: previous.totalOrders
+      previousOrders: previous.totalOrders,
     });
 
     return {
@@ -4644,11 +4643,7 @@ const getOrdersOverview = async ({
     });
 
     const percentageChange =
-      previousOrders > 0
-        ? ((totalOrders - previousOrders) / previousOrders) * 100
-        : totalOrders > 0
-        ? 100
-        : 0;
+      previousOrders > 0 ? ((totalOrders - previousOrders) / previousOrders) * 100 : totalOrders > 0 ? 100 : 0;
 
     return {
       message: 'Orders overview fetched successfully',
@@ -4790,11 +4785,7 @@ const getUsersOverview = async ({
     });
 
     const percentageChange =
-      previousNewUsers > 0
-        ? ((newUsers - previousNewUsers) / previousNewUsers) * 100
-        : newUsers > 0
-        ? 100
-        : 0;
+      previousNewUsers > 0 ? ((newUsers - previousNewUsers) / previousNewUsers) * 100 : newUsers > 0 ? 100 : 0;
 
     return {
       message: 'Users overview fetched successfully',
@@ -4834,20 +4825,17 @@ const getProductsOverview = async ({
   try {
     const totalProducts = await Product.countDocuments();
     const outOfStock = await Product.countDocuments({ stock: { $lte: 0 } });
-    
+
     // Low stock: products where stock > 0 but <= lowStockThreshold
     const lowStock = await Product.countDocuments({
       $expr: {
-        $and: [
-          { $gt: ['$stock', 0] },
-          { $lte: ['$stock', '$lowStockThreshold'] }
-        ]
-      }
+        $and: [{ $gt: ['$stock', 0] }, { $lte: ['$stock', '$lowStockThreshold'] }],
+      },
     });
-    
+
     // In stock: products where stock > lowStockThreshold
     const inStock = await Product.countDocuments({
-      $expr: { $gt: ['$stock', '$lowStockThreshold'] }
+      $expr: { $gt: ['$stock', '$lowStockThreshold'] },
     });
 
     return {
@@ -4945,7 +4933,7 @@ const getCouponsOverview = async ({
   try {
     const now = new Date();
     const totalCoupons = await Coupon.countDocuments({ deleted: { $ne: true } });
-    
+
     // Active coupons: active=true AND current date is between startDate and endDate
     const activeCoupons = await Coupon.countDocuments({
       active: true,
@@ -4953,7 +4941,7 @@ const getCouponsOverview = async ({
       startDate: { $lte: now },
       endDate: { $gte: now },
     });
-    
+
     // Expired coupons: endDate has passed
     const expiredCoupons = await Coupon.countDocuments({
       deleted: { $ne: true },
@@ -5005,7 +4993,7 @@ const getRevenueExpenseChart = async ({
   try {
     // Group format based on groupBy parameter
     let groupFormat: any;
-    
+
     if (groupBy === 'days') {
       groupFormat = {
         year: { $year: '$createdAt' },
@@ -5031,11 +5019,11 @@ const getRevenueExpenseChart = async ({
 
     // Get revenue from completed orders
     const result = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       {
         $group: {
@@ -5052,8 +5040,8 @@ const getRevenueExpenseChart = async ({
       {
         $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $in: ['refunded', 'partially_refunded'] }
-        }
+          status: { $in: ['refunded', 'partially_refunded'] },
+        },
       },
       {
         $group: {
@@ -5075,7 +5063,7 @@ const getRevenueExpenseChart = async ({
       let dateStr: string;
       const key = JSON.stringify(item._id);
       const refundAmount = refundMap.get(key) || 0;
-      
+
       if (groupBy === 'days') {
         dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
       } else if (groupBy === 'weeks') {
@@ -5124,7 +5112,7 @@ const getProfitLossChart = async ({
   try {
     // Group format based on groupBy parameter
     let groupFormat: any;
-    
+
     if (groupBy === 'days') {
       groupFormat = {
         year: { $year: '$createdAt' },
@@ -5150,11 +5138,11 @@ const getProfitLossChart = async ({
 
     // Get revenue from completed orders
     const revenueData = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: 'Completed'
-        } 
+          status: 'Completed',
+        },
       },
       {
         $group: {
@@ -5166,11 +5154,11 @@ const getProfitLossChart = async ({
 
     // Get expenses (shipping costs from all non-cancelled orders)
     const expenseData = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       {
         $group: {
@@ -5185,8 +5173,8 @@ const getProfitLossChart = async ({
       {
         $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $in: ['refunded', 'partially_refunded'] }
-        }
+          status: { $in: ['refunded', 'partially_refunded'] },
+        },
       },
       {
         $group: {
@@ -5218,15 +5206,15 @@ const getProfitLossChart = async ({
 
     // Combine all unique date periods
     const allPeriods = new Set<string>();
-    Array.from(revenueMap.keys()).forEach(key => allPeriods.add(key));
-    Array.from(expenseMap.keys()).forEach(key => allPeriods.add(key));
-    Array.from(returnMap.keys()).forEach(key => allPeriods.add(key));
+    Array.from(revenueMap.keys()).forEach((key) => allPeriods.add(key));
+    Array.from(expenseMap.keys()).forEach((key) => allPeriods.add(key));
+    Array.from(returnMap.keys()).forEach((key) => allPeriods.add(key));
 
     // Format the data
     const chartData = Array.from(allPeriods).map((key) => {
       const period = JSON.parse(key);
       let dateStr: string;
-      
+
       if (groupBy === 'days') {
         dateStr = new Date(period.year, period.month - 1, period.day).toISOString();
       } else if (groupBy === 'weeks') {
@@ -5282,7 +5270,7 @@ const getOrdersTrend = async ({
   try {
     // Group format based on groupBy parameter
     let groupFormat: any;
-    
+
     if (groupBy === 'days') {
       groupFormat = {
         year: { $year: '$createdAt' },
@@ -5315,7 +5303,7 @@ const getOrdersTrend = async ({
     // Format the data based on groupBy
     const chartData = result.map((item: any) => {
       let dateStr: string;
-      
+
       if (groupBy === 'days') {
         dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
       } else if (groupBy === 'years') {
@@ -5357,7 +5345,7 @@ const getTransactionsTrend = async ({
   try {
     // Group format based on groupBy parameter
     let groupFormat: any;
-    
+
     if (groupBy === 'days') {
       groupFormat = {
         year: { $year: '$createdAt' },
@@ -5390,7 +5378,7 @@ const getTransactionsTrend = async ({
     // Format the data based on groupBy
     const chartData = result.map((item: any) => {
       let dateStr: string;
-      
+
       if (groupBy === 'days') {
         dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
       } else if (groupBy === 'years') {
@@ -5432,7 +5420,7 @@ const getCustomerAcquisition = async ({
   try {
     // Group format based on groupBy parameter
     let groupFormat: any;
-    
+
     if (groupBy === 'days') {
       groupFormat = {
         year: { $year: '$createdAt' },
@@ -5466,7 +5454,7 @@ const getCustomerAcquisition = async ({
     // Format the data based on groupBy
     const chartData = newUsers.map((item: any) => {
       let dateStr: string;
-      
+
       if (groupBy === 'days') {
         dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
       } else if (groupBy === 'years') {
@@ -5545,7 +5533,7 @@ const getTransactionStatusDistribution = async ({
   try {
     // Group format based on groupBy parameter
     let groupFormat: any;
-    
+
     if (groupBy === 'days') {
       groupFormat = {
         year: { $year: '$createdAt' },
@@ -5583,7 +5571,7 @@ const getTransactionStatusDistribution = async ({
 
     result.forEach((item: any) => {
       let dateStr: string;
-      
+
       if (groupBy === 'days') {
         dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
       } else if (groupBy === 'years') {
@@ -5610,8 +5598,8 @@ const getTransactionStatusDistribution = async ({
       entry[status] = item.count;
     });
 
-    const chartData = Array.from(dataMap.values()).sort((a, b) => 
-      new Date(a.date).getTime() - new Date(b.date).getTime()
+    const chartData = Array.from(dataMap.values()).sort(
+      (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
     );
 
     return {
@@ -5731,7 +5719,7 @@ const getCouponRedemptionTrend = async ({
   try {
     // Group format based on groupBy parameter
     let groupFormat: any;
-    
+
     if (groupBy === 'days') {
       groupFormat = {
         year: { $year: '$createdAt' },
@@ -5764,7 +5752,7 @@ const getCouponRedemptionTrend = async ({
     // Format the data based on groupBy
     const chartData = result.map((item: any) => {
       let dateStr: string;
-      
+
       if (groupBy === 'days') {
         dateStr = new Date(item._id.year, item._id.month - 1, item._id.day).toISOString();
       } else if (groupBy === 'years') {
@@ -5839,34 +5827,35 @@ const getTopProductsRevenue = async ({
   from: Date;
   to: Date;
   limit?: number;
-}): CustomResponsePromise<Array<{ productId: string; productName: string; coverImage: string | null; revenue: number }>> => {
+}): CustomResponsePromise<
+  Array<{ productId: string; productName: string; coverImage: string | null; revenue: number }>
+> => {
   try {
-    
     // Step 1: Count matching orders
     const matchingOrders = await Order.countDocuments({
       createdAt: { $gte: from, $lte: to },
-      status: { $nin: ['Cancelled', 'Failed'] }
+      status: { $nin: ['Cancelled', 'Failed'] },
     });
 
     // Step 2: Check items after unwind
     const afterUnwind = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       { $unwind: '$products' },
-      { $count: 'total' }
+      { $count: 'total' },
     ]);
 
     // Step 3: Check grouped products
     const afterGroup = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       { $unwind: '$products' },
       {
@@ -5875,16 +5864,16 @@ const getTopProductsRevenue = async ({
           revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
         },
       },
-      { $count: 'total' }
+      { $count: 'total' },
     ]);
 
     // Step 4: Check after product lookup
     const afterLookup = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       { $unwind: '$products' },
       {
@@ -5906,25 +5895,18 @@ const getTopProductsRevenue = async ({
       { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
       {
         $facet: {
-          withProduct: [
-            { $match: { 'product': { $exists: true, $ne: null } } },
-            { $count: 'total' }
-          ],
-          withoutProduct: [
-            { $match: { 'product': null } },
-            { $count: 'total' }
-          ]
-        }
-      }
+          withProduct: [{ $match: { product: { $exists: true, $ne: null } } }, { $count: 'total' }],
+          withoutProduct: [{ $match: { product: null } }, { $count: 'total' }],
+        },
+      },
     ]);
 
-
     const result = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       { $unwind: '$products' },
       {
@@ -5947,8 +5929,8 @@ const getTopProductsRevenue = async ({
       // Only filter out if product is completely missing
       {
         $match: {
-          'product': { $exists: true, $ne: null }
-        }
+          product: { $exists: true, $ne: null },
+        },
       },
       {
         $project: {
@@ -5962,15 +5944,15 @@ const getTopProductsRevenue = async ({
                     {
                       $filter: {
                         input: '$product.description_images',
-                        cond: { $eq: ['$$this.cover_image', true] }
-                      }
+                        cond: { $eq: ['$$this.cover_image', true] },
+                      },
                     },
-                    0
-                  ]
-                }
+                    0,
+                  ],
+                },
               },
-              in: { $ifNull: ['$$coverImg.url', null] }
-            }
+              in: { $ifNull: ['$$coverImg.url', null] },
+            },
           },
           revenue: 1,
         },
@@ -6001,7 +5983,9 @@ const getCategoriesPerformance = async ({
 }: {
   from: Date;
   to: Date;
-}): CustomResponsePromise<Array<{ categoryId: string; name: string; image: string; revenue: number; orders: number }>> => {
+}): CustomResponsePromise<
+  Array<{ categoryId: string; name: string; image: string; revenue: number; orders: number }>
+> => {
   try {
     const result = await Order.aggregate([
       { $match: { createdAt: { $gte: from, $lte: to } } },
@@ -6026,8 +6010,8 @@ const getCategoriesPerformance = async ({
       { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
       {
         $match: {
-          'category.name': { $exists: true, $ne: null }
-        }
+          'category.name': { $exists: true, $ne: null },
+        },
       },
       {
         $group: {
@@ -6161,37 +6145,37 @@ const getSalesByCategory = async ({
 }> => {
   try {
     console.log('🔍 getSalesByCategory - Date range:', { from, to, page, limit });
-    
+
     const skip = (page - 1) * limit;
     const sortDirection = sortOrder === 'desc' ? -1 : 1;
 
     // Step 1: Count matching orders
     const matchingOrders = await Order.countDocuments({
       createdAt: { $gte: from, $lte: to },
-      status: { $nin: ['Cancelled', 'Failed'] }
+      status: { $nin: ['Cancelled', 'Failed'] },
     });
     console.log('📊 Step 1: Matching orders:', matchingOrders);
 
     // Step 2: Check items after unwind
     const afterUnwind = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       { $unwind: '$products' },
-      { $count: 'total' }
+      { $count: 'total' },
     ]);
     console.log('📊 Step 2: Items after unwind:', afterUnwind[0]?.total || 0);
 
     // Step 3: Check after product lookup
     const afterProductLookup = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       { $unwind: '$products' },
       {
@@ -6205,29 +6189,23 @@ const getSalesByCategory = async ({
       { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
       {
         $facet: {
-          withProduct: [
-            { $match: { 'product': { $exists: true, $ne: null } } },
-            { $count: 'total' }
-          ],
-          withoutProduct: [
-            { $match: { 'product': null } },
-            { $count: 'total' }
-          ]
-        }
-      }
+          withProduct: [{ $match: { product: { $exists: true, $ne: null } } }, { $count: 'total' }],
+          withoutProduct: [{ $match: { product: null } }, { $count: 'total' }],
+        },
+      },
     ]);
     console.log('📊 Step 3: After product lookup:', {
       withProduct: afterProductLookup[0]?.withProduct[0]?.total || 0,
-      withoutProduct: afterProductLookup[0]?.withoutProduct[0]?.total || 0
+      withoutProduct: afterProductLookup[0]?.withoutProduct[0]?.total || 0,
     });
 
     // Step 4: Check after category lookup
     const afterCategoryLookup = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       { $unwind: '$products' },
       {
@@ -6250,24 +6228,18 @@ const getSalesByCategory = async ({
       { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
       {
         $facet: {
-          withCategory: [
-            { $match: { 'category': { $exists: true, $ne: null } } },
-            { $count: 'total' }
-          ],
-          withoutCategory: [
-            { $match: { 'category': null } },
-            { $count: 'total' }
-          ]
-        }
-      }
+          withCategory: [{ $match: { category: { $exists: true, $ne: null } } }, { $count: 'total' }],
+          withoutCategory: [{ $match: { category: null } }, { $count: 'total' }],
+        },
+      },
     ]);
 
     const result = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       { $unwind: '$products' },
       {
@@ -6291,9 +6263,9 @@ const getSalesByCategory = async ({
       // Only filter out if product or category is completely missing
       {
         $match: {
-          'product': { $exists: true, $ne: null },
-          'category': { $exists: true, $ne: null }
-        }
+          product: { $exists: true, $ne: null },
+          category: { $exists: true, $ne: null },
+        },
       },
       {
         $group: {
@@ -6329,11 +6301,11 @@ const getSalesByCategory = async ({
     }
 
     const totalResult = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       { $unwind: '$products' },
       {
@@ -6357,9 +6329,9 @@ const getSalesByCategory = async ({
       // Only filter out if product or category is completely missing
       {
         $match: {
-          'product': { $exists: true, $ne: null },
-          'category': { $exists: true, $ne: null }
-        }
+          product: { $exists: true, $ne: null },
+          category: { $exists: true, $ne: null },
+        },
       },
       {
         $group: {
@@ -6582,18 +6554,24 @@ const getTopCustomers = async ({
   page?: number;
   limit?: number;
 }): CustomResponsePromise<{
-  data: Array<{ customerId: string; customerName: string; customerEmail: string; totalSpent: number; orderCount: number }>;
+  data: Array<{
+    customerId: string;
+    customerName: string;
+    customerEmail: string;
+    totalSpent: number;
+    orderCount: number;
+  }>;
   pagination: { currentPage: number; totalPages: number; totalRecords: number };
 }> => {
   try {
     const skip = (page - 1) * limit;
 
     const result = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       {
         $group: {
@@ -6626,11 +6604,11 @@ const getTopCustomers = async ({
     ]);
 
     const totalResult = await Order.aggregate([
-      { 
-        $match: { 
+      {
+        $match: {
           createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] }
-        } 
+          status: { $nin: ['Cancelled', 'Failed'] },
+        },
       },
       { $group: { _id: '$userId' } },
       { $count: 'total' },
@@ -6671,7 +6649,15 @@ const getProductPerformance = async ({
   sortBy?: string;
   sortOrder?: string;
 }): CustomResponsePromise<{
-  data: Array<{ productId: string; productName: string; coverImage: string | null; revenue: number; unitsSold: number; averageRating: number; reviewCount: number }>;
+  data: Array<{
+    productId: string;
+    productName: string;
+    coverImage: string | null;
+    revenue: number;
+    unitsSold: number;
+    averageRating: number;
+    reviewCount: number;
+  }>;
   pagination: { currentPage: number; totalPages: number; totalRecords: number };
 }> => {
   try {
@@ -6717,15 +6703,15 @@ const getProductPerformance = async ({
                     {
                       $filter: {
                         input: '$product.description_images',
-                        cond: { $eq: ['$$this.cover_image', true] }
-                      }
+                        cond: { $eq: ['$$this.cover_image', true] },
+                      },
                     },
-                    0
-                  ]
-                }
+                    0,
+                  ],
+                },
               },
-              in: { $ifNull: ['$$coverImg.url', null] }
-            }
+              in: { $ifNull: ['$$coverImg.url', null] },
+            },
           },
           revenue: { $ifNull: ['$revenue', 0] },
           unitsSold: { $ifNull: ['$unitsSold', 0] },
@@ -6912,7 +6898,9 @@ const getMostWishlistedProducts = async ({
   from: Date;
   to: Date;
   limit?: number;
-}): CustomResponsePromise<Array<{ productId: string; productName: string; coverImage: string | null; wishlistCount: number }>> => {
+}): CustomResponsePromise<
+  Array<{ productId: string; productName: string; coverImage: string | null; wishlistCount: number }>
+> => {
   try {
     const result = await Wishlist.aggregate([
       { $match: { createdAt: { $gte: from, $lte: to } } },
@@ -6935,8 +6923,8 @@ const getMostWishlistedProducts = async ({
       { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
       {
         $match: {
-          'product.name': { $exists: true, $ne: null }
-        }
+          'product.name': { $exists: true, $ne: null },
+        },
       },
       {
         $project: {
@@ -6950,15 +6938,15 @@ const getMostWishlistedProducts = async ({
                     {
                       $filter: {
                         input: '$product.description_images',
-                        cond: { $eq: ['$$this.cover_image', true] }
-                      }
+                        cond: { $eq: ['$$this.cover_image', true] },
+                      },
                     },
-                    0
-                  ]
-                }
+                    0,
+                  ],
+                },
               },
-              in: { $ifNull: ['$$coverImg.url', null] }
-            }
+              in: { $ifNull: ['$$coverImg.url', null] },
+            },
           },
           wishlistCount: 1,
         },
@@ -6987,7 +6975,15 @@ const getMostReviewedProducts = async ({
   from: Date;
   to: Date;
   limit?: number;
-}): CustomResponsePromise<Array<{ productId: string; productName: string; coverImage: string | null; reviewCount: number; averageRating: number }>> => {
+}): CustomResponsePromise<
+  Array<{
+    productId: string;
+    productName: string;
+    coverImage: string | null;
+    reviewCount: number;
+    averageRating: number;
+  }>
+> => {
   try {
     const result = await Review.aggregate([
       { $match: { createdAt: { $gte: from, $lte: to } } },
@@ -7011,8 +7007,8 @@ const getMostReviewedProducts = async ({
       { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
       {
         $match: {
-          'product.name': { $exists: true, $ne: null }
-        }
+          'product.name': { $exists: true, $ne: null },
+        },
       },
       {
         $project: {
@@ -7026,15 +7022,15 @@ const getMostReviewedProducts = async ({
                     {
                       $filter: {
                         input: '$product.description_images',
-                        cond: { $eq: ['$$this.cover_image', true] }
-                      }
+                        cond: { $eq: ['$$this.cover_image', true] },
+                      },
                     },
-                    0
-                  ]
-                }
+                    0,
+                  ],
+                },
               },
-              in: { $ifNull: ['$$coverImg.url', null] }
-            }
+              in: { $ifNull: ['$$coverImg.url', null] },
+            },
           },
           reviewCount: 1,
           averageRating: 1,
@@ -7084,15 +7080,15 @@ const getLowStockProducts = async ({
 
     // Get total count
     const total = await Product.countDocuments({
-      $expr: { $lte: ['$stock', '$lowStockThreshold'] }
+      $expr: { $lte: ['$stock', '$lowStockThreshold'] },
     });
 
     // Get low stock products
     const products = await Product.aggregate([
       {
         $match: {
-          $expr: { $lte: ['$stock', '$lowStockThreshold'] }
-        }
+          $expr: { $lte: ['$stock', '$lowStockThreshold'] },
+        },
       },
       { $sort: { stock: 1 } }, // Sort by stock ascending (lowest first)
       { $skip: skip },
@@ -7122,15 +7118,15 @@ const getLowStockProducts = async ({
                     {
                       $filter: {
                         input: '$description_images',
-                        cond: { $eq: ['$$this.cover_image', true] }
-                      }
+                        cond: { $eq: ['$$this.cover_image', true] },
+                      },
                     },
-                    0
-                  ]
-                }
+                    0,
+                  ],
+                },
               },
-              in: { $ifNull: ['$$coverImg.url', null] }
-            }
+              in: { $ifNull: ['$$coverImg.url', null] },
+            },
           },
         },
       },
