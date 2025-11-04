@@ -1434,55 +1434,130 @@ const searchAutocomplete = async (
   >
 > => {
   try {
-    if (!query || query.trim().length < 2) {
-      return {
-        message: 'Query too short',
-        data: [],
-        code: 200,
-      };
+    const q = (query || '').trim();
+    if (q.length < 2) {
+      return { message: 'Query too short', data: [], code: 200 };
     }
 
-    const escapedQuery = escapeRegex(query.trim());
+    // Prefer MongoDB Atlas Search if available
+    const searchIndex = process.env.ATLAS_SEARCH_INDEX || 'default';
 
-    const products = await Product.find({
-      status: 'active',
-      $or: [
-        { name: { $regex: escapedQuery, $options: 'i' } },
-        { description: { $regex: escapedQuery, $options: 'i' } },
-        { tags: { $elemMatch: { $regex: escapedQuery, $options: 'i' } } },
-      ],
-    })
-      .select('name slug price description_images')
-      .populate('category', 'name slug')
-      .limit(limit)
-      .lean();
+    let results: Array<{
+      _id: string;
+      name: string;
+      slug: string;
+      price: number;
+      image?: string;
+      category?: { name: string; slug: string };
+    }> = [];
 
-    const results = products.map((p: any) => ({
-      _id: p._id.toString(),
-      name: p.name,
-      slug: p.slug,
-      price: p.price,
-      image: p.description_images?.find((img: any) => img.cover_image)?.url || p.description_images?.[0]?.url,
-      category: p.category
-        ? {
-            name: p.category.name,
-            slug: p.category.slug,
-          }
-        : undefined,
-    }));
+    try {
+      const pipeline: PipelineStage[] = [
+        {
+          $search: {
+            index: searchIndex,
+            compound: {
+              should: [
+                {
+                  autocomplete: {
+                    path: 'name',
+                    query: q,
+                    tokenOrder: 'sequential',
+                  },
+                },
+                {
+                  text: {
+                    query: q,
+                    path: ['name', 'tags'],
+                    fuzzy: { maxEdits: 1 },
+                  },
+                },
+              ],
+              minimumShouldMatch: 1,
+            },
+          },
+        } as unknown as PipelineStage, // $search is an Atlas stage not in TS types
+        { $match: { status: 'active' } },
+        {
+          $project: {
+            name: 1,
+            slug: 1,
+            price: 1,
+            description_images: 1,
+            category: 1,
+            _score: { $meta: 'searchScore' },
+          },
+        },
+        { $sort: { _score: -1 } },
+        { $limit: Math.max(1, Math.min(limit, 20)) },
+        {
+          $lookup: {
+            from: 'categories',
+            localField: 'category',
+            foreignField: '_id',
+            as: 'category',
+          },
+        },
+        { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+        {
+          $project: {
+            name: 1,
+            slug: 1,
+            price: 1,
+            description_images: 1,
+            category: {
+              name: '$category.name',
+              slug: '$category.slug',
+            },
+          },
+        },
+      ];
 
-    return {
-      message: 'Autocomplete results retrieved successfully',
-      data: results,
-      code: 200,
-    };
+      const docs = await Product.aggregate(pipeline).exec();
+      results = (docs as any[]).map((p) => ({
+        _id: String(p._id),
+        name: p.name,
+        slug: p.slug,
+        price: p.price,
+        image:
+          p.description_images?.find((img: any) => img?.cover_image)?.url ||
+          p.description_images?.[0]?.url,
+        category: p.category?.name
+          ? { name: p.category.name, slug: p.category.slug }
+          : undefined,
+      }));
+    } catch (atlasErr) {
+      // Fallback to regex search if $search is unavailable (e.g., index missing)
+      const escaped = escapeRegex(q);
+      const products = await Product.find({
+        status: 'active',
+        $or: [
+          { name: { $regex: escaped, $options: 'i' } },
+          { description: { $regex: escaped, $options: 'i' } },
+          { tags: { $elemMatch: { $regex: escaped, $options: 'i' } } },
+        ],
+      })
+        .select('name slug price description_images')
+        .populate('category', 'name slug')
+        .limit(Math.max(1, Math.min(limit, 20)))
+        .lean();
+
+      results = products.map((p: any) => ({
+        _id: String(p._id),
+        name: p.name,
+        slug: p.slug,
+        price: p.price,
+        image: p.description_images?.find((img: any) => img?.cover_image)?.url || p.description_images?.[0]?.url,
+        category: p.category
+          ? { name: p.category.name, slug: p.category.slug }
+          : undefined,
+      }));
+    }
+
+    return { message: 'Autocomplete results retrieved successfully', data: results, code: 200 };
   } catch (error) {
     console.error('Error in search autocomplete:', error);
-    return {
-      message: 'Failed to fetch autocomplete results',
-      data: null,
-      code: 500,
-    };
+    return { message: 'Failed to fetch autocomplete results', data: null, code: 500 };
   }
 };
 
