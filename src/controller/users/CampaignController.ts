@@ -19,11 +19,8 @@ const getAllActiveCampaigns = async (req: Request, res: Response) => {
 const getActiveCampaignById = async (req: Request, res: Response) => {
   try {
     const { campaignId } = req.params as { campaignId: string };
-    const { page = '1', limit = '20' } = req.query as { page?: string; limit?: string };
     const result = await UserCampaignService.getActiveCampaignById({
       campaignId,
-      page: Number(page),
-      limit: Number(limit),
     });
     return res.status(result.code).json({ message: result.message, data: result.data });
   } catch (error) {
@@ -35,11 +32,8 @@ const getActiveCampaignById = async (req: Request, res: Response) => {
 const getActiveCampaignBySlug = async (req: Request, res: Response) => {
   try {
     const { slug } = req.params as { slug: string };
-    const { page = '1', limit = '20' } = req.query as { page?: string; limit?: string };
     const result = await UserCampaignService.getActiveCampaignBySlug({
       slug,
-      page: Number(page),
-      limit: Number(limit),
     });
     return res.status(result.code).json({ message: result.message, data: result.data });
   } catch (error) {
@@ -48,4 +42,19 @@ const getActiveCampaignBySlug = async (req: Request, res: Response) => {
   }
 };
 
-export default { getAllActiveCampaigns, getActiveCampaignById, getActiveCampaignBySlug };
+/**
+ * Get filters for campaign products
+ * Returns aggregated filter data (price range, attributes, specs, tags, pack sizes)
+ */
+const getCampaignFilters = async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params as { slug: string };
+    const result = await UserCampaignService.getCampaignFilters(slug);
+    return res.status(result.code).json({ message: result.message, data: result.data });
+  } catch (error) {
+    console.error('Error in getCampaignFilters:', error);
+    return res.status(500).json({ message: 'Internal server error' });
+  }
+};
+
+export default { getAllActiveCampaigns, getActiveCampaignById, getActiveCampaignBySlug, getCampaignFilters };

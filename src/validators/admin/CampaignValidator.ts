@@ -10,8 +10,8 @@ const createCampaignValidator = async (req: Request, res: Response, next: NextFu
       toLowerCase: true,
       notEmpty: true,
       matches: {
-        options: [/^[a-z0-9-]+$/],
-        errorMessage: 'slug may only contain lowercase letters, numbers, and hyphens',
+        options: [/^[a-z0-9-_]+$/],
+        errorMessage: 'slug may only contain lowercase letters, numbers, underscores, and hyphens',
       },
       errorMessage: 'slug is required',
     },

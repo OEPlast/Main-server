@@ -15,6 +15,9 @@ router.post(
   CampaignValidator.createCampaignValidator,
   CampaignController.createCampaign
 );
+
+router.get('/check-slug', requirePermission('campaigns', 'read'), CampaignController.checkSlug);
+// Slug availability check
 router.get('/list', requirePermission('campaigns', 'read'), CampaignController.getCampaignsList);
 router.get('/all', requirePermission('campaigns', 'read'), CampaignController.getAllCampaigns);
 router.get(
@@ -44,7 +47,5 @@ router.patch(
   CampaignController.toggleCampaignStatus
 );
 
-// Slug availability check
-router.get('/check-slug', requirePermission('campaigns', 'read'), CampaignController.checkSlug);
 
 export default router;

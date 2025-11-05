@@ -17,4 +17,7 @@ router.get(
   UserCampaignController.getActiveCampaignBySlug
 );
 
+// Get campaign filters (like category filters)
+router.get('/slug/:slug/filters', UserCampaignController.getCampaignFilters);
+
 export default router;

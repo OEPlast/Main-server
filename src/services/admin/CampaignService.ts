@@ -28,8 +28,8 @@ const createCampaign = async (campaignData: {
 
     await campaign.save();
     await campaign.populate([
-      { path: 'products', select: 'name price description slug status' },
-      { path: 'sales', select: 'title type startDate endDate isActive' },
+      { path: 'products', select: 'name price description slug status image coverImage' },
+      { path: 'sales', select: 'title type startDate endDate isActive products' },
     ]);
 
     return {
@@ -55,8 +55,8 @@ const getAllCampaigns = async (
     // Admin listing: no pagination, populate both products and sales
     const [campaigns, total] = await Promise.all([
       Campaign.find(filter)
-        .populate({ path: 'products', select: 'name price description slug status' })
-        .populate({ path: 'sales', select: 'title type startDate endDate isActive' })
+        .populate({ path: 'products', select: 'name price description slug status image coverImage' })
+        .populate({ path: 'sales', select: 'title type startDate endDate isActive products' })
         .sort({ createdAt: -1 }),
       Campaign.countDocuments(filter),
     ]);
@@ -76,11 +76,56 @@ const getAllCampaigns = async (
   }
 };
 
+// Helper to attach linkedSales (array of sale summaries) to each product in the campaign
+const attachSalesToProducts = (campaign: ICampaign) => {
+  try {
+    const obj = (campaign as any).toObject ? (campaign as any).toObject() : campaign;
+    const sales = Array.isArray((obj as any).sales) ? (obj as any).sales : [];
+    const products = Array.isArray((obj as any).products) ? (obj as any).products : [];
+
+    const enhancedProducts = products.map((p: any) => {
+      if (!p || typeof p === 'string') return p;
+      const productId = (p._id || p.id)?.toString?.() ?? '';
+      const linkedSales = sales
+        .filter((s: any) => {
+          if (!s || typeof s === 'string') return false;
+          // support both single product and array of products relations
+          if (Array.isArray(s.products)) {
+            return s.products.some((sp: any) => {
+              if (!sp) return false;
+              if (typeof sp === 'string') return sp === productId;
+              return (sp._id || sp.id)?.toString?.() === productId;
+            });
+          }
+          if ((s as any).product) {
+            const sp = (s as any).product;
+            if (typeof sp === 'string') return sp === productId;
+            return (sp._id || sp.id)?.toString?.() === productId;
+          }
+          return false;
+        })
+        .map((s: any) => ({
+          _id: s._id,
+          title: s.title,
+          type: s.type,
+          isActive: s.isActive,
+          startDate: s.startDate,
+          endDate: s.endDate,
+        }));
+      return { ...p, linkedSales };
+    });
+
+    return { ...(obj as any), products: enhancedProducts } as ICampaign;
+  } catch {
+    return campaign;
+  }
+};
+
 const getCampaignById = async (campaignId: string): Promise<CustomResponseType<ICampaign>> => {
   try {
     const campaign = await Campaign.findById(campaignId)
-      .populate({ path: 'products', select: 'name price description slug status' })
-      .populate({ path: 'sales', select: 'title type startDate endDate isActive' });
+      .populate({ path: 'products', select: 'name price description slug status image coverImage' })
+      .populate({ path: 'sales', select: 'title type startDate endDate isActive products' });
 
     if (!campaign) {
       return {
@@ -90,9 +135,10 @@ const getCampaignById = async (campaignId: string): Promise<CustomResponseType<I
       };
     }
 
+    const enriched = attachSalesToProducts(campaign);
     return {
       message: 'Campaign retrieved successfully',
-      data: campaign,
+      data: enriched,
       code: 200,
     };
   } catch (error) {
@@ -134,8 +180,8 @@ const updateCampaign = async (
     }
 
     const campaign = await Campaign.findByIdAndUpdate(campaignId, updateQuery, { new: true, runValidators: true })
-      .populate({ path: 'products', select: 'name price description slug status' })
-      .populate({ path: 'sales', select: 'title type startDate endDate isActive' });
+      .populate({ path: 'products', select: 'name price description slug status image coverImage' })
+      .populate({ path: 'sales', select: 'title type startDate endDate isActive products' });
 
     if (!campaign) {
       return {
@@ -212,8 +258,8 @@ const toggleCampaignStatus = async (
 ): Promise<CustomResponseType<ICampaign>> => {
   try {
     const campaign = await Campaign.findByIdAndUpdate(campaignId, { status }, { new: true })
-      .populate({ path: 'products', select: 'name price description slug status' })
-      .populate({ path: 'sales', select: 'title type startDate endDate isActive' });
+      .populate({ path: 'products', select: 'name price description slug status image coverImage' })
+      .populate({ path: 'sales', select: 'title type startDate endDate isActive products' });
 
     if (!campaign) {
       return {
@@ -266,8 +312,8 @@ const addProductToCampaign = async (campaignId: string, productId: string): Prom
 
     await campaign.save();
     await campaign.populate([
-      { path: 'products', select: 'name price description slug status' },
-      { path: 'sales', select: 'title type startDate endDate isActive' },
+      { path: 'products', select: 'name price description slug status image coverImage' },
+      { path: 'sales', select: 'title type startDate endDate isActive products' },
     ]);
 
     return {
@@ -306,8 +352,8 @@ const removeProductFromCampaign = async (
 
     await campaign.save();
     await campaign.populate([
-      { path: 'products', select: 'name price description slug status' },
-      { path: 'sales', select: 'title type startDate endDate isActive' },
+      { path: 'products', select: 'name price description slug status image coverImage' },
+      { path: 'sales', select: 'title type startDate endDate isActive products' },
     ]);
 
     return {

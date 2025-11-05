@@ -76,12 +76,79 @@ const searchProducts = async (req: Request, res: Response) => {
 
 // Enhanced analytics and recommendation functions
 
-// Get products of the week
+// Get products of the week (now with filter support)
 const getWeekProducts = async (req: Request, res: Response) => {
   try {
-    const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
-    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
-    const { data, message, code, meta } = await ProductService.getWeekProducts(page, limit);
+    const {
+      page = '1',
+      limit = '20',
+      minPrice,
+      maxPrice,
+      tags,
+      attributes,
+      sort,
+      inStock,
+      packSize,
+    } = req.query as {
+      page?: string;
+      limit?: string;
+      minPrice?: string;
+      maxPrice?: string;
+      tags?: string | string[];
+      attributes?: string | string[];
+      sort?: string | string[];
+      inStock?: string;
+      packSize?: string;
+    };
+
+    // Parse tags
+    let parsedTags: string[] | undefined;
+    if (tags) {
+      parsedTags = Array.isArray(tags) ? tags : tags.split(',').map((t) => t.trim());
+    }
+
+    // Parse attributes
+    let parsedAttributes: Record<string, string[]> | undefined;
+    if (attributes) {
+      const attrArray = Array.isArray(attributes) ? attributes : [attributes];
+      parsedAttributes = {};
+      attrArray.forEach((attr) => {
+        const [name, valuesStr] = attr.split(':');
+        if (name && valuesStr) {
+          parsedAttributes![name] = valuesStr.split('|').map((v) => v.trim());
+        }
+      });
+    }
+
+    // Parse sort
+    type SortOption =
+      | 'alphabetical'
+      | 'newest'
+      | 'price_asc'
+      | 'price_desc'
+      | 'popular'
+      | 'stock'
+      | 'order_frequency'
+      | 'rating';
+    let parsedSort: SortOption[] = ['order_frequency'];
+    if (sort) {
+      const sortArray = Array.isArray(sort) ? sort : sort.split(',').map((s) => s.trim());
+      parsedSort = sortArray as SortOption[];
+    }
+
+    const { data, message, code, meta } = await ProductService.getWeekProducts(
+      Number(page),
+      Number(limit),
+      parsedSort,
+      {
+        minPrice: minPrice ? parseFloat(minPrice) : undefined,
+        maxPrice: maxPrice ? parseFloat(maxPrice) : undefined,
+        tags: parsedTags,
+        attributes: parsedAttributes,
+        inStock: inStock === 'true',
+        packSize,
+      }
+    );
     return res.status(code).json({ message, data, meta });
   } catch (error) {
     console.error('Error in getWeekProducts:', error);
@@ -89,12 +156,79 @@ const getWeekProducts = async (req: Request, res: Response) => {
   }
 };
 
-// Get top sold products
+// Get top sold products (now with filter support)
 const getTopSoldProducts = async (req: Request, res: Response) => {
   try {
-    const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
-    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
-    const { data, message, code, meta } = await ProductService.getTopSoldProducts(page, limit);
+    const {
+      page = '1',
+      limit = '20',
+      minPrice,
+      maxPrice,
+      tags,
+      attributes,
+      sort,
+      inStock,
+      packSize,
+    } = req.query as {
+      page?: string;
+      limit?: string;
+      minPrice?: string;
+      maxPrice?: string;
+      tags?: string | string[];
+      attributes?: string | string[];
+      sort?: string | string[];
+      inStock?: string;
+      packSize?: string;
+    };
+
+    // Parse tags
+    let parsedTags: string[] | undefined;
+    if (tags) {
+      parsedTags = Array.isArray(tags) ? tags : tags.split(',').map((t) => t.trim());
+    }
+
+    // Parse attributes
+    let parsedAttributes: Record<string, string[]> | undefined;
+    if (attributes) {
+      const attrArray = Array.isArray(attributes) ? attributes : [attributes];
+      parsedAttributes = {};
+      attrArray.forEach((attr) => {
+        const [name, valuesStr] = attr.split(':');
+        if (name && valuesStr) {
+          parsedAttributes![name] = valuesStr.split('|').map((v) => v.trim());
+        }
+      });
+    }
+
+    // Parse sort
+    type SortOption =
+      | 'alphabetical'
+      | 'newest'
+      | 'price_asc'
+      | 'price_desc'
+      | 'popular'
+      | 'stock'
+      | 'order_frequency'
+      | 'rating';
+    let parsedSort: SortOption[] = ['order_frequency'];
+    if (sort) {
+      const sortArray = Array.isArray(sort) ? sort : sort.split(',').map((s) => s.trim());
+      parsedSort = sortArray as SortOption[];
+    }
+
+    const { data, message, code, meta } = await ProductService.getTopSoldProducts(
+      Number(page),
+      Number(limit),
+      parsedSort,
+      {
+        minPrice: minPrice ? parseFloat(minPrice) : undefined,
+        maxPrice: maxPrice ? parseFloat(maxPrice) : undefined,
+        tags: parsedTags,
+        attributes: parsedAttributes,
+        inStock: inStock === 'true',
+        packSize,
+      }
+    );
     return res.status(code).json({ message, data, meta });
   } catch (error) {
     console.error('Error in getTopSoldProducts:', error);
@@ -167,22 +301,20 @@ const getByCategorySlug = async (req: Request, res: Response) => {
     // ?sort[]=price_asc&sort[]=alphabetical (array notation)
     let sortOptions: Array<
       'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'
-    >;
+    > = ['alphabetical', 'newest'];
 
     if (req.query.sort) {
       if (Array.isArray(req.query.sort)) {
         // Array notation: ?sort[]=alphabetical&sort[]=newest
-        sortOptions = req.query.sort as any[];
+        sortOptions = req.query.sort as Array<
+          'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'
+        >;
       } else if (typeof req.query.sort === 'string') {
         // Comma-separated: ?sort=alphabetical,newest or single: ?sort=alphabetical
-        sortOptions = req.query.sort.split(',').map((s) => s.trim()) as any[];
-      } else {
-        // Default if invalid
-        sortOptions = ['alphabetical', 'newest'];
+        sortOptions = req.query.sort.split(',').map((s) => s.trim()) as Array<
+          'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'
+        >;
       }
-    } else {
-      // No sort parameter provided - use default
-      sortOptions = ['alphabetical', 'newest'];
     }
 
     // Parse filters
@@ -276,12 +408,74 @@ const getTopCategories = async (req: Request, res: Response) => {
   }
 };
 
-// Get new products
+// Get new products (now with filter support)
 const getNewProducts = async (req: Request, res: Response) => {
   try {
-    const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
-    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 20;
-    const { data, message, code, meta } = await ProductService.getNewProducts(page, limit);
+    const {
+      page = '1',
+      limit = '20',
+      minPrice,
+      maxPrice,
+      tags,
+      attributes,
+      sort,
+      inStock,
+      packSize,
+    } = req.query as {
+      page?: string;
+      limit?: string;
+      minPrice?: string;
+      maxPrice?: string;
+      tags?: string | string[];
+      attributes?: string | string[];
+      sort?: string | string[];
+      inStock?: string;
+      packSize?: string;
+    };
+
+    // Parse tags
+    let parsedTags: string[] | undefined;
+    if (tags) {
+      parsedTags = Array.isArray(tags) ? tags : tags.split(',').map((t) => t.trim());
+    }
+
+    // Parse attributes
+    let parsedAttributes: Record<string, string[]> | undefined;
+    if (attributes) {
+      const attrArray = Array.isArray(attributes) ? attributes : [attributes];
+      parsedAttributes = {};
+      attrArray.forEach((attr) => {
+        const [name, valuesStr] = attr.split(':');
+        if (name && valuesStr) {
+          parsedAttributes![name] = valuesStr.split('|').map((v) => v.trim());
+        }
+      });
+    }
+
+    // Parse sort
+    type SortOption =
+      | 'alphabetical'
+      | 'newest'
+      | 'price_asc'
+      | 'price_desc'
+      | 'popular'
+      | 'stock'
+      | 'order_frequency'
+      | 'rating';
+    let parsedSort: SortOption[] = ['newest'];
+    if (sort) {
+      const sortArray = Array.isArray(sort) ? sort : sort.split(',').map((s) => s.trim());
+      parsedSort = sortArray as SortOption[];
+    }
+
+    const { data, message, code, meta } = await ProductService.getNewProducts(Number(page), Number(limit), parsedSort, {
+      minPrice: minPrice ? parseFloat(minPrice) : undefined,
+      maxPrice: maxPrice ? parseFloat(maxPrice) : undefined,
+      tags: parsedTags,
+      attributes: parsedAttributes,
+      inStock: inStock === 'true',
+      packSize,
+    });
     return res.status(code).json({ message, data, meta });
   } catch (error) {
     console.error('Error in getNewProducts:', error);
@@ -315,6 +509,123 @@ const getDealsOfTheDay = async (req: Request, res: Response) => {
   }
 };
 
+// Get products from a specific campaign by slug with filtering
+const getProductsByCampaignSlug = async (req: Request, res: Response) => {
+  try {
+    const { slug } = req.params as { slug: string };
+    const {
+      page = '1',
+      limit = '20',
+      minPrice,
+      maxPrice,
+      tags,
+      attributes,
+      sort,
+      inStock,
+      packSize,
+    } = req.query as {
+      page?: string;
+      limit?: string;
+      minPrice?: string;
+      maxPrice?: string;
+      tags?: string | string[];
+      attributes?: string | string[];
+      sort?: string | string[];
+      inStock?: string;
+      packSize?: string;
+    };
+
+    // Parse tags: can be comma-separated string or array
+    let parsedTags: string[] | undefined;
+    if (tags) {
+      parsedTags = Array.isArray(tags) ? tags : tags.split(',').map((t) => t.trim());
+    }
+
+    // Parse attributes: ["Color:Red|Blue", "Size:Large|XL"] to Record<string, string[]>
+    let parsedAttributes: Record<string, string[]> | undefined;
+    if (attributes) {
+      const attrArray = Array.isArray(attributes) ? attributes : [attributes];
+      parsedAttributes = {};
+      attrArray.forEach((attr) => {
+        const [name, valuesStr] = attr.split(':');
+        if (name && valuesStr) {
+          parsedAttributes![name] = valuesStr.split('|').map((v) => v.trim());
+        }
+      });
+    }
+
+    // Parse sort: can be comma-separated string or array
+    type SortOption =
+      | 'alphabetical'
+      | 'newest'
+      | 'price_asc'
+      | 'price_desc'
+      | 'popular'
+      | 'stock'
+      | 'order_frequency'
+      | 'rating';
+    let parsedSort: SortOption[] = ['alphabetical', 'newest'];
+    if (sort) {
+      const sortArray = Array.isArray(sort) ? sort : sort.split(',').map((s) => s.trim());
+      parsedSort = sortArray as SortOption[];
+    }
+
+    // Call product service with campaign slug and filters
+    const { data, message, code, meta } = await ProductService.getProductsByCampaignSlug(
+      slug,
+      Number(page),
+      Number(limit),
+      parsedSort,
+      {
+        minPrice: minPrice ? parseFloat(minPrice) : undefined,
+        maxPrice: maxPrice ? parseFloat(maxPrice) : undefined,
+        tags: parsedTags,
+        attributes: parsedAttributes,
+        inStock: inStock === 'true',
+        packSize,
+      }
+    );
+
+    return res.status(code).json({ message, data, meta });
+  } catch (error) {
+    console.error('Error in getProductsByCampaignSlug:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Get filter options for new products
+const getNewProductsFilters = async (req: Request, res: Response) => {
+  try {
+    const { data, message, code } = await ProductService.getNewProductsFilters();
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getNewProductsFilters:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Get filter options for week products
+const getWeekProductsFilters = async (req: Request, res: Response) => {
+  try {
+    const { data, message, code } = await ProductService.getWeekProductsFilters();
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getWeekProductsFilters:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Get filter options for top sold products
+const getTopSoldProductsFilters = async (req: Request, res: Response) => {
+  try {
+    const { data, message, code } = await ProductService.getTopSoldProductsFilters();
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getTopSoldProductsFilters:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export default {
   getAllProducts,
   searchProducts,
@@ -330,4 +641,8 @@ export default {
   getNewProducts,
   searchAutocomplete,
   getDealsOfTheDay,
+  getProductsByCampaignSlug,
+  getNewProductsFilters,
+  getWeekProductsFilters,
+  getTopSoldProductsFilters,
 };

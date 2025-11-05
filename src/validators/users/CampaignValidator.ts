@@ -42,6 +42,13 @@ const slugWithProductsQueryValidator = (req: Request, res: Response, next: NextF
     },
     page: { in: ['query'], optional: true, isInt: { options: { min: 1 } }, toInt: true },
     limit: { in: ['query'], optional: true, isInt: { options: { min: 1, max: 100 } }, toInt: true },
+    minPrice: { in: ['query'], optional: true, isFloat: { options: { min: 0 } }, toFloat: true },
+    maxPrice: { in: ['query'], optional: true, isFloat: { options: { min: 0 } }, toFloat: true },
+    inStock: { in: ['query'], optional: true, isBoolean: true, toBoolean: true },
+    packSize: { in: ['query'], optional: true, isString: true, trim: true },
+    sort: { in: ['query'], optional: true, isString: true, trim: true },
+    tags: { in: ['query'], optional: true },
+    attributes: { in: ['query'], optional: true },
   }).run(req);
 
   const errors = validationResult(req);

@@ -452,59 +452,190 @@ const searchProducts = async (
 
 /**
  * Fetches products of the week based on orders placed in the last 7 days.
+ * Now supports filtering like campaigns for dedicated pages.
  */
 const getWeekProducts = async (
   page = 1,
-  limit = 20
+  limit = 20,
+  sortOptions: Array<
+    'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'
+  > = ['order_frequency'], // Default: most sold first
+  filters?: ProductFilters
 ): CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; pages: number }> => {
   try {
     const weekStart = new Date();
     weekStart.setDate(weekStart.getDate() - 7);
 
-    const pipeline: PipelineStage[] = [
+    // First, get all product IDs sold in the last 7 days
+    const soldProductsPipeline: PipelineStage[] = [
       { $match: { createdAt: { $gte: weekStart }, status: 'Completed' } },
       { $unwind: '$products' },
       { $group: { _id: '$products.product', totalSold: { $sum: '$products.qty' } } },
-      { $sort: { totalSold: -1 } },
-      {
-        $facet: {
-          results: [
-            { $skip: (page - 1) * limit },
-            { $limit: limit },
-            {
-              $lookup: {
-                from: 'products',
-                localField: '_id',
-                foreignField: '_id',
-                as: 'productDetails',
-              },
-            },
-            { $unwind: '$productDetails' },
-            { $replaceRoot: { newRoot: '$productDetails' } },
-            {
-              $project: {
-                _id: 1,
-                name: 1,
-                slug: 1,
-                price: 1,
-                createdAt: 1,
-                sku: 1,
-                stock: 1,
-                originStock: 1,
-                rating: 1,
-                images: '$description_images', // Rename description_images to images
-                category: 1,
-                packSizes: 1,
-                attributes: 1,
-              },
-            },
-          ],
-          totalCount: [{ $count: 'total' }],
-        },
-      },
+      { $project: { productId: '$_id', orderFrequency: '$totalSold' } },
     ];
 
-    const agg = await Order.aggregate(pipeline).exec();
+    const soldProducts = await Order.aggregate(soldProductsPipeline).exec();
+    const productIds = soldProducts.map((p) => p.productId);
+
+    if (productIds.length === 0) {
+      return {
+        message: 'No week products found',
+        data: [],
+        code: 200,
+        meta: { total: 0, page, limit, pages: 0 },
+      };
+    }
+
+    // Build product aggregation pipeline with filters
+    const pipeline: PipelineStage[] = [{ $match: { _id: { $in: productIds }, status: 'active' } }];
+
+    // Apply filters
+    if (filters?.minPrice !== undefined || filters?.maxPrice !== undefined) {
+      const priceMatch: { $gte?: number; $lte?: number } = {};
+      if (filters.minPrice !== undefined) priceMatch.$gte = filters.minPrice;
+      if (filters.maxPrice !== undefined) priceMatch.$lte = filters.maxPrice;
+      pipeline.push({ $match: { price: priceMatch } });
+    }
+
+    if (filters?.inStock) {
+      pipeline.push({ $match: { stock: { $gt: 0 } } });
+    }
+
+    if (filters?.packSize) {
+      pipeline.push({ $match: { 'packSizes.label': filters.packSize } });
+    }
+
+    if (filters?.tags && filters.tags.length > 0) {
+      pipeline.push({ $match: { tags: { $in: filters.tags } } });
+    }
+
+    if (filters?.attributes && Object.keys(filters.attributes).length > 0) {
+      const andExpr: unknown[] = Object.entries(filters.attributes).map(([attrName, values]) => ({
+        $anyElementTrue: {
+          $map: {
+            input: '$attributes',
+            as: 'attr',
+            in: {
+              $and: [
+                { $eq: ['$$attr.name', attrName] },
+                {
+                  $anyElementTrue: {
+                    $map: {
+                      input: '$$attr.children',
+                      as: 'child',
+                      in: { $in: ['$$child.name', values] },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }));
+      pipeline.push({ $match: { $expr: { $and: andExpr } } });
+    }
+
+    // Add order frequency from soldProducts
+    pipeline.push({
+      $addFields: {
+        orderFrequency: {
+          $let: {
+            vars: {
+              match: {
+                $arrayElemAt: [
+                  {
+                    $filter: {
+                      input: soldProducts,
+                      as: 'sold',
+                      cond: { $eq: ['$$sold.productId', '$_id'] },
+                    },
+                  },
+                  0,
+                ],
+              },
+            },
+            in: { $ifNull: ['$$match.orderFrequency', 0] },
+          },
+        },
+      },
+    });
+
+    // Lookup category
+    pipeline.push(
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } }
+    );
+
+    // Build multi-sort
+    const sortStage: Record<string, 1 | -1> = {};
+    for (const sortOption of sortOptions) {
+      switch (sortOption) {
+        case 'alphabetical':
+          sortStage.name = 1;
+          break;
+        case 'newest':
+          sortStage.createdAt = -1;
+          break;
+        case 'price_asc':
+          sortStage.price = 1;
+          break;
+        case 'price_desc':
+          sortStage.price = -1;
+          break;
+        case 'popular':
+          sortStage.popularityScore = -1;
+          break;
+        case 'stock':
+          sortStage.stock = -1;
+          break;
+        case 'order_frequency':
+          sortStage.orderFrequency = -1;
+          break;
+        case 'rating':
+          sortStage.rating = -1;
+          break;
+      }
+    }
+    if (Object.keys(sortStage).length) {
+      pipeline.push({ $sort: sortStage });
+    }
+
+    // Pagination
+    pipeline.push({
+      $facet: {
+        results: [
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              slug: 1,
+              price: 1,
+              createdAt: 1,
+              sku: 1,
+              stock: 1,
+              originStock: 1,
+              rating: 1,
+              images: '$description_images',
+              category: 1,
+              packSizes: 1,
+              attributes: 1,
+            },
+          },
+        ],
+        totalCount: [{ $count: 'total' }],
+      },
+    });
+
+    const agg = await Product.aggregate(pipeline).exec();
     const results = (agg[0]?.results as ProductType[]) || [];
     const total = (agg[0]?.totalCount?.[0]?.total as number) || 0;
 
@@ -522,56 +653,187 @@ const getWeekProducts = async (
 
 /**
  * Fetches top sold products based on total sales from orders.
+ * Now supports filtering like campaigns for dedicated pages.
  */
 const getTopSoldProducts = async (
   page = 1,
-  limit = 10
+  limit = 10,
+  sortOptions: Array<
+    'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'
+  > = ['order_frequency'], // Default: most sold first
+  filters?: ProductFilters
 ): CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; pages: number }> => {
   try {
-    const pipeline: PipelineStage[] = [
+    // First, get all product IDs from completed orders
+    const soldProductsPipeline: PipelineStage[] = [
       { $match: { status: 'Completed' } },
       { $unwind: '$products' },
       { $group: { _id: '$products.product', totalSold: { $sum: '$products.qty' } } },
-      { $sort: { totalSold: -1 } },
-      {
-        $facet: {
-          results: [
-            { $skip: (page - 1) * limit },
-            { $limit: limit },
-            {
-              $lookup: {
-                from: 'products',
-                localField: '_id',
-                foreignField: '_id',
-                as: 'productDetails',
-              },
-            },
-            { $unwind: '$productDetails' },
-            { $replaceRoot: { newRoot: '$productDetails' } },
-            {
-              $project: {
-                _id: 1,
-                name: 1,
-                slug: 1,
-                price: 1,
-                createdAt: 1,
-                sku: 1,
-                stock: 1,
-                originStock: 1,
-                rating: 1,
-                images: '$description_images', // Rename description_images to images
-                category: 1,
-                packSizes: 1,
-                attributes: 1,
-              },
-            },
-          ],
-          totalCount: [{ $count: 'total' }],
-        },
-      },
+      { $project: { productId: '$_id', orderFrequency: '$totalSold' } },
     ];
 
-    const agg = await Order.aggregate(pipeline).exec();
+    const soldProducts = await Order.aggregate(soldProductsPipeline).exec();
+    const productIds = soldProducts.map((p) => p.productId);
+
+    if (productIds.length === 0) {
+      return {
+        message: 'No top sold products found',
+        data: [],
+        code: 200,
+        meta: { total: 0, page, limit, pages: 0 },
+      };
+    }
+
+    // Build product aggregation pipeline with filters
+    const pipeline: PipelineStage[] = [{ $match: { _id: { $in: productIds }, status: 'active' } }];
+
+    // Apply filters
+    if (filters?.minPrice !== undefined || filters?.maxPrice !== undefined) {
+      const priceMatch: { $gte?: number; $lte?: number } = {};
+      if (filters.minPrice !== undefined) priceMatch.$gte = filters.minPrice;
+      if (filters.maxPrice !== undefined) priceMatch.$lte = filters.maxPrice;
+      pipeline.push({ $match: { price: priceMatch } });
+    }
+
+    if (filters?.inStock) {
+      pipeline.push({ $match: { stock: { $gt: 0 } } });
+    }
+
+    if (filters?.packSize) {
+      pipeline.push({ $match: { 'packSizes.label': filters.packSize } });
+    }
+
+    if (filters?.tags && filters.tags.length > 0) {
+      pipeline.push({ $match: { tags: { $in: filters.tags } } });
+    }
+
+    if (filters?.attributes && Object.keys(filters.attributes).length > 0) {
+      const andExpr: unknown[] = Object.entries(filters.attributes).map(([attrName, values]) => ({
+        $anyElementTrue: {
+          $map: {
+            input: '$attributes',
+            as: 'attr',
+            in: {
+              $and: [
+                { $eq: ['$$attr.name', attrName] },
+                {
+                  $anyElementTrue: {
+                    $map: {
+                      input: '$$attr.children',
+                      as: 'child',
+                      in: { $in: ['$$child.name', values] },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }));
+      pipeline.push({ $match: { $expr: { $and: andExpr } } });
+    }
+
+    // Add order frequency from soldProducts
+    pipeline.push({
+      $addFields: {
+        orderFrequency: {
+          $let: {
+            vars: {
+              match: {
+                $arrayElemAt: [
+                  {
+                    $filter: {
+                      input: soldProducts,
+                      as: 'sold',
+                      cond: { $eq: ['$$sold.productId', '$_id'] },
+                    },
+                  },
+                  0,
+                ],
+              },
+            },
+            in: { $ifNull: ['$$match.orderFrequency', 0] },
+          },
+        },
+      },
+    });
+
+    // Lookup category
+    pipeline.push(
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } }
+    );
+
+    // Build multi-sort
+    const sortStage: Record<string, 1 | -1> = {};
+    for (const sortOption of sortOptions) {
+      switch (sortOption) {
+        case 'alphabetical':
+          sortStage.name = 1;
+          break;
+        case 'newest':
+          sortStage.createdAt = -1;
+          break;
+        case 'price_asc':
+          sortStage.price = 1;
+          break;
+        case 'price_desc':
+          sortStage.price = -1;
+          break;
+        case 'popular':
+          sortStage.popularityScore = -1;
+          break;
+        case 'stock':
+          sortStage.stock = -1;
+          break;
+        case 'order_frequency':
+          sortStage.orderFrequency = -1;
+          break;
+        case 'rating':
+          sortStage.rating = -1;
+          break;
+      }
+    }
+    if (Object.keys(sortStage).length) {
+      pipeline.push({ $sort: sortStage });
+    }
+
+    // Pagination
+    pipeline.push({
+      $facet: {
+        results: [
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              slug: 1,
+              price: 1,
+              createdAt: 1,
+              sku: 1,
+              stock: 1,
+              originStock: 1,
+              rating: 1,
+              images: '$description_images',
+              category: 1,
+              packSizes: 1,
+              attributes: 1,
+            },
+          },
+        ],
+        totalCount: [{ $count: 'total' }],
+      },
+    });
+
+    const agg = await Product.aggregate(pipeline).exec();
     const results = (agg[0]?.results as ProductType[]) || [];
     const total = (agg[0]?.totalCount?.[0]?.total as number) || 0;
 
@@ -1329,12 +1591,29 @@ const getTopCategories = async (
 };
 
 /**
+ * Product filters type (same as campaign filters)
+ */
+type ProductFilters = {
+  minPrice?: number;
+  maxPrice?: number;
+  tags?: string[];
+  attributes?: Record<string, string[]>;
+  inStock?: boolean;
+  packSize?: string;
+};
+
+/**
  * Fetches newly added products (sorted by createdAt descending).
  * Returns products with variants and sale information.
+ * Now supports filtering like campaigns for dedicated pages.
  */
 const getNewProducts = async (
   page = 1,
-  limit = 20
+  limit = 20,
+  sortOptions: Array<
+    'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'
+  > = ['newest'], // Default: newest first
+  filters?: ProductFilters
 ): Promise<
   CustomResponseTypeWithMeta<
     (ProductType & { sale?: SalesType | null })[],
@@ -1342,9 +1621,56 @@ const getNewProducts = async (
   >
 > => {
   try {
-    const pipeline: PipelineStage[] = [
-      { $match: { status: 'active' } },
-      { $sort: { createdAt: -1 } },
+    const pipeline: PipelineStage[] = [{ $match: { status: 'active' } }];
+
+    // Apply filters (before sorting/pagination for efficiency)
+    if (filters?.minPrice !== undefined || filters?.maxPrice !== undefined) {
+      const priceMatch: { $gte?: number; $lte?: number } = {};
+      if (filters.minPrice !== undefined) priceMatch.$gte = filters.minPrice;
+      if (filters.maxPrice !== undefined) priceMatch.$lte = filters.maxPrice;
+      pipeline.push({ $match: { price: priceMatch } });
+    }
+
+    if (filters?.inStock) {
+      pipeline.push({ $match: { stock: { $gt: 0 } } });
+    }
+
+    if (filters?.packSize) {
+      pipeline.push({ $match: { 'packSizes.label': filters.packSize } });
+    }
+
+    if (filters?.tags && filters.tags.length > 0) {
+      pipeline.push({ $match: { tags: { $in: filters.tags } } });
+    }
+
+    if (filters?.attributes && Object.keys(filters.attributes).length > 0) {
+      const andExpr: unknown[] = Object.entries(filters.attributes).map(([attrName, values]) => ({
+        $anyElementTrue: {
+          $map: {
+            input: '$attributes',
+            as: 'attr',
+            in: {
+              $and: [
+                { $eq: ['$$attr.name', attrName] },
+                {
+                  $anyElementTrue: {
+                    $map: {
+                      input: '$$attr.children',
+                      as: 'child',
+                      in: { $in: ['$$child.name', values] },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }));
+      pipeline.push({ $match: { $expr: { $and: andExpr } } });
+    }
+
+    // Lookup category
+    pipeline.push(
       {
         $lookup: {
           from: 'categories',
@@ -1353,41 +1679,79 @@ const getNewProducts = async (
           as: 'category',
         },
       },
-      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
-      {
-        $facet: {
-          data: [
-            { $skip: (page - 1) * limit },
-            { $limit: limit },
-            ...addSaleLookupStages(), // Add sale population
-            {
-              $project: {
-                _id: 1,
-                name: 1,
-                slug: 1,
-                price: 1,
-                createdAt: 1,
-                sku: 1,
-                stock: 1,
-                originStock: 1,
-                rating: 1,
-                images: '$description_images', // Rename description_images to images
-                category: 1,
-                attributes: 1,
-                sale: 1,
-              },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } }
+    );
+
+    // Build multi-sort
+    const sortStage: Record<string, 1 | -1> = {};
+    for (const sortOption of sortOptions) {
+      switch (sortOption) {
+        case 'alphabetical':
+          sortStage.name = 1;
+          break;
+        case 'newest':
+          sortStage.createdAt = -1;
+          break;
+        case 'price_asc':
+          sortStage.price = 1;
+          break;
+        case 'price_desc':
+          sortStage.price = -1;
+          break;
+        case 'popular':
+          sortStage.popularityScore = -1;
+          break;
+        case 'stock':
+          sortStage.stock = -1;
+          break;
+        case 'order_frequency':
+          sortStage.orderFrequency = -1;
+          break;
+        case 'rating':
+          sortStage.rating = -1;
+          break;
+      }
+    }
+    if (Object.keys(sortStage).length) {
+      pipeline.push({ $sort: sortStage });
+    }
+
+    // Pagination and projection
+    pipeline.push({
+      $facet: {
+        data: [
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          ...addSaleLookupStages(), // Add sale population
+          {
+            $project: {
+              _id: 1,
+              name: 1,
+              slug: 1,
+              price: 1,
+              createdAt: 1,
+              sku: 1,
+              stock: 1,
+              originStock: 1,
+              rating: 1,
+              images: '$description_images', // Rename description_images to images
+              category: 1,
+              attributes: 1,
+              packSizes: 1,
+              sale: 1,
             },
-          ],
-          totalCount: [{ $count: 'total' }],
-        },
+          },
+        ],
+        totalCount: [{ $count: 'total' }],
       },
-      {
-        $project: {
-          data: 1,
-          total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
-        },
+    });
+
+    pipeline.push({
+      $project: {
+        data: 1,
+        total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
       },
-    ];
+    });
 
     const agg = await Product.aggregate(pipeline).exec();
     const products = (agg[0]?.data as ProductType[]) || [];
@@ -1519,12 +1883,8 @@ const searchAutocomplete = async (
         name: p.name,
         slug: p.slug,
         price: p.price,
-        image:
-          p.description_images?.find((img: any) => img?.cover_image)?.url ||
-          p.description_images?.[0]?.url,
-        category: p.category?.name
-          ? { name: p.category.name, slug: p.category.slug }
-          : undefined,
+        image: p.description_images?.find((img: any) => img?.cover_image)?.url || p.description_images?.[0]?.url,
+        category: p.category?.name ? { name: p.category.name, slug: p.category.slug } : undefined,
       }));
     } catch (atlasErr) {
       // Fallback to regex search if $search is unavailable (e.g., index missing)
@@ -1548,9 +1908,7 @@ const searchAutocomplete = async (
         slug: p.slug,
         price: p.price,
         image: p.description_images?.find((img: any) => img?.cover_image)?.url || p.description_images?.[0]?.url,
-        category: p.category
-          ? { name: p.category.name, slug: p.category.slug }
-          : undefined,
+        category: p.category ? { name: p.category.name, slug: p.category.slug } : undefined,
       }));
     }
 
@@ -1719,6 +2077,648 @@ const getDealsOfTheDay = async (
   }
 };
 
+/**
+ * Get products from a specific campaign with pagination and filtering
+ * Uses full aggregation pipeline for efficient campaign lookup and product fetching
+ *
+ * @param campaignSlug - The campaign slug (supports hyphens, converts to underscores)
+ * @param page - Page number for pagination
+ * @param limit - Number of products per page
+ * @param filters - Optional filters (price, tags, attributes, stock, packSize)
+ * @param sort - Array of sort options in priority order
+ */
+type CampaignProductsFilters = {
+  minPrice?: number;
+  maxPrice?: number;
+  tags?: string[];
+  attributes?: Record<string, string[]>;
+  inStock?: boolean;
+  packSize?: string;
+};
+
+type CampaignProductsData = {
+  campaign: any; // Campaign document
+  products: ProductType[];
+};
+
+const getProductsByCampaignSlug = async (
+  campaignSlug: string,
+  page = 1,
+  limit = 20,
+  sortOptions: Array<
+    'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'
+  > = ['alphabetical', 'newest'],
+  filters?: CampaignProductsFilters
+): Promise<
+  CustomResponseTypeWithMeta<CampaignProductsData, { total: number; page: number; limit: number; pages: number }>
+> => {
+  try {
+    const skip = (page - 1) * limit;
+
+    // Normalize slug: convert hyphens to underscores for DB query
+    const normalized = campaignSlug.trim().toLowerCase();
+
+    // Single aggregation pipeline on Campaign collection
+    const pipeline: PipelineStage[] = [
+      // Step 1: Match the active campaign by slug
+      {
+        $match: {
+          slug: normalized,
+          status: 'active',
+        },
+      },
+      // Step 2: Limit to one campaign
+      { $limit: 1 },
+      // Step 3: Validate date range (if dates exist)
+      {
+        $match: {
+          $or: [
+            { startDate: { $exists: false } },
+            { endDate: { $exists: false } },
+            {
+              $and: [{ startDate: { $lte: new Date() } }, { endDate: { $gte: new Date() } }],
+            },
+          ],
+        },
+      },
+      // Step 4: Unwind the products array to get individual product IDs
+      { $unwind: '$products' },
+      // Step 5: Lookup product details from products collection
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products',
+          foreignField: '_id',
+          as: 'productDetails',
+        },
+      },
+      // Step 6: Unwind product details
+      { $unwind: { path: '$productDetails', preserveNullAndEmptyArrays: false } },
+      // Step 7: Filter out inactive products
+      {
+        $match: {
+          'productDetails.status': 'active',
+        },
+      },
+      // Step 8: Replace root with product details for cleaner structure
+      { $replaceRoot: { newRoot: '$productDetails' } },
+    ];
+
+    // Step 9: Apply filters
+    if (filters?.minPrice !== undefined || filters?.maxPrice !== undefined) {
+      const priceMatch: { $gte?: number; $lte?: number } = {};
+      if (filters.minPrice !== undefined) priceMatch.$gte = filters.minPrice;
+      if (filters.maxPrice !== undefined) priceMatch.$lte = filters.maxPrice;
+      pipeline.push({ $match: { price: priceMatch } });
+    }
+
+    if (filters?.inStock) {
+      pipeline.push({ $match: { stock: { $gt: 0 } } });
+    }
+
+    if (filters?.packSize) {
+      pipeline.push({ $match: { 'packSizes.label': filters.packSize } });
+    }
+
+    if (filters?.tags && filters.tags.length > 0) {
+      pipeline.push({ $match: { tags: { $in: filters.tags } } });
+    }
+
+    if (filters?.attributes && Object.keys(filters.attributes).length > 0) {
+      // Inline attribute filtering: attribute name AND across attributes, OR within values
+      const andExpr: unknown[] = Object.entries(filters.attributes).map(([attrName, values]) => ({
+        $anyElementTrue: {
+          $map: {
+            input: '$attributes',
+            as: 'attr',
+            in: {
+              $and: [
+                { $eq: ['$$attr.name', attrName] },
+                {
+                  $anyElementTrue: {
+                    $map: {
+                      input: '$$attr.children',
+                      as: 'child',
+                      in: { $in: ['$$child.name', values] },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
+      }));
+      pipeline.push({ $match: { $expr: { $and: andExpr } } });
+    }
+
+    // Step 10: Lookup category information
+    pipeline.push(
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      {
+        $unwind: {
+          path: '$category',
+          preserveNullAndEmptyArrays: true,
+        },
+      }
+    );
+
+    // Step 11: Build sorting
+    const sortStage: Record<string, 1 | -1> = {};
+
+    for (const sortOption of sortOptions) {
+      switch (sortOption) {
+        case 'alphabetical':
+          sortStage.name = 1;
+          break;
+        case 'newest':
+          sortStage.createdAt = -1;
+          break;
+        case 'price_asc':
+          sortStage.price = 1;
+          break;
+        case 'price_desc':
+          sortStage.price = -1;
+          break;
+        case 'popular':
+          sortStage.popularityScore = -1;
+          break;
+        case 'stock':
+          sortStage.stock = -1;
+          break;
+        case 'order_frequency':
+          sortStage.orderFrequency = -1;
+          break;
+        case 'rating':
+          sortStage.rating = -1;
+          break;
+      }
+    }
+
+    if (Object.keys(sortStage).length) {
+      pipeline.push({ $sort: sortStage });
+    }
+
+    // Step 12: Add sale lookup
+    pipeline.push(...addSaleLookupStages());
+
+    // Step 13: Project required fields and rename description_images to images
+    pipeline.push({
+      $project: {
+        _id: 1,
+        name: 1,
+        slug: 1,
+        price: 1,
+        createdAt: 1,
+        sku: 1,
+        stock: 1,
+        originStock: 1,
+        rating: 1,
+        images: '$description_images', // Rename description_images to images
+        sale: 1,
+        attributes: 1,
+        packSizes: 1,
+        'category._id': 1,
+        'category.name': 1,
+        'category.slug': 1,
+        'category.image': 1,
+      },
+    });
+
+    // Step 14: Use facet for pagination and count in single aggregation
+    pipeline.push({
+      $facet: {
+        data: [{ $skip: skip }, { $limit: limit }],
+        totalCount: [{ $count: 'total' }],
+      },
+    });
+
+    // Step 15: Project final structure
+    pipeline.push({
+      $project: {
+        data: 1,
+        total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
+      },
+    });
+
+    // Execute the aggregation on Campaign collection
+    const CampaignModel = mongoose.model('Campaign');
+    const agg = await CampaignModel.aggregate(pipeline).exec();
+
+    // Extract results
+    const products = (agg[0]?.data as ProductType[]) || [];
+    const total = (agg[0]?.total as number) || 0;
+
+    // If no results, campaign doesn't exist or has no products
+    if (total === 0 && products.length === 0) {
+      return {
+        message: 'No active campaign found or campaign has no active products',
+        data: { campaign: null, products: [] } as any,
+        code: 404,
+        meta: {
+          total: 0,
+          page,
+          limit,
+          pages: 0,
+        },
+      };
+    }
+
+    const pages = Math.ceil(total / limit);
+
+    // Fetch campaign metadata (should exist since we already validated in pipeline)
+    const campaign = await CampaignModel.findOne({ slug: normalized, status: 'active' }).lean();
+
+    if (!campaign) {
+      return {
+        message: 'Campaign not found or inactive',
+        data: { campaign: null, products: [] } as any,
+        code: 404,
+        meta: {
+          total: 0,
+          page,
+          limit,
+          pages: 0,
+        },
+      };
+    }
+
+    return {
+      message: 'Campaign products retrieved successfully',
+      data: {
+        campaign,
+        products,
+      },
+      code: 200,
+      meta: {
+        total,
+        page,
+        limit,
+        pages,
+      },
+    };
+  } catch (error) {
+    console.error('Error in getProductsByCampaignSlug:', error);
+    return {
+      message: 'Failed to fetch campaign products',
+      data: { campaign: null, products: [] } as any,
+      code: 500,
+      meta: {
+        total: 0,
+        page,
+        limit,
+        pages: 0,
+      },
+    };
+  }
+};
+
+/**
+ * Get filter options for new products
+ * Returns price range, attributes, tags, pack sizes aggregated from all active new products
+ */
+const getNewProductsFilters = async (): Promise<
+  CustomResponseType<{
+    priceRange: { min: number; max: number };
+    attributes: Array<{ name: string; values: Array<{ value: string; count: number; colorCode?: string }> }>;
+    specifications: Array<{ key: string; values: Array<{ value: string; count: number }> }>;
+    tags: Array<{ value: string; count: number }>;
+    packSizes: Array<{ label: string; count: number }>;
+  }>
+> => {
+  try {
+    const pipeline: PipelineStage[] = [
+      { $match: { status: 'active' } },
+      {
+        $facet: {
+          price: [{ $group: { _id: null, min: { $min: '$price' }, max: { $max: '$price' } } }],
+          attributes: [
+            { $unwind: { path: '$attributes', preserveNullAndEmptyArrays: false } },
+            { $unwind: { path: '$attributes.children', preserveNullAndEmptyArrays: false } },
+            {
+              $group: {
+                _id: { name: '$attributes.name', value: '$attributes.children.name' },
+                count: { $sum: 1 },
+                colorCode: { $first: '$attributes.children.colorCode' },
+              },
+            },
+            {
+              $group: {
+                _id: '$_id.name',
+                values: {
+                  $push: { value: '$_id.value', count: '$count', colorCode: '$colorCode' },
+                },
+              },
+            },
+            { $project: { _id: 0, name: '$_id', values: 1 } },
+          ],
+          specifications: [
+            { $unwind: { path: '$specifications', preserveNullAndEmptyArrays: false } },
+            {
+              $group: {
+                _id: { key: '$specifications.key', value: '$specifications.value' },
+                count: { $sum: 1 },
+              },
+            },
+            {
+              $group: {
+                _id: '$_id.key',
+                values: { $push: { value: '$_id.value', count: '$count' } },
+              },
+            },
+            { $project: { _id: 0, key: '$_id', values: 1 } },
+          ],
+          tags: [
+            { $unwind: { path: '$tags', preserveNullAndEmptyArrays: false } },
+            { $group: { _id: '$tags', count: { $sum: 1 } } },
+            { $project: { _id: 0, value: '$_id', count: 1 } },
+          ],
+          packSizes: [
+            { $unwind: { path: '$packSizes', preserveNullAndEmptyArrays: false } },
+            { $group: { _id: '$packSizes.label', count: { $sum: 1 } } },
+            { $project: { _id: 0, label: '$_id', count: 1 } },
+          ],
+        },
+      },
+      {
+        $project: {
+          priceRange: {
+            min: { $ifNull: [{ $arrayElemAt: ['$price.min', 0] }, 0] },
+            max: { $ifNull: [{ $arrayElemAt: ['$price.max', 0] }, 0] },
+          },
+          attributes: 1,
+          specifications: 1,
+          tags: 1,
+          packSizes: 1,
+        },
+      },
+    ];
+
+    const agg = await Product.aggregate(pipeline).allowDiskUse(true);
+    const payload = agg[0] || {
+      priceRange: { min: 0, max: 0 },
+      attributes: [],
+      specifications: [],
+      tags: [],
+      packSizes: [],
+    };
+
+    return { message: 'New products filters retrieved successfully', data: payload, code: 200 };
+  } catch (error) {
+    console.error('Error building new products filters:', error);
+    return { message: 'Failed to retrieve new products filters', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get filter options for week products (products sold in last 7 days)
+ */
+const getWeekProductsFilters = async (): Promise<
+  CustomResponseType<{
+    priceRange: { min: number; max: number };
+    attributes: Array<{ name: string; values: Array<{ value: string; count: number; colorCode?: string }> }>;
+    specifications: Array<{ key: string; values: Array<{ value: string; count: number }> }>;
+    tags: Array<{ value: string; count: number }>;
+    packSizes: Array<{ label: string; count: number }>;
+  }>
+> => {
+  try {
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 7);
+
+    // Get product IDs sold in last 7 days
+    const soldProductsPipeline: PipelineStage[] = [
+      { $match: { createdAt: { $gte: weekStart }, status: 'Completed' } },
+      { $unwind: '$products' },
+      { $group: { _id: '$products.product' } },
+    ];
+
+    const soldProducts = await Order.aggregate(soldProductsPipeline).exec();
+    const productIds = soldProducts.map((p) => p._id);
+
+    if (productIds.length === 0) {
+      return {
+        message: 'No week products found',
+        data: {
+          priceRange: { min: 0, max: 0 },
+          attributes: [],
+          specifications: [],
+          tags: [],
+          packSizes: [],
+        },
+        code: 200,
+      };
+    }
+
+    const pipeline: PipelineStage[] = [
+      { $match: { _id: { $in: productIds }, status: 'active' } },
+      {
+        $facet: {
+          price: [{ $group: { _id: null, min: { $min: '$price' }, max: { $max: '$price' } } }],
+          attributes: [
+            { $unwind: { path: '$attributes', preserveNullAndEmptyArrays: false } },
+            { $unwind: { path: '$attributes.children', preserveNullAndEmptyArrays: false } },
+            {
+              $group: {
+                _id: { name: '$attributes.name', value: '$attributes.children.name' },
+                count: { $sum: 1 },
+                colorCode: { $first: '$attributes.children.colorCode' },
+              },
+            },
+            {
+              $group: {
+                _id: '$_id.name',
+                values: {
+                  $push: { value: '$_id.value', count: '$count', colorCode: '$colorCode' },
+                },
+              },
+            },
+            { $project: { _id: 0, name: '$_id', values: 1 } },
+          ],
+          specifications: [
+            { $unwind: { path: '$specifications', preserveNullAndEmptyArrays: false } },
+            {
+              $group: {
+                _id: { key: '$specifications.key', value: '$specifications.value' },
+                count: { $sum: 1 },
+              },
+            },
+            {
+              $group: {
+                _id: '$_id.key',
+                values: { $push: { value: '$_id.value', count: '$count' } },
+              },
+            },
+            { $project: { _id: 0, key: '$_id', values: 1 } },
+          ],
+          tags: [
+            { $unwind: { path: '$tags', preserveNullAndEmptyArrays: false } },
+            { $group: { _id: '$tags', count: { $sum: 1 } } },
+            { $project: { _id: 0, value: '$_id', count: 1 } },
+          ],
+          packSizes: [
+            { $unwind: { path: '$packSizes', preserveNullAndEmptyArrays: false } },
+            { $group: { _id: '$packSizes.label', count: { $sum: 1 } } },
+            { $project: { _id: 0, label: '$_id', count: 1 } },
+          ],
+        },
+      },
+      {
+        $project: {
+          priceRange: {
+            min: { $ifNull: [{ $arrayElemAt: ['$price.min', 0] }, 0] },
+            max: { $ifNull: [{ $arrayElemAt: ['$price.max', 0] }, 0] },
+          },
+          attributes: 1,
+          specifications: 1,
+          tags: 1,
+          packSizes: 1,
+        },
+      },
+    ];
+
+    const agg = await Product.aggregate(pipeline).allowDiskUse(true);
+    const payload = agg[0] || {
+      priceRange: { min: 0, max: 0 },
+      attributes: [],
+      specifications: [],
+      tags: [],
+      packSizes: [],
+    };
+
+    return { message: 'Week products filters retrieved successfully', data: payload, code: 200 };
+  } catch (error) {
+    console.error('Error building week products filters:', error);
+    return { message: 'Failed to retrieve week products filters', data: null, code: 500 };
+  }
+};
+
+/**
+ * Get filter options for top sold products
+ */
+const getTopSoldProductsFilters = async (): Promise<
+  CustomResponseType<{
+    priceRange: { min: number; max: number };
+    attributes: Array<{ name: string; values: Array<{ value: string; count: number; colorCode?: string }> }>;
+    specifications: Array<{ key: string; values: Array<{ value: string; count: number }> }>;
+    tags: Array<{ value: string; count: number }>;
+    packSizes: Array<{ label: string; count: number }>;
+  }>
+> => {
+  try {
+    // Get product IDs from all completed orders
+    const soldProductsPipeline: PipelineStage[] = [
+      { $match: { status: 'Completed' } },
+      { $unwind: '$products' },
+      { $group: { _id: '$products.product' } },
+    ];
+
+    const soldProducts = await Order.aggregate(soldProductsPipeline).exec();
+    const productIds = soldProducts.map((p) => p._id);
+
+    if (productIds.length === 0) {
+      return {
+        message: 'No top sold products found',
+        data: {
+          priceRange: { min: 0, max: 0 },
+          attributes: [],
+          specifications: [],
+          tags: [],
+          packSizes: [],
+        },
+        code: 200,
+      };
+    }
+
+    const pipeline: PipelineStage[] = [
+      { $match: { _id: { $in: productIds }, status: 'active' } },
+      {
+        $facet: {
+          price: [{ $group: { _id: null, min: { $min: '$price' }, max: { $max: '$price' } } }],
+          attributes: [
+            { $unwind: { path: '$attributes', preserveNullAndEmptyArrays: false } },
+            { $unwind: { path: '$attributes.children', preserveNullAndEmptyArrays: false } },
+            {
+              $group: {
+                _id: { name: '$attributes.name', value: '$attributes.children.name' },
+                count: { $sum: 1 },
+                colorCode: { $first: '$attributes.children.colorCode' },
+              },
+            },
+            {
+              $group: {
+                _id: '$_id.name',
+                values: {
+                  $push: { value: '$_id.value', count: '$count', colorCode: '$colorCode' },
+                },
+              },
+            },
+            { $project: { _id: 0, name: '$_id', values: 1 } },
+          ],
+          specifications: [
+            { $unwind: { path: '$specifications', preserveNullAndEmptyArrays: false } },
+            {
+              $group: {
+                _id: { key: '$specifications.key', value: '$specifications.value' },
+                count: { $sum: 1 },
+              },
+            },
+            {
+              $group: {
+                _id: '$_id.key',
+                values: { $push: { value: '$_id.value', count: '$count' } },
+              },
+            },
+            { $project: { _id: 0, key: '$_id', values: 1 } },
+          ],
+          tags: [
+            { $unwind: { path: '$tags', preserveNullAndEmptyArrays: false } },
+            { $group: { _id: '$tags', count: { $sum: 1 } } },
+            { $project: { _id: 0, value: '$_id', count: 1 } },
+          ],
+          packSizes: [
+            { $unwind: { path: '$packSizes', preserveNullAndEmptyArrays: false } },
+            { $group: { _id: '$packSizes.label', count: { $sum: 1 } } },
+            { $project: { _id: 0, label: '$_id', count: 1 } },
+          ],
+        },
+      },
+      {
+        $project: {
+          priceRange: {
+            min: { $ifNull: [{ $arrayElemAt: ['$price.min', 0] }, 0] },
+            max: { $ifNull: [{ $arrayElemAt: ['$price.max', 0] }, 0] },
+          },
+          attributes: 1,
+          specifications: 1,
+          tags: 1,
+          packSizes: 1,
+        },
+      },
+    ];
+
+    const agg = await Product.aggregate(pipeline).allowDiskUse(true);
+    const payload = agg[0] || {
+      priceRange: { min: 0, max: 0 },
+      attributes: [],
+      specifications: [],
+      tags: [],
+      packSizes: [],
+    };
+
+    return { message: 'Top sold products filters retrieved successfully', data: payload, code: 200 };
+  } catch (error) {
+    console.error('Error building top sold products filters:', error);
+    return { message: 'Failed to retrieve top sold products filters', data: null, code: 500 };
+  }
+};
+
 const ProductService = {
   getAllProducts,
   getProductById,
@@ -1735,6 +2735,10 @@ const ProductService = {
   getNewProducts,
   searchAutocomplete,
   getDealsOfTheDay,
+  getProductsByCampaignSlug,
+  getNewProductsFilters,
+  getWeekProductsFilters,
+  getTopSoldProductsFilters,
 };
 
 export default ProductService;
