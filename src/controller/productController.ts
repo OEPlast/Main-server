@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import ProductService from '../services/productService';
+import { isAuthenticatedRequest } from '@/types';
 
 // Get all products
 const getAllProducts = async (req: Request, res: Response) => {
@@ -692,6 +693,114 @@ const getSearchFilters = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Get product by slug or ID with full details
+ * GET /by-slug/:slug or GET /:productId (when using slug param)
+ */
+const getProductBySlugOrIdController = async (req: Request, res: Response) => {
+  try {
+    const identifier = req.params.slug || req.params.productId;
+
+    if (!identifier) {
+      return res.status(400).json({ message: 'Product identifier is required' });
+    }
+
+    const { data, message, code } = await ProductService.getProductBySlugOrId(identifier);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getProductBySlugOrId:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * Get reviews for a product with pagination and filters
+ * GET /:productId/reviews
+ */
+const getProductReviewsController = async (req: Request, res: Response) => {
+  try {
+    const { productId } = req.params;
+    const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+
+    const filters = {
+      rating: req.query.rating ? parseInt(String(req.query.rating), 10) : undefined,
+      hasImages: req.query.hasImages === 'true' ? true : undefined,
+      sortBy: req.query.sortBy as 'recent' | 'helpful' | 'rating-high' | 'rating-low' | undefined,
+    };
+
+    const { data, message, code, meta } = await ProductService.getProductReviews(productId, page, limit, filters);
+    return res.status(code).json({ message, data, meta });
+  } catch (error) {
+    console.error('Error in getProductReviews:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * Toggle like on a review
+ * POST /reviews/:reviewId/like
+ */
+const toggleReviewLikeController = async (req: Request, res: Response) => {
+  try {
+    const { reviewId } = req.params;
+
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(401).json({ error: 'Unauthenticated' });
+    }
+
+    const { data, message, code } = await ProductService.toggleReviewLike(reviewId, req.userId);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in toggleReviewLike:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * Get related products for a product
+ * GET /:productId/related
+ */
+const getRelatedProductsController = async (req: Request, res: Response) => {
+  try {
+    const { productId } = req.params;
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 8;
+
+    const { data, message, code } = await ProductService.getRelatedProducts(productId, limit);
+
+    // If no related products found, fallback to popular products
+    if (!data || data.length === 0) {
+      const popularResult = await ProductService.getPopularProducts(limit);
+      return res.status(popularResult.code).json({
+        message: 'No related products found, showing popular products',
+        data: popularResult.data,
+        fallback: true,
+      });
+    }
+
+    return res.status(code).json({ message, data, fallback: false });
+  } catch (error) {
+    console.error('Error in getRelatedProducts:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+/**
+ * Get popular products (standalone endpoint, can also be used as fallback)
+ * GET /popular
+ */
+const getPopularProductsController = async (req: Request, res: Response) => {
+  try {
+    const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 8;
+
+    const { data, message, code } = await ProductService.getPopularProducts(limit);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getPopularProducts:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export default {
   getAllProducts,
   searchProducts,
@@ -713,4 +822,10 @@ export default {
   getTopSoldProductsFilters,
   getSearchResults,
   getSearchFilters,
+  // New controllers
+  getProductBySlugOrIdController,
+  getProductReviewsController,
+  toggleReviewLikeController,
+  getRelatedProductsController,
+  getPopularProductsController,
 };

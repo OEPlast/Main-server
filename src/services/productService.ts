@@ -3007,6 +3007,601 @@ const getSearchFilters = async (
   }
 };
 
+/**
+ * Get product by slug or ID with full details including:
+ * - Active sales (Flash/Limited/Normal with variants)
+ * - Category information
+ * - Review statistics (averageRating, totalReviews)
+ * - Merged specifications (dimensions + specifications)
+ * - Out-of-stock flags for attribute children
+ */
+const getProductBySlugOrId = async (
+  identifier: string
+): Promise<
+  CustomResponseType<
+    ProductType & {
+      sale?: SalesType | null;
+      reviewStats?: { averageRating: number; totalReviews: number };
+      mergedSpecifications?: Array<{ key: string; value: string }>;
+    }
+  >
+> => {
+  try {
+    // Determine if identifier is a valid ObjectId or treat as slug
+    let matchCondition: Record<string, unknown>;
+    if (mongoose.Types.ObjectId.isValid(identifier)) {
+      matchCondition = { _id: new mongoose.Types.ObjectId(identifier) };
+    } else {
+      matchCondition = { slug: identifier };
+    }
+
+    const pipeline: PipelineStage[] = [
+      { $match: matchCondition },
+
+      // Lookup category
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+
+      // Lookup active sale
+      ...addSaleLookupStages(),
+
+      // Lookup review statistics
+      {
+        $lookup: {
+          from: 'reviews',
+          localField: '_id',
+          foreignField: 'product',
+          pipeline: [
+            {
+              $group: {
+                _id: null,
+                averageRating: { $avg: '$rating' },
+                totalReviews: { $sum: 1 },
+              },
+            },
+          ],
+          as: 'reviewStats',
+        },
+      },
+      {
+        $addFields: {
+          reviewStats: {
+            $cond: {
+              if: { $gt: [{ $size: '$reviewStats' }, 0] },
+              then: { $arrayElemAt: ['$reviewStats', 0] },
+              else: { averageRating: 0, totalReviews: 0 },
+            },
+          },
+        },
+      },
+
+      // Merge specifications from dimensions and specifications arrays
+      {
+        $addFields: {
+          mergedSpecifications: {
+            $concatArrays: [
+              // Convert dimensions to key-value format
+              {
+                $map: {
+                  input: { $ifNull: ['$dimensions', []] },
+                  as: 'dim',
+                  in: {
+                    key: '$$dim.name',
+                    value: { $concat: [{ $toString: '$$dim.value' }, ' ', '$$dim.unit'] },
+                  },
+                },
+              },
+              // Include existing specifications
+              { $ifNull: ['$specifications', []] },
+            ],
+          },
+        },
+      },
+
+      // Add isOutOfStock flag to attribute children
+      {
+        $addFields: {
+          attributes: {
+            $map: {
+              input: { $ifNull: ['$attributes', []] },
+              as: 'attr',
+              in: {
+                $mergeObjects: [
+                  '$$attr',
+                  {
+                    children: {
+                      $map: {
+                        input: { $ifNull: ['$$attr.children', []] },
+                        as: 'child',
+                        in: {
+                          $mergeObjects: [
+                            '$$child',
+                            {
+                              isOutOfStock: {
+                                $cond: {
+                                  if: { $lte: [{ $ifNull: ['$$child.stock', 0] }, 0] },
+                                  then: true,
+                                  else: false,
+                                },
+                              },
+                            },
+                          ],
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            },
+          },
+        },
+      },
+    ];
+
+    const products = await Product.aggregate(pipeline).exec();
+    const product = products[0];
+
+    if (!product) {
+      return {
+        message: 'Product not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    // Track product view for analytics (non-blocking)
+    AnalyticsService.trackProductView(String(product._id)).catch((err) =>
+      console.error('Failed to track product view analytics:', err)
+    );
+
+    return {
+      message: 'Product retrieved successfully',
+      data: product,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching product by slug or ID:', error);
+    return {
+      message: 'Failed to fetch product',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Get paginated reviews for a product with filtering and sorting
+ */
+import Review, { ReviewType } from '../models/Review';
+
+const getProductReviews = async (
+  productId: string,
+  page = 1,
+  limit = 10,
+  filters?: {
+    rating?: number;
+    hasImages?: boolean;
+    sortBy?: 'recent' | 'helpful' | 'rating-high' | 'rating-low';
+  }
+): Promise<
+  CustomResponseTypeWithMeta<
+    Array<ReviewType & { reviewBy: { _id: string; firstName: string; lastName: string } }>,
+    { total: number; page: number; limit: number; pages: number }
+  >
+> => {
+  try {
+    const pipeline: PipelineStage[] = [
+      {
+        $match: {
+          product: new mongoose.Types.ObjectId(productId),
+          deleted: false,
+        },
+      },
+    ];
+
+    // Apply filters
+    if (filters?.rating) {
+      pipeline.push({ $match: { rating: filters.rating } });
+    }
+
+    if (filters?.hasImages) {
+      pipeline.push({
+        $match: {
+          images: { $exists: true, $ne: [], $type: 'array' },
+        },
+      });
+    }
+
+    // Sorting
+    let sortStage: Record<string, 1 | -1> = { createdAt: -1 }; // Default: recent
+    if (filters?.sortBy === 'helpful') {
+      sortStage = { likesCount: -1, createdAt: -1 };
+    } else if (filters?.sortBy === 'rating-high') {
+      sortStage = { rating: -1, createdAt: -1 };
+    } else if (filters?.sortBy === 'rating-low') {
+      sortStage = { rating: 1, createdAt: -1 };
+    }
+
+    // Add likes count for sorting
+    pipeline.push({
+      $addFields: {
+        likesCount: { $size: { $ifNull: ['$likes', []] } },
+      },
+    });
+
+    pipeline.push({ $sort: sortStage });
+
+    // Pagination with $facet
+    pipeline.push({
+      $facet: {
+        data: [
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          // Lookup reviewer info
+          {
+            $lookup: {
+              from: 'users',
+              localField: 'reviewBy',
+              foreignField: '_id',
+              as: 'reviewBy',
+              pipeline: [{ $project: { firstName: 1, lastName: 1 } }],
+            },
+          },
+          { $unwind: { path: '$reviewBy', preserveNullAndEmptyArrays: true } },
+          {
+            $project: {
+              _id: 1,
+              rating: 1,
+              title: 1,
+              message: 1,
+              images: 1,
+              likes: 1,
+              likesCount: 1,
+              createdAt: 1,
+              reviewBy: 1,
+              transactionId: 1,
+              orderId: 1,
+            },
+          },
+        ],
+        totalCount: [{ $count: 'total' }],
+      },
+    });
+
+    pipeline.push({
+      $project: {
+        data: 1,
+        total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
+      },
+    });
+
+    const agg = await Review.aggregate(pipeline).exec();
+    const data = (agg[0]?.data as any[]) || [];
+    const total = (agg[0]?.total as number) || 0;
+
+    return {
+      message: 'Reviews retrieved successfully',
+      data: data,
+      code: 200,
+      meta: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  } catch (error) {
+    console.error('Error fetching product reviews:', error);
+    return {
+      message: 'Failed to fetch reviews',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Toggle like on a review (add or remove user from likes array)
+ */
+const toggleReviewLike = async (
+  reviewId: string,
+  userId: string
+): Promise<CustomResponseType<{ liked: boolean; likesCount: number }>> => {
+  try {
+    const review = await Review.findById(reviewId);
+    if (!review) {
+      return {
+        message: 'Review not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    const userObjectId = new mongoose.Types.ObjectId(userId);
+    const likes = review.likes || [];
+    const userIndex = likes.findIndex((id) => id.equals(userObjectId));
+
+    let liked: boolean;
+    if (userIndex > -1) {
+      // Unlike: remove user from likes array
+      likes.splice(userIndex, 1);
+      liked = false;
+    } else {
+      // Like: add user to likes array
+      likes.push(userObjectId);
+      liked = true;
+    }
+
+    review.likes = likes;
+    await review.save();
+
+    return {
+      message: liked ? 'Review liked successfully' : 'Review unliked successfully',
+      data: { liked, likesCount: likes.length },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error toggling review like:', error);
+    return {
+      message: 'Failed to toggle like',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Get related products based on:
+ * - Category match (+50 points)
+ * - Tag matches (+10 points each)
+ * - Name keyword matches (+5 points each)
+ * Returns products sorted by relevance score
+ */
+const getRelatedProducts = async (productId: string, limit = 8): Promise<CustomResponseType<ProductType[]>> => {
+  try {
+    const product = await Product.findById(productId).select('category tags name');
+    if (!product) {
+      return {
+        message: 'Product not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    // Extract keywords from product name (words longer than 2 chars)
+    const nameKeywords = product.name
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((word) => word.length > 2);
+
+    const pipeline: PipelineStage[] = [
+      {
+        $match: {
+          _id: { $ne: new mongoose.Types.ObjectId(productId) },
+          status: 'active',
+        },
+      },
+
+      // Calculate relevance score
+      {
+        $addFields: {
+          relevanceScore: {
+            $sum: [
+              // Category match: +50 points
+              {
+                $cond: {
+                  if: { $eq: ['$category', product.category] },
+                  then: 50,
+                  else: 0,
+                },
+              },
+              // Tag matches: +10 points each
+              {
+                $multiply: [
+                  10,
+                  {
+                    $size: {
+                      $ifNull: [
+                        {
+                          $setIntersection: [{ $ifNull: ['$tags', []] }, product.tags || []],
+                        },
+                        [],
+                      ],
+                    },
+                  },
+                ],
+              },
+              // Name keyword matches: +5 points each
+              {
+                $multiply: [
+                  5,
+                  {
+                    $size: {
+                      $filter: {
+                        input: nameKeywords,
+                        as: 'keyword',
+                        cond: {
+                          $regexMatch: {
+                            input: { $toLower: '$name' },
+                            regex: '$$keyword',
+                          },
+                        },
+                      },
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+
+      // Only keep products with relevance > 0
+      { $match: { relevanceScore: { $gt: 0 } } },
+
+      // Sort by relevance
+      { $sort: { relevanceScore: -1 } },
+
+      // Limit results
+      { $limit: Math.max(1, Math.min(limit, 20)) },
+
+      // Lookup category
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+
+      // Add sale lookup
+      ...addSaleLookupStages(),
+
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          slug: 1,
+          price: 1,
+          description_images: 1,
+          category: 1,
+          stock: 1,
+          rating: 1,
+          sale: 1,
+          relevanceScore: 1,
+        },
+      },
+    ];
+
+    const products = await Product.aggregate(pipeline).exec();
+
+    return {
+      message: 'Related products retrieved successfully',
+      data: products as ProductType[],
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching related products:', error);
+    return {
+      message: 'Failed to fetch related products',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Get popular products (fallback when no related products found)
+ * Based on 30-day order volume
+ */
+const getPopularProducts = async (limit = 8): Promise<CustomResponseType<ProductType[]>> => {
+  try {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const pipeline: PipelineStage[] = [
+      { $match: { status: 'active' } },
+
+      // Lookup recent orders
+      {
+        $lookup: {
+          from: 'orders',
+          let: { productId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                status: 'Completed',
+                createdAt: { $gte: thirtyDaysAgo },
+              },
+            },
+            { $unwind: '$products' },
+            {
+              $match: {
+                $expr: { $eq: ['$products.product', '$$productId'] },
+              },
+            },
+            {
+              $group: {
+                _id: null,
+                orderCount: { $sum: 1 },
+                totalQuantity: { $sum: '$products.qty' },
+              },
+            },
+          ],
+          as: 'popularityStats',
+        },
+      },
+
+      {
+        $addFields: {
+          popularityScore: {
+            $ifNull: [{ $arrayElemAt: ['$popularityStats.orderCount', 0] }, 0],
+          },
+        },
+      },
+
+      // Only products with orders
+      { $match: { popularityScore: { $gt: 0 } } },
+
+      { $sort: { popularityScore: -1 } },
+      { $limit: Math.max(1, Math.min(limit, 20)) },
+
+      // Lookup category
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+
+      // Add sale lookup
+      ...addSaleLookupStages(),
+
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          slug: 1,
+          price: 1,
+          description_images: 1,
+          category: 1,
+          stock: 1,
+          rating: 1,
+          sale: 1,
+          popularityScore: 1,
+        },
+      },
+    ];
+
+    const products = await Product.aggregate(pipeline).exec();
+
+    return {
+      message: 'Popular products retrieved successfully',
+      data: products as ProductType[],
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching popular products:', error);
+    return {
+      message: 'Failed to fetch popular products',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
 const ProductService = {
   getAllProducts,
   getProductById,
@@ -3029,6 +3624,12 @@ const ProductService = {
   getTopSoldProductsFilters,
   searchProductsWithFilters,
   getSearchFilters,
+  // New methods
+  getProductBySlugOrId,
+  getProductReviews,
+  toggleReviewLike,
+  getRelatedProducts,
+  getPopularProducts,
 };
 
 export default ProductService;

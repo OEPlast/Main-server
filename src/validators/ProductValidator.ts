@@ -197,13 +197,6 @@ const validateCategorySlug = [
   },
 ];
 
-export default {
-  validateProductId,
-  validateProductQuery,
-  validateSearchQuery,
-  validateCategorySlug,
-};
-
 // Additional validator for product slug
 export const validateProductSlug = [
   checkSchema({
@@ -217,3 +210,93 @@ export const validateProductSlug = [
     next();
   },
 ];
+
+/**
+ * Validates query parameters for product reviews
+ * Used in GET /:productId/reviews
+ */
+export const validateReviewsQuery = [
+  checkSchema({
+    page: {
+      in: ['query'],
+      optional: true,
+      isInt: {
+        options: { min: 1 },
+        errorMessage: 'Page must be a positive integer',
+      },
+      toInt: true,
+    },
+    limit: {
+      in: ['query'],
+      optional: true,
+      isInt: {
+        options: { min: 1, max: 50 },
+        errorMessage: 'Limit must be between 1 and 50',
+      },
+      toInt: true,
+    },
+    rating: {
+      in: ['query'],
+      optional: true,
+      isInt: {
+        options: { min: 1, max: 5 },
+        errorMessage: 'Rating must be between 1 and 5',
+      },
+      toInt: true,
+    },
+    hasImages: {
+      in: ['query'],
+      optional: true,
+      isBoolean: {
+        errorMessage: 'hasImages must be a boolean',
+      },
+      toBoolean: true,
+    },
+    sortBy: {
+      in: ['query'],
+      optional: true,
+      isIn: {
+        options: [['recent', 'helpful', 'rating-high', 'rating-low']],
+        errorMessage: 'Invalid sortBy value. Must be: recent, helpful, rating-high, or rating-low',
+      },
+    },
+  }),
+  (req: Request, res: Response, next: NextFunction) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    next();
+  },
+];
+
+/**
+ * Validates review ID parameter
+ * Used in POST /reviews/:reviewId/like
+ */
+export const validateReviewId = [
+  checkSchema({
+    reviewId: {
+      in: ['params'],
+      isMongoId: {
+        errorMessage: 'Invalid review ID format',
+      },
+    },
+  }),
+  (req: Request, res: Response, next: NextFunction) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+    next();
+  },
+];
+
+export default {
+  validateProductId,
+  validateProductQuery,
+  validateSearchQuery,
+  validateCategorySlug,
+  validateReviewsQuery,
+  validateReviewId,
+};

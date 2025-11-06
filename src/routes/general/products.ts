@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import ProductController from '../../controller/productController';
-import ProductValidator, { validateProductSlug } from '../../validators/ProductValidator';
+import ProductValidator, {
+  validateProductSlug,
+  validateReviewsQuery,
+  validateReviewId,
+} from '../../validators/ProductValidator';
+import { authenticateUser } from '../../middleware/auth';
 
 const router = Router();
 
@@ -26,7 +31,27 @@ router.get('/top-categories', ProductController.getTopCategories);
 router.get('/campaign/:slug', ProductController.getProductsByCampaignSlug);
 
 router.get('/category/:slug', ...ProductValidator.validateCategorySlug, ProductController.getByCategorySlug);
-router.get('/by-slug/:slug', ...validateProductSlug, ProductController.getProductBySlug);
+router.get('/by-slug/:slug', ...validateProductSlug, ProductController.getProductBySlugOrIdController);
 router.get('/by-id/:id', ...ProductValidator.validateProductId, ProductController.getProductById);
+
+// New routes for reviews and related products
+router.get(
+  '/:productId/reviews',
+  ...ProductValidator.validateProductId,
+  ...validateReviewsQuery,
+  ProductController.getProductReviewsController
+);
+router.post(
+  '/reviews/:reviewId/like',
+  authenticateUser,
+  ...validateReviewId,
+  ProductController.toggleReviewLikeController
+);
+router.get(
+  '/:productId/related',
+  ...ProductValidator.validateProductId,
+  ProductController.getRelatedProductsController
+);
+router.get('/popular', ProductController.getPopularProductsController);
 
 export default router;
