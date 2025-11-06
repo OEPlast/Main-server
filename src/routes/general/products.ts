@@ -6,6 +6,8 @@ const router = Router();
 
 router.get('/all', ...ProductValidator.validateProductQuery, ProductController.getAllProducts);
 router.get('/search', ...ProductValidator.validateSearchQuery, ProductController.searchProducts);
+router.get('/search-results', ProductController.getSearchResults); // Full product data for search results page
+router.get('/search-filters', ProductController.getSearchFilters); // Aggregated filters for search
 router.get('/autocomplete', ProductController.searchAutocomplete);
 
 router.get('/new-products', ProductController.getNewProducts);

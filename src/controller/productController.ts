@@ -626,6 +626,72 @@ const getTopSoldProductsFilters = async (req: Request, res: Response) => {
   }
 };
 
+// Search results with full product data and filters (for /search-result page)
+const getSearchResults = async (req: Request, res: Response) => {
+  try {
+    const q = (req.query.q as string) || '';
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 12;
+
+    // Extract filter parameters (matching category page structure)
+    const minPrice = req.query.minPrice != null ? parseFloat(String(req.query.minPrice)) : undefined;
+    const maxPrice = req.query.maxPrice != null ? parseFloat(String(req.query.maxPrice)) : undefined;
+    const inStock = req.query.inStock === 'true' ? true : undefined;
+    const packSize = req.query.packSize ? String(req.query.packSize) : undefined;
+
+    // Parse tags array
+    const tagsParam = req.query.tags;
+    const tags = Array.isArray(tagsParam) ? tagsParam.map(String) : tagsParam ? [String(tagsParam)] : undefined;
+
+    // Parse attributes from "key:value|value2" format
+    const attributesParam = req.query.attributes;
+    const attributes: Record<string, string[]> = {};
+    if (attributesParam) {
+      const attrArray = Array.isArray(attributesParam) ? attributesParam : [attributesParam];
+      attrArray.forEach((attr) => {
+        const [key, valuesStr] = String(attr).split(':');
+        if (key && valuesStr) {
+          attributes[key] = valuesStr.split('|');
+        }
+      });
+    }
+
+    const sortBy = (req.query.sortBy as 'price' | 'name' | 'createdAt' | 'rating' | 'sales' | undefined) ?? undefined;
+    const sortOrder = (req.query.sortOrder as 'asc' | 'desc' | undefined) ?? undefined;
+
+    const { data, message, code, meta } = await ProductService.searchProductsWithFilters({
+      query: q,
+      page,
+      limit,
+      minPrice,
+      maxPrice,
+      inStock,
+      packSize,
+      tags,
+      attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
+      sortBy,
+      sortOrder,
+    });
+
+    return res.status(code).json({ message, data, meta });
+  } catch (error) {
+    console.error('Error in getSearchResults:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Get available filters for search results
+const getSearchFilters = async (req: Request, res: Response) => {
+  try {
+    const q = (req.query.q as string) || '';
+    const { data, message, code } = await ProductService.getSearchFilters(q);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getSearchFilters:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export default {
   getAllProducts,
   searchProducts,
@@ -645,4 +711,6 @@ export default {
   getNewProductsFilters,
   getWeekProductsFilters,
   getTopSoldProductsFilters,
+  getSearchResults,
+  getSearchFilters,
 };

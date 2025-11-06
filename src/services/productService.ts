@@ -2719,6 +2719,294 @@ const getTopSoldProductsFilters = async (): Promise<
   }
 };
 
+/**
+ * Search products with full ProductType data and filters (for /search-result page)
+ * Returns full product data with category, sales info, etc. for grid display
+ */
+const searchProductsWithFilters = async (params: {
+  query?: string;
+  page?: number;
+  limit?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  inStock?: boolean;
+  packSize?: string;
+  tags?: string[];
+  attributes?: Record<string, string[]>;
+  sortBy?: 'price' | 'name' | 'createdAt' | 'rating' | 'sales';
+  sortOrder?: 'asc' | 'desc';
+}): Promise<
+  CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; pages: number }>
+> => {
+  try {
+    const {
+      query = '',
+      page = 1,
+      limit = 12,
+      minPrice,
+      maxPrice,
+      inStock,
+      packSize,
+      tags,
+      attributes,
+      sortBy,
+      sortOrder = 'desc',
+    } = params;
+
+    // Build filter pipeline
+    type AndFilter = Array<Record<string, unknown>>;
+    const filterConditions: { $and: AndFilter } = {
+      $and: [{ status: 'active' }],
+    };
+
+    // Search filter (if query provided)
+    if (query) {
+      filterConditions.$and.push({
+        $or: [
+          { name: { $regex: query, $options: 'i' } },
+          { description: { $regex: query, $options: 'i' } },
+          { brand: { $regex: query, $options: 'i' } },
+          { tags: { $elemMatch: { $regex: query, $options: 'i' } } },
+        ],
+      });
+    }
+
+    // Price filters
+    if (minPrice !== undefined) {
+      filterConditions.$and.push({ price: { $gte: minPrice } });
+    }
+    if (maxPrice !== undefined) {
+      filterConditions.$and.push({ price: { $lte: maxPrice } });
+    }
+
+    // In stock filter
+    if (inStock) {
+      filterConditions.$and.push({ $expr: { $gt: ['$stock', 0] } });
+    }
+
+    // Pack size filter
+    if (packSize) {
+      filterConditions.$and.push({
+        packSizes: { $elemMatch: { label: packSize } },
+      });
+    }
+
+    // Tags filter
+    if (tags && tags.length > 0) {
+      filterConditions.$and.push({ tags: { $in: tags } });
+    }
+
+    // Attributes filter (Color, Size, etc.)
+    if (attributes && Object.keys(attributes).length > 0) {
+      Object.entries(attributes).forEach(([attrName, attrValues]) => {
+        if (attrValues.length > 0) {
+          filterConditions.$and.push({
+            attributes: {
+              $elemMatch: {
+                name: attrName,
+                'children.name': { $in: attrValues },
+              },
+            },
+          });
+        }
+      });
+    }
+
+    // Build sort object
+    const sortObj: Record<string, 1 | -1> = {};
+    if (sortBy === 'price') {
+      sortObj.price = sortOrder === 'asc' ? 1 : -1;
+    } else if (sortBy === 'name') {
+      sortObj.name = sortOrder === 'asc' ? 1 : -1;
+    } else if (sortBy === 'createdAt') {
+      sortObj.createdAt = sortOrder === 'asc' ? 1 : -1;
+    } else if (sortBy === 'rating') {
+      sortObj.rating = sortOrder === 'asc' ? 1 : -1;
+    } else {
+      // Default: newest first
+      sortObj.createdAt = -1;
+    }
+
+    const pipeline: PipelineStage[] = [
+      { $match: filterConditions },
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
+      {
+        $lookup: {
+          from: 'sales',
+          let: { productId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [{ $eq: ['$product', '$$productId'] }, { $eq: ['$isActive', true] }],
+                },
+              },
+            },
+          ],
+          as: 'sale',
+        },
+      },
+      { $unwind: { path: '$sale', preserveNullAndEmptyArrays: true } },
+      { $sort: sortObj },
+      {
+        $facet: {
+          metadata: [{ $count: 'total' }],
+          data: [{ $skip: (page - 1) * limit }, { $limit: limit }],
+        },
+      },
+    ];
+
+    const result = await Product.aggregate(pipeline).allowDiskUse(true);
+    const total = result[0]?.metadata[0]?.total || 0;
+    const products = result[0]?.data || [];
+
+    return {
+      message: 'Search results retrieved successfully',
+      data: products,
+      code: 200,
+      meta: {
+        total,
+        page,
+        limit,
+        pages: Math.ceil(total / limit),
+      },
+    };
+  } catch (error) {
+    console.error('Error in searchProductsWithFilters:', error);
+    return {
+      message: 'Failed to retrieve search results',
+      data: [],
+      code: 500,
+      meta: { total: 0, page: 1, limit: 12, pages: 0 },
+    };
+  }
+};
+
+/**
+ * Get filter aggregations for search results
+ * Returns available filter options based on search query
+ */
+const getSearchFilters = async (
+  query?: string
+): Promise<
+  CustomResponseType<{
+    priceRange: { min: number; max: number };
+    attributes: Array<{ name: string; values: Array<{ value: string; count: number; colorCode?: string }> }>;
+    specifications: Array<{ key: string; values: Array<{ value: string; count: number }> }>;
+    tags: Array<{ value: string; count: number }>;
+    packSizes: Array<{ label: string; count: number }>;
+  }>
+> => {
+  try {
+    // Build match condition
+    type AndFilter = Array<Record<string, unknown>>;
+    const matchCondition: { $and: AndFilter } = {
+      $and: [{ status: 'active' }],
+    };
+
+    // Add search filter if query provided
+    if (query) {
+      matchCondition.$and.push({
+        $or: [
+          { name: { $regex: query, $options: 'i' } },
+          { description: { $regex: query, $options: 'i' } },
+          { brand: { $regex: query, $options: 'i' } },
+          { tags: { $elemMatch: { $regex: query, $options: 'i' } } },
+        ],
+      });
+    }
+
+    const pipeline: PipelineStage[] = [
+      { $match: matchCondition },
+      {
+        $facet: {
+          price: [{ $group: { _id: null, min: { $min: '$price' }, max: { $max: '$price' } } }],
+          attributes: [
+            { $unwind: { path: '$attributes', preserveNullAndEmptyArrays: false } },
+            { $unwind: { path: '$attributes.children', preserveNullAndEmptyArrays: false } },
+            {
+              $group: {
+                _id: { name: '$attributes.name', value: '$attributes.children.name' },
+                count: { $sum: 1 },
+                colorCode: { $first: '$attributes.children.colorCode' },
+              },
+            },
+            {
+              $group: {
+                _id: '$_id.name',
+                values: {
+                  $push: { value: '$_id.value', count: '$count', colorCode: '$colorCode' },
+                },
+              },
+            },
+            { $project: { _id: 0, name: '$_id', values: 1 } },
+          ],
+          specifications: [
+            { $unwind: { path: '$specifications', preserveNullAndEmptyArrays: false } },
+            {
+              $group: {
+                _id: { key: '$specifications.key', value: '$specifications.value' },
+                count: { $sum: 1 },
+              },
+            },
+            {
+              $group: {
+                _id: '$_id.key',
+                values: { $push: { value: '$_id.value', count: '$count' } },
+              },
+            },
+            { $project: { _id: 0, key: '$_id', values: 1 } },
+          ],
+          tags: [
+            { $unwind: { path: '$tags', preserveNullAndEmptyArrays: false } },
+            { $group: { _id: '$tags', count: { $sum: 1 } } },
+            { $project: { _id: 0, value: '$_id', count: 1 } },
+          ],
+          packSizes: [
+            { $unwind: { path: '$packSizes', preserveNullAndEmptyArrays: false } },
+            { $group: { _id: '$packSizes.label', count: { $sum: 1 } } },
+            { $project: { _id: 0, label: '$_id', count: 1 } },
+          ],
+        },
+      },
+      {
+        $project: {
+          priceRange: {
+            min: { $ifNull: [{ $arrayElemAt: ['$price.min', 0] }, 0] },
+            max: { $ifNull: [{ $arrayElemAt: ['$price.max', 0] }, 0] },
+          },
+          attributes: 1,
+          specifications: 1,
+          tags: 1,
+          packSizes: 1,
+        },
+      },
+    ];
+
+    const agg = await Product.aggregate(pipeline).allowDiskUse(true);
+    const payload = agg[0] || {
+      priceRange: { min: 0, max: 0 },
+      attributes: [],
+      specifications: [],
+      tags: [],
+      packSizes: [],
+    };
+
+    return { message: 'Search filters retrieved successfully', data: payload, code: 200 };
+  } catch (error) {
+    console.error('Error building search filters:', error);
+    return { message: 'Failed to retrieve search filters', data: null, code: 500 };
+  }
+};
+
 const ProductService = {
   getAllProducts,
   getProductById,
@@ -2739,6 +3027,8 @@ const ProductService = {
   getNewProductsFilters,
   getWeekProductsFilters,
   getTopSoldProductsFilters,
+  searchProductsWithFilters,
+  getSearchFilters,
 };
 
 export default ProductService;
