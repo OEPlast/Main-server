@@ -43,12 +43,38 @@ const listCountries = async (_req: Request, res: Response) => {
   }
 };
 
+const listAllConfigs = async (_req: Request, res: Response) => {
+  try {
+    const response = await LogisticsService.listAllConfigs();
+    return res.status(response.code).json(response);
+  } catch (error) {
+    console.error('Error listing logistics configurations:', error);
+    return res.status(500).json({ message: 'Internal server error', data: null, code: 500 });
+  }
+};
+
 const listLocationsTree = async (_req: Request, res: Response) => {
   try {
     const response = await LogisticsService.listLocationsTree();
     return res.status(response.code).json(response);
   } catch (error) {
     console.error('Error listing logistics locations tree:', error);
+    return res.status(500).json({ message: 'Internal server error', data: null, code: 500 });
+  }
+};
+
+const getLocationsByCountry = async (req: Request, res: Response) => {
+  try {
+    const { country } = req.params;
+
+    if (!country) {
+      return res.status(400).json({ message: 'Country name is required', data: null, code: 400 });
+    }
+
+    const response = await LogisticsService.getLocationsByCountry(country);
+    return res.status(response.code).json(response);
+  } catch (error) {
+    console.error('Error fetching locations by country:', error);
     return res.status(500).json({ message: 'Internal server error', data: null, code: 500 });
   }
 };
@@ -67,5 +93,14 @@ const flatCartShipping = async (req: Request, res: Response) => {
   }
 };
 
-const LogisticsController = { trackOrder, quote, getConfig, listCountries, listLocationsTree, flatCartShipping };
+const LogisticsController = {
+  trackOrder,
+  quote,
+  getConfig,
+  listCountries,
+  listAllConfigs,
+  listLocationsTree,
+  getLocationsByCountry,
+  flatCartShipping,
+};
 export default LogisticsController;

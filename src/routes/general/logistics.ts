@@ -10,8 +10,12 @@ router.get('/track/:trackingNumber', LogisticsController.trackOrder);
 
 // Public: List supported logistics countries
 router.get('/countries', LogisticsController.listCountries);
+// Public: List full logistics configs (countries with pricing)
+router.get('/configs', LogisticsController.listAllConfigs);
 // Public: Countries with nested states, lga, cities (no price)
 router.get('/locations-tree', LogisticsController.listLocationsTree);
+// Public: Get location hierarchy for specific country (for address forms)
+router.get('/locations/:country', LogisticsController.getLocationsByCountry);
 
 // Public: Get logistics config by country
 router.get('/config/:country', LogisticsController.getConfig);

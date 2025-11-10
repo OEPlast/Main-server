@@ -1,6 +1,7 @@
 import Product from '@/models/Product';
 import Wishlist, { WishlistType } from '../models/wishlist';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
+import mongoose from 'mongoose';
 
 /**
  * Creates a new wishlist item.
@@ -48,12 +49,7 @@ const createWishlist = async ({
 
 /**
  * Retrieves all wishlists for a specific user with pagination.
- *
- * @param {Object} params - The parameters for retrieving wishlists.
- * @param {string} params.user - The ID of the user whose wishlists are to be retrieved.
- * @param {number} params.page - The page number for pagination.
- * @param {number} [params.limit=50] - The number of wishlists to retrieve per page.
- * @returns {Promise<CustomResponseType<{ wishlists: ProductType[]; total: number }>>} - A promise that resolves to a custom response type containing the wishlists and the total count.
+ * Uses aggregation pipeline to add sale data like productService.
  */
 const getAllWishlists = async ({
   page,
@@ -75,25 +71,100 @@ const getAllWishlists = async ({
     const safeLimit = Math.max(1, Math.min(maxLimit, Number.isFinite(limit) ? Math.floor(limit) : 50));
     const skip = (safePage - 1) * safeLimit;
 
-    const [rawItems, total] = await Promise.all([
-      Wishlist.find({ user })
-        .sort({ createdAt: -1 })
-        .populate({
-          path: 'product',
-          select: '_id name price sku tags slug attributes description_images category',
-          populate: { path: 'category', select: '_id name image slug' },
-        })
-        .skip(skip)
-        .limit(safeLimit),
-      Wishlist.countDocuments({ user }),
-    ]);
+    // Use aggregation pipeline for consistent sale population   
+    const pipeline: any[] = [
+      // Match wishlist items for this user
+      { $match: { user: new mongoose.Types.ObjectId(user) } },
+
+      // Sort by most recent first
+      { $sort: { createdAt: -1 } },
+      
+      // Lookup product details
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'product',
+          foreignField: '_id',
+          as: 'productData',
+        },
+      },
+      { $unwind: { path: '$productData', preserveNullAndEmptyArrays: false } },
+      
+      // Lookup category for the product
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'productData.category',
+          foreignField: '_id',
+          as: 'categoryData',
+        },
+      },
+      { $unwind: { path: '$categoryData', preserveNullAndEmptyArrays: true } },
+      
+      // Add sale data using the same pattern as productService
+      {
+        $lookup: {
+          from: 'sales',
+          let: { productId: '$productData._id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: { $eq: ['$product', '$$productId'] },
+                isActive: true,
+                deleted: false,
+              },
+            },
+            { $limit: 1 },
+          ],
+          as: 'saleData',
+        },
+      },
+      {
+        $addFields: {
+          'productData.sale': { $arrayElemAt: ['$saleData', 0] },
+          'productData.category': '$categoryData',
+        },
+      },
+      
+      // Facet for pagination
+      {
+        $facet: {
+          data: [
+            { $skip: skip },
+            { $limit: safeLimit },
+            {
+              $project: {
+                _id: 1,
+                user: 1,
+                product: '$productData',
+                createdAt: 1,
+                updatedAt: 1,
+              },
+            },
+          ],
+          totalCount: [{ $count: 'total' }],
+        },
+      },
+      {
+        $project: {
+          data: 1,
+          total: { $ifNull: [{ $arrayElemAt: ['$totalCount.total', 0] }, 0] },
+        },
+      },
+    ];
+    
+    
+    const agg = await Wishlist.aggregate(pipeline).exec();
+    const data = (agg[0]?.data as WishlistType[]) || [];
+    const total = (agg[0]?.total as number) || 0;
 
     const totalPages = Math.max(1, Math.ceil(total / safeLimit));
     const hasNext = safePage < totalPages;
     const hasPrev = safePage > 1;
+    
     return {
       message: 'Wishlists retrieved successfully',
-      data: rawItems,
+      data,
       code: 200,
       meta: { total, page: safePage, limit: safeLimit, pages: totalPages, hasNext, hasPrev },
     };

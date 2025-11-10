@@ -99,14 +99,16 @@ function calculateItemPricing({
 } {
   // 1) Base price resolution
   const variantPrice = typeof variant?.price === 'number' ? variant.price : undefined;
-  let unitPrice = typeof variantPrice === 'number' ? variantPrice : product.price;
+  const basePrice = typeof variantPrice === 'number' ? variantPrice : product.price;
+  let unitPrice = basePrice;
 
-  // 2) Wholesale tiers (variant first, then product)
+  // 2) Apply wholesale tiers first (variant first, then product)
   const unitAfterVariantTier = applyPricingTier(unitPrice, qty, variant?.pricingTiers);
   const tierAppliedVariant = unitAfterVariantTier !== unitPrice;
   unitPrice = unitAfterVariantTier;
   const unitAfterProductTier = applyPricingTier(unitPrice, qty, product.pricingTiers);
   const tierApplied = unitAfterProductTier !== unitPrice || tierAppliedVariant;
+  const priceAfterTier = unitAfterProductTier;
   unitPrice = unitAfterProductTier;
 
   let appliedTier: AppliedPricingTier | undefined;
@@ -125,22 +127,21 @@ function calculateItemPricing({
     }
   }
 
-  // 3) No static discounts - all discounts come from Sales only
-
-  // 4) Sale discount
+  // 3) Apply sale discount ON TOP of tier pricing (both discounts stack)
   let appliedDiscountPct = 0;
   let discountAmount = 0;
 
   if (saleContext?.discount && saleContext.discount > 0) {
     appliedDiscountPct = saleContext.discount;
-    const saleBasePrice = typeof variantPrice === 'number' ? variantPrice : product.price;
-    unitPrice = Math.max(0, saleBasePrice - (saleBasePrice * saleContext.discount) / 100);
-    discountAmount = (saleBasePrice * saleContext.discount) / 100;
+    // Apply sale discount to tier price (or base price if no tier)
+    const discountAmt = (priceAfterTier * saleContext.discount) / 100;
+    unitPrice = Math.max(0, priceAfterTier - discountAmt);
+    discountAmount = discountAmt;
   } else if (saleContext?.amountOff && saleContext.amountOff > 0) {
-    const saleBasePrice = typeof variantPrice === 'number' ? variantPrice : product.price;
-    unitPrice = Math.max(0, saleBasePrice - saleContext.amountOff);
+    // Apply sale amount off to tier price (or base price if no tier)
+    unitPrice = Math.max(0, priceAfterTier - saleContext.amountOff);
     discountAmount = saleContext.amountOff;
-    appliedDiscountPct = (saleContext.amountOff / saleBasePrice) * 100;
+    appliedDiscountPct = (saleContext.amountOff / priceAfterTier) * 100;
   }
 
   const totalPrice = unitPrice * qty;
@@ -164,7 +165,7 @@ const addToCart = async (
   productId: string,
   qty: number,
   attributes: { name: string; value: string }[]
-): Promise<CustomResponseType<CartType>> => {
+): Promise<CustomResponseType<CartWithDetails>> => {
   try {
     // Use aggregation pipeline to get product data and validate stock
     const productData = await Product.aggregate([
@@ -204,13 +205,32 @@ const addToCart = async (
       sku: product.sku,
     };
 
-    const newItem = {
+    // Check for active sales
+    const activeSale = product.activeSales && product.activeSales.length > 0 ? product.activeSales[0] : null;
+    let saleId: mongoose.Types.ObjectId | undefined;
+    let saleVariantIndex: number | undefined;
+
+    if (activeSale) {
+      const { available, variantIndex } = checkSaleAvailability(activeSale, attributes || []);
+      if (available && variantIndex !== undefined) {
+        saleId = activeSale._id;
+        saleVariantIndex = variantIndex;
+      }
+    }
+
+    const newItem: any = {
       product: productId,
       qty,
       productSnapshot,
       selectedAttributes: attributes,
       addedAt: new Date(),
     };
+
+    // Include sale data if available
+    if (saleId) {
+      newItem.sale = saleId;
+      newItem.saleVariantIndex = saleVariantIndex;
+    }
 
     // Use aggregation pipeline to check if item already exists and update or insert
     const result = await Cart.aggregate([
@@ -270,9 +290,9 @@ const addToCart = async (
       );
     }
 
-    // No need to recalculate totals since we don't store them
-    const updatedCart = await Cart.findOne({ user: userId });
-    return { message: 'Item added to cart successfully', data: updatedCart, code: 200 };
+    // Return full cart with pricing details
+    const cartWithDetails = await getCartItems(userId);
+    return { message: 'Item added to cart successfully', data: cartWithDetails.data, code: 200 };
   } catch (error) {
     console.error('Error adding item to cart:', error);
     return { message: 'Failed to add item to cart', data: null, code: 500 };
@@ -310,7 +330,7 @@ const clearCart = async (userId: string): Promise<CustomResponseType> => {
 /**
  * Removes a specific item from the cart based on product ID and attributes.
  */
-const removeFromCart = async (userId: string, itemId: string): Promise<CustomResponseType<CartType>> => {
+const removeFromCart = async (userId: string, itemId: string): Promise<CustomResponseType<CartWithDetails>> => {
   try {
     const cart = await Cart.findOneAndUpdate(
       { user: userId },
@@ -339,13 +359,12 @@ const removeFromCart = async (userId: string, itemId: string): Promise<CustomRes
       };
     }
 
-    // Recalculate totals
-    await recalculateCartTotals(userId);
-    const updatedCart = await Cart.findOne({ user: userId });
+    // Return full cart with pricing details
+    const cartWithDetails = await getCartItems(userId);
 
     return {
       message: 'Item removed from cart successfully',
-      data: updatedCart,
+      data: cartWithDetails.data,
       code: 200,
     };
   } catch (error) {
@@ -368,7 +387,7 @@ const updateCartItem = async (
     qty?: number;
     selectedAttributes?: { name: string; value: string }[];
   }
-): Promise<CustomResponseType<CartType>> => {
+): Promise<CustomResponseType<CartWithDetails>> => {
   try {
     const cart = await Cart.aggregate([
       { $match: { user: new mongoose.Types.ObjectId(userId) } },
@@ -430,9 +449,10 @@ const updateCartItem = async (
       return { message: 'Failed to update cart item', data: null, code: 400 };
     }
 
-    const finalCart = await Cart.findOne({ user: userId });
+    // Return full cart with pricing details
+    const cartWithDetails = await getCartItems(userId);
 
-    return { message: 'Cart item updated successfully', data: finalCart, code: 200 };
+    return { message: 'Cart item updated successfully', data: cartWithDetails.data, code: 200 };
   } catch (error) {
     console.error('Error updating cart item:', error);
     return { message: 'Failed to update cart item', data: null, code: 500 };
@@ -624,8 +644,33 @@ export async function validateCartSales_old(
 type CartItemType = CartType['items'][number];
 type AppliedCoupon = CartType['appliedCoupons'][number];
 
+type CartProductDetails = Pick<
+  ProductType,
+  | 'name'
+  | 'slug'
+  | 'price'
+  | 'sku'
+  | 'stock'
+  | 'originStock'
+  | 'lowStockThreshold'
+  | 'description'
+  | 'tags'
+  | 'attributes'
+  | 'specifications'
+  | 'description_images'
+  | 'dimension'
+  | 'pricingTiers'
+  | 'packSizes'
+  | 'shipping'
+> & {
+  _id: string;
+  category?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
 export type CartItemWithPricing = CartItemType & {
-  productDetails?: ProductType | null;
+  productDetails?: CartProductDetails | null;
   unitPrice: number;
   totalPrice: number;
   appliedDiscount: number;
@@ -640,6 +685,66 @@ export type CartWithDetails = Omit<CartType, 'items' | 'appliedCoupons'> & {
   totalDiscount: number;
   couponDiscount: number;
   total: number;
+};
+
+const normalizeObjectId = (value: mongoose.Types.ObjectId | string | undefined | null): string | undefined => {
+  if (!value) return undefined;
+  return typeof value === 'string' ? value : value.toString();
+};
+
+const normalizeDate = (value: Date | string | undefined | null): string => {
+  if (!value) return new Date().toISOString();
+  return new Date(value).toISOString();
+};
+
+const mapProductForResponse = (product?: ProductDocument): CartProductDetails | null => {
+  if (!product) return null;
+
+  const categoryId = product.category
+    ? normalizeObjectId(product.category as unknown as mongoose.Types.ObjectId)
+    : undefined;
+
+  return {
+    _id: normalizeObjectId(product._id) ?? '',
+    name: product.name,
+    slug: product.slug,
+    price: product.price,
+    sku: product.sku,
+    stock: product.stock,
+    originStock: product.originStock,
+    lowStockThreshold: product.lowStockThreshold,
+    description: product.description,
+    tags: product.tags ?? [],
+    attributes: product.attributes,
+    specifications: product.specifications,
+    category: categoryId,
+    description_images: product.description_images,
+    dimension: product.dimension,
+    pricingTiers: product.pricingTiers,
+    packSizes: product.packSizes,
+    shipping: product.shipping,
+    createdAt: product.createdAt ? normalizeDate(product.createdAt) : undefined,
+    updatedAt: product.updatedAt ? normalizeDate(product.updatedAt) : undefined,
+  };
+};
+
+const buildEmptyCartResponse = (userId: string): CartWithDetails => {
+  const timestamp = new Date().toISOString();
+  return {
+    _id: '',
+    user: userId,
+    items: [],
+    appliedCoupons: [],
+    subtotal: 0,
+    totalDiscount: 0,
+    couponDiscount: 0,
+    total: 0,
+    estimatedShipping: { cost: 0, days: 0 },
+    status: 'active',
+    lastActivity: timestamp,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+  } as unknown as CartWithDetails;
 };
 
 const getCartItems = async (userId: string): Promise<CustomResponseType<CartWithDetails>> => {
@@ -681,10 +786,15 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
     ]);
 
     if (!result.length) {
-      return { message: 'Cart not found', data: null, code: 404 };
+      return {
+        message: 'Cart is empty',
+        data: buildEmptyCartResponse(userId),
+        code: 200,
+      };
     }
 
     const cartData = result[0] as CartType & {
+      _id: mongoose.Types.ObjectId;
       productDetails: ProductDocument[];
       salesDetails: SaleDocument[];
       couponDetails: CouponDocument[];
@@ -728,14 +838,27 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
         saleContext,
       });
 
-      const itemWithPricing = {
+      const itemWithPricing: CartItemWithPricing = {
         ...item,
-        productDetails: product,
+        _id: normalizeObjectId(item._id as unknown as mongoose.Types.ObjectId) ?? '',
+        product: normalizeObjectId(item.product as unknown as mongoose.Types.ObjectId) ?? '',
+        sale: normalizeObjectId(item.sale as unknown as mongoose.Types.ObjectId),
+        productDetails: mapProductForResponse(product),
         unitPrice: pricing.unitPrice,
         totalPrice: pricing.totalPrice,
         appliedDiscount: pricing.appliedDiscount,
         discountAmount: pricing.discountAmount,
         pricingTier: pricing.pricingTier,
+        selectedAttributes: item.selectedAttributes || [],
+        productSnapshot: item.productSnapshot
+          ? {
+              name: item.productSnapshot.name,
+              price: item.productSnapshot.price,
+              sku: item.productSnapshot.sku,
+            }
+          : undefined,
+        addedAt: normalizeDate(item.addedAt),
+        saleVariantIndex: item.saleVariantIndex ?? undefined,
       } as unknown as CartItemWithPricing;
 
       items.push(itemWithPricing);
@@ -745,7 +868,8 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
 
     // Calculate coupon discounts dynamically
     const appliedCoupons = (cartData.appliedCoupons?.map((coupon) => {
-      const couponDetails = cartData.couponDetails.find((c) => c._id.toString() === coupon.coupon.toString());
+      const couponId = normalizeObjectId(coupon.coupon as unknown as mongoose.Types.ObjectId);
+      const couponDetails = cartData.couponDetails.find((c) => normalizeObjectId(c._id) === couponId);
 
       let discountAmount = 0;
       if (couponDetails) {
@@ -757,24 +881,42 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
       }
 
       return {
-        ...coupon,
-        couponDetails,
+        coupon: couponId ?? '',
+        code: coupon.code,
+        appliedAt: normalizeDate(coupon.appliedAt),
         discountAmount,
+        couponDetails: couponDetails
+          ? {
+              ...couponDetails,
+              _id: normalizeObjectId(couponDetails._id) ?? '',
+              startDate: couponDetails.startDate,
+              endDate: couponDetails.endDate,
+            }
+          : null,
       };
-    }) || []) as CartWithDetails['appliedCoupons'];
+    }) ?? []) as unknown as CartWithDetails['appliedCoupons'];
 
     const couponDiscount = appliedCoupons.reduce((sum, coupon) => sum + coupon.discountAmount, 0);
     const total = Math.max(0, subtotal - couponDiscount);
 
     const cartWithDetails: CartWithDetails = {
-      ...cartData,
+      _id: normalizeObjectId(cartData._id as unknown as mongoose.Types.ObjectId) ?? '',
+      user: normalizeObjectId(cartData.user as unknown as mongoose.Types.ObjectId) ?? userId,
       items,
       appliedCoupons,
       subtotal,
       totalDiscount,
       couponDiscount,
       total,
-    };
+      estimatedShipping: {
+        cost: Number(cartData.estimatedShipping?.cost ?? 0),
+        days: Number(cartData.estimatedShipping?.days ?? 0),
+      },
+      status: cartData.status ?? 'active',
+      lastActivity: normalizeDate(cartData.lastActivity),
+      createdAt: normalizeDate(cartData.createdAt),
+      updatedAt: normalizeDate(cartData.updatedAt),
+    } as unknown as CartWithDetails;
 
     return {
       message: 'Cart items retrieved successfully',

@@ -144,10 +144,20 @@ export type CorrectedCart = FrontendCartData & {
   updatedAt: string;
 };
 
+export type CartChangeDetail = {
+  field: string;
+  previous: number | string | null;
+  current: number | string | null;
+  message: string;
+  context?: 'item' | 'coupon' | 'subtotal' | 'total' | 'shipping' | 'other';
+  reference?: string;
+};
+
 export type ValidateAndCorrectCartResult = {
   needsUpdate: boolean;
   correctedCart: CorrectedCart;
   changes: string[];
+  changeDetails: CartChangeDetail[];
 };
 
 // Individual calculation functions using arrow functions
@@ -577,6 +587,7 @@ export const validateAndCorrectCart = async (
     let backendSubtotal = 0;
     const correctedItems: Array<FrontendCartItemInput & { unitPrice: number; totalPrice: number }> = [];
     const changes: string[] = [];
+    const changeDetails: CartChangeDetail[] = [];
     let needsUpdate = false;
 
     for (const item of frontendCartData.items) {
@@ -597,11 +608,18 @@ export const validateAndCorrectCart = async (
         needsUpdate = true;
         const oldTotal = item.totalPrice;
         const newTotal = correctedItem.totalPrice;
-        changes.push(
-          `Item "${
-            item.productSnapshot?.name || item.product
-          }" price updated: ₦${oldTotal.toLocaleString()} → ₦${newTotal.toLocaleString()}`
-        );
+        const message = `Item "${
+          item.productSnapshot?.name || item.product
+        }" price updated: ₦${oldTotal.toLocaleString()} → ₦${newTotal.toLocaleString()}`;
+        changes.push(message);
+        changeDetails.push({
+          field: 'itemPrice',
+          previous: oldTotal,
+          current: newTotal,
+          message,
+          context: 'item',
+          reference: item.productSnapshot?.sku?.toString() || item.product,
+        });
       }
     }
 
@@ -670,22 +688,52 @@ export const validateAndCorrectCart = async (
     // Check if totals changed or if coupons were rejected
     if (Math.abs(frontendCartData.subtotal - correctedSubtotal) > 0.01) {
       needsUpdate = true;
-      changes.push(
-        `Subtotal updated: ₦${frontendCartData.subtotal.toLocaleString()} → ₦${correctedSubtotal.toLocaleString()}`
-      );
+      const message = `Subtotal updated: ₦${frontendCartData.subtotal.toLocaleString()} → ₦${correctedSubtotal.toLocaleString()}`;
+      changes.push(message);
+      changeDetails.push({
+        field: 'subtotal',
+        previous: frontendCartData.subtotal,
+        current: correctedSubtotal,
+        message,
+        context: 'subtotal',
+      });
     }
 
     if (Math.abs(frontendCartData.total - correctedTotal) > 0.01) {
       needsUpdate = true;
-      changes.push(`Total updated: ₦${frontendCartData.total.toLocaleString()} → ₦${correctedTotal.toLocaleString()}`);
+      const message = `Total updated: ₦${frontendCartData.total.toLocaleString()} → ₦${correctedTotal.toLocaleString()}`;
+      changes.push(message);
+      changeDetails.push({
+        field: 'total',
+        previous: frontendCartData.total,
+        current: correctedTotal,
+        message,
+        context: 'total',
+      });
     }
 
     // Add coupon changes to the list
     if (validatedCoupons.length > 0) {
-      changes.push(`Applied coupons: ${validatedCoupons.map((c) => c.code).join(', ')}`);
+      const message = `Applied coupons: ${validatedCoupons.map((c) => c.code).join(', ')}`;
+      changes.push(message);
+      changeDetails.push({
+        field: 'coupon',
+        previous: null,
+        current: validatedCoupons.map((c) => c.code).join(', '),
+        message,
+        context: 'coupon',
+      });
     }
     if (rejectedCoupons.length > 0) {
-      changes.push(`Rejected coupons: ${rejectedCoupons.map((c) => `${c.code} (${c.reason})`).join(', ')}`);
+      const message = `Rejected coupons: ${rejectedCoupons.map((c) => `${c.code} (${c.reason})`).join(', ')}`;
+      changes.push(message);
+      changeDetails.push({
+        field: 'coupon',
+        previous: rejectedCoupons.map((c) => c.code).join(', '),
+        current: null,
+        message,
+        context: 'coupon',
+      });
       needsUpdate = true; // Force update if any coupons were rejected
     }
 
@@ -706,6 +754,7 @@ export const validateAndCorrectCart = async (
         updatedAt: new Date().toISOString(),
       },
       changes,
+      changeDetails,
     };
 
     return {

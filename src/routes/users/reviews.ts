@@ -9,7 +9,7 @@ const router = express.Router();
 router.use(authenticateUser);
 //all reviews by auth user
 router.get('/all', ReviewController.getUserReviews);
-//review on one product
+//review on one product - supports pagination with cursor and limit query params
 router.get('/product/:product', ReviewController.getUserProductReview);
 //create reveiw
 router.post('/', ...ReviewValidator.validateCreateReview, ReviewController.createReview);

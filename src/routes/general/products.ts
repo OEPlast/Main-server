@@ -34,19 +34,7 @@ router.get('/category/:slug', ...ProductValidator.validateCategorySlug, ProductC
 router.get('/by-slug/:slug', ...validateProductSlug, ProductController.getProductBySlugOrIdController);
 router.get('/by-id/:id', ...ProductValidator.validateProductId, ProductController.getProductById);
 
-// New routes for reviews and related products
-router.get(
-  '/:productId/reviews',
-  ...ProductValidator.validateProductId,
-  ...validateReviewsQuery,
-  ProductController.getProductReviewsController
-);
-router.post(
-  '/reviews/:reviewId/like',
-  authenticateUser,
-  ...validateReviewId,
-  ProductController.toggleReviewLikeController
-);
+// Related products and popular products
 router.get(
   '/:productId/related',
   ...ProductValidator.validateProductId,

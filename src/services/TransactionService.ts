@@ -1,5 +1,6 @@
 import Transaction, { ITransaction } from '../models/Transaction';
 import Order from '../models/Order';
+import Product from '../models/Product';
 import mongoose from 'mongoose';
 import eventPublisher from '@/events/eventPublisher';
 import { EventType } from '@/events/eventTypes';
@@ -170,6 +171,24 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<ITra
       // Update Order
       if (isSuccess && transaction.orderId) {
         await Order.findByIdAndUpdate(transaction.orderId, { isPaid: true, paidAt: new Date() });
+      } else if (!isSuccess && transaction.orderId) {
+        // Restore stock when payment fails
+        const order = await Order.findById(transaction.orderId);
+        if (order && order.products && order.products.length > 0) {
+          logger.info(`Payment failed - Restoring stock for order ${transaction.orderId.toString()}`);
+
+          const bulkUpdates = order.products.map((item) => ({
+            updateOne: {
+              filter: { _id: item.product },
+              update: { $inc: { stock: item.qty || 0 } },
+            },
+          }));
+
+          await Product.bulkWrite(bulkUpdates);
+          logger.info(
+            `Stock restored for ${order.products.length} products in order ${transaction.orderId.toString()}`
+          );
+        }
       }
 
       // Events
@@ -292,6 +311,26 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
           `Paystack webhook: published websocket update (orderId=${transaction.orderId.toString()}, status=paid)`
         );
       } else if (!isSuccess && transaction.orderId) {
+        // Restore stock when payment fails via webhook
+        const order = await Order.findById(transaction.orderId);
+        if (order && order.products && order.products.length > 0) {
+          logger.info(`Paystack webhook: payment failed - restoring stock for order ${transaction.orderId.toString()}`);
+
+          const bulkUpdates = order.products.map((item) => ({
+            updateOne: {
+              filter: { _id: item.product },
+              update: { $inc: { stock: item.qty || 0 } },
+            },
+          }));
+
+          await Product.bulkWrite(bulkUpdates);
+          logger.info(
+            `Paystack webhook: stock restored for ${
+              order.products.length
+            } products in order ${transaction.orderId.toString()}`
+          );
+        }
+
         await eventPublisher.publish(EventType.PAYMENT_FAILED, {
           orderId: transaction.orderId.toString(),
           userId: transaction.userId.toString(),

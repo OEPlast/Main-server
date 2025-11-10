@@ -2,13 +2,26 @@ import { Request, Response } from 'express';
 import { AuthenticatedRequest, isAuthenticatedRequest } from '@/types';
 import ReviewService from '@/services/reviewService';
 
-// Get all reviews
+// Get product review statistics
+const getProductReviewStats = async (req: Request, res: Response) => {
+  try {
+    const { productId } = req.params;
+    const { code, message, data } = await ReviewService.getProductReviewStats(productId);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getProductReviewStats:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+// Get all reviews (deprecated - use getOneProductReview instead)
 const getReviews = async (req: Request, res: Response) => {
   try {
     const { product } = req.body;
-    const { page } = req.params;
-    const { code, message, data } = await ReviewService.allReviews(product, ~~page);
-    return res.status(code).json({ message, data });
+    const cursor = req.query.cursor as string | undefined;
+    const limit = Number(req.query.limit) || 15;
+    const { code, message, data, meta } = await ReviewService.allReviews(product, cursor, limit);
+    return res.status(code).json({ message, data, meta });
   } catch (error) {
     console.error('Error in getReviews:', error);
     return res.status(404).json({ error: 'Something went wrong' });
@@ -171,10 +184,18 @@ const getUserProductReview = async (req: Request, res: Response) => {
     }
     const userId = req.userId;
     const { product } = req.params;
-    const { data, message, code } = await ReviewService.userReviewPerProduct({ productId: product, userId: userId! });
-    return res.status(code).json({ data, message });
+    const cursor = req.query.cursor as string | undefined;
+    const limit = Number(req.query.limit) || 15;
+
+    const { data, message, code, meta } = await ReviewService.userReviewPerProduct({
+      productId: product,
+      userId: userId!,
+      cursor,
+      limit,
+    });
+    return res.status(code).json({ data, message, meta });
   } catch (error) {
-    console.error('Error in deleteReply:', error);
+    console.error('Error in getUserProductReview:', error);
     return res.status(404).json({ error: 'Something went wrong' });
   }
 };
@@ -184,16 +205,35 @@ const getOneProductReview = async (req: Request, res: Response) => {
     // Optional authentication - get userId if authenticated, otherwise undefined
     const userId = isAuthenticatedRequest(req) ? req.userId : undefined;
     const { productId } = req.params;
-    const page = Number(req.query.page || 1);
-    const limit = Number(req.query.limit || 30);
-    const { data, message, code, meta } = await ReviewService.allReviews(productId, page, limit, userId);
-    return res.status(code).json({ data, message, code, meta });
+
+    // Cursor pagination parameters
+    const cursor = req.query.cursor as string | undefined;
+    const limit = Number(req.query.limit) || 15;
+
+    // Filter parameters
+    const sortByParam = req.query.sortBy as string | undefined;
+    let rating: number | undefined = req.query.rating ? Number(req.query.rating) : undefined;
+    let sortBy: 'newest' | 'helpful' | 'rating-high' | 'rating-low' | undefined = sortByParam as any;
+
+    // Handle star-based sorting (5star, 4star, etc.)
+    if (sortByParam && /^[1-5]star$/.test(sortByParam)) {
+      rating = Number(sortByParam.replace('star', ''));
+      sortBy = 'newest'; // Sort by newest when filtering by star rating
+    }
+
+    const filters = {
+      rating,
+      hasImages: req.query.hasImages === 'true' ? true : undefined,
+      sortBy,
+    };
+
+    const { data, message, code, meta } = await ReviewService.allReviews(productId, cursor, limit, userId, filters);
+    return res.status(code).json({ data, message, meta });
   } catch (error) {
     console.error('Error in getOneProductReview:', error);
     return res.status(404).json({ error: 'Something went wrong' });
   }
 };
-
 
 const ReviewController = {
   getReviews,
@@ -207,7 +247,8 @@ const ReviewController = {
   deleteReply,
   getUserReviews,
   getUserProductReview,
-  getOneProductReview
+  getOneProductReview,
+  getProductReviewStats,
 };
 
 export default ReviewController;

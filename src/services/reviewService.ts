@@ -30,7 +30,7 @@ type CustomResponseType<T> = {
  * Verifies if user has purchased and received the product before allowing review
  */
 const verifyPurchaseEligibility = async (
-  userId: string, 
+  userId: string,
   productId: string
 ): Promise<{ eligible: boolean; transactionId?: string; orderId?: string; message?: string }> => {
   try {
@@ -52,7 +52,7 @@ const verifyPurchaseEligibility = async (
 
     // Get the most recent eligible order
     const latestOrder = orders[0];
-    
+
     // Verify transaction is completed
     if (!latestOrder.transactionId) {
       return {
@@ -71,7 +71,7 @@ const verifyPurchaseEligibility = async (
 
     return {
       eligible: true,
-      transactionId: (transaction._id as any).toString(),
+      transactionId: transaction.id.toString(),
       orderId: latestOrder._id.toString(),
     };
   } catch (error) {
@@ -380,13 +380,13 @@ const createReview = async (reviewData: IReview): Promise<CustomResponseType<Rev
     await newReview.save();
     await newReview.populate([
       { path: 'reviewBy', select: 'firstName lastName email' },
-      { path: 'product', select: 'name slug images' }
+      { path: 'product', select: 'name slug images' },
     ]);
 
     // Track review creation for analytics
     if (newReview._id && product && reviewBy) {
-      AnalyticsService.trackReviewCreated(newReview._id.toString(), product, reviewBy).catch(
-        (err) => console.error('Failed to track review analytics:', err)
+      AnalyticsService.trackReviewCreated(newReview._id.toString(), product, reviewBy).catch((err) =>
+        console.error('Failed to track review analytics:', err)
       );
     }
 
@@ -416,17 +416,17 @@ const updateReview = async (
 ): Promise<CustomResponseType<IReview | null>> => {
   try {
     const updatedReview = await Review.findByIdAndUpdate(
-      reviewId, 
-      { 
+      reviewId,
+      {
         ...reviewData,
         updatedAt: new Date(),
       },
       { new: true }
     ).populate([
       { path: 'reviewBy', select: 'firstName lastName email' },
-      { path: 'product', select: 'name slug images' }
+      { path: 'product', select: 'name slug images' },
     ]);
-    
+
     if (!updatedReview) {
       return {
         message: 'Review not found',
@@ -434,10 +434,10 @@ const updateReview = async (
         code: 404,
       };
     }
-    
+
     return {
       message: 'Review updated successfully',
-      data: updatedReview as any,
+      data: updatedReview.toObject() as unknown as IReview,
       code: 200,
     };
   } catch (error) {
@@ -487,36 +487,77 @@ const deleteReview = async ({
 };
 
 /**
- * Get all reviews for one product with pagination.
+ * Get all reviews for one product with cursor pagination and filters.
  * This function retrieves paginated reviews for a specific product, including user details, likes count, and replies count.
  * @param productId - The ID of the product to retrieve reviews for.
- * @param page - The page number for pagination (default is 1).
- * @param limit - The maximum number of reviews to return per page (default is 10).
+ * @param cursor - Optional cursor for pagination (review ID to start from).
+ * @param limit - The maximum number of reviews to return per page (default is 15).
+ * @param userId - Optional user ID to check if they liked the review.
+ * @param filters - Optional filters for rating, hasImages, and sortBy.
  * @returns A paginated array of reviews for the specified product.
  */
 const allReviews = async (
   productId: string,
-  page: number = 1,
-  limit: number = 20,
+  cursor?: string,
+  limit: number = 15,
   userId?: string,
+  filters?: {
+    rating?: number;
+    hasImages?: boolean;
+    sortBy?: 'newest' | 'helpful' | 'rating-high' | 'rating-low';
+  }
 ): Promise<{
   message: string;
   data: IReview[] | null;
   code: number;
   meta?: {
-    page: number;
-    limit: number;
-    total: number;
-    totalPages: number;
+    nextCursor: string | null;
+    count: number;
   };
 }> => {
   try {
-    // Get total count for pagination
-    const totalCount = await Review.countDocuments({ product: new ObjectId(productId) });
-    const totalPages = Math.ceil(totalCount / limit);
+    // Build match condition
+    const matchCondition: Record<string, unknown> = { product: new ObjectId(productId) };
+
+    // Apply cursor for pagination
+    if (cursor) {
+      matchCondition._id = { $gt: new ObjectId(cursor) };
+    }
+
+    // Apply rating filter
+    if (filters?.rating) {
+      matchCondition.rating = filters.rating;
+    }
+
+    // Apply hasImages filter
+    if (filters?.hasImages) {
+      matchCondition.images = { $exists: true, $ne: [], $type: 'array' };
+    }
+
+    // Determine sort order - default to newest (most recent first)
+    let sortStage: Record<string, 1 | -1> = { createdAt: -1, _id: 1 }; // Default: newest first
+
+    if (filters?.sortBy === 'helpful') {
+      sortStage = { likesCount: -1, createdAt: -1, _id: 1 };
+    } else if (filters?.sortBy === 'rating-high') {
+      sortStage = { rating: -1, createdAt: -1, _id: 1 };
+    } else if (filters?.sortBy === 'rating-low') {
+      sortStage = { rating: 1, createdAt: -1, _id: 1 };
+    } else if (filters?.sortBy === 'newest' || !filters?.sortBy) {
+      sortStage = { createdAt: -1, _id: 1 }; // Newest first (default)
+    }
 
     const reviews = await Review.aggregate([
-      { $match: { product: new ObjectId(productId) } },
+      { $match: matchCondition },
+      {
+        $addFields: {
+          likesCount: { $size: { $ifNull: ['$likes', []] } },
+          repliesCount: { $size: { $ifNull: ['$replies', []] } },
+          isLikedByUser: userId ? { $in: [new ObjectId(userId), { $ifNull: ['$likes', []] }] } : false,
+        },
+      },
+      { $sort: sortStage },
+      { $limit: limit + 1 }, // Fetch one extra to check if there are more
       {
         $lookup: {
           from: 'users',
@@ -531,10 +572,11 @@ const allReviews = async (
           _id: 1,
           reviewBy: {
             _id: '$reviewBy',
-            name: { $concat: ['$userDetails.firstName', ' ', '$userDetails.lastName'] },
+            firstName: '$userDetails.firstName',
+            lastName: '$userDetails.lastName',
             image: '$userDetails.image',
           },
-          review: 1,
+          message: '$review',
           rating: 1,
           product: 1,
           createdAt: 1,
@@ -543,25 +585,29 @@ const allReviews = async (
           size: 1,
           style: 1,
           fit: 1,
-          likesCount: { $size: '$likes' },
-          repliesCount: { $size: '$replies' },
-          isLikedByUser: userId ? { $in: [new ObjectId(userId), '$likes'] } : false,
+          likesCount: 1,
+          repliesCount: 1,
+          isLikedByUser: 1,
+          title: 1,
+          transactionId: 1,
         },
       },
-      { $sort: { createdAt: -1 } }, // Sort by creation date in descending order
-      { $skip: (page - 1) * limit },
-      { $limit: limit },
     ]);
+
+    // Check if there are more results
+    const hasMore = reviews.length > limit;
+    const data = hasMore ? reviews.slice(0, limit) : reviews;
+
+    // Get next cursor (last item's ID) - null indicates no more results
+    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1]._id.toString() : null;
 
     return {
       message: 'Reviews retrieved successfully',
-      data: reviews,
+      data,
       code: 200,
       meta: {
-        page,
-        limit,
-        total: totalCount,
-        totalPages,
+        nextCursor,
+        count: data.length,
       },
     };
   } catch (error) {
@@ -641,22 +687,41 @@ const userReviews = async (
 };
 
 /**
- * Get the single review of a user for a specific product.
- * This function retrieves the single review for a specific product made by a specific user.
- * @param userId - The ID of the user to retrieve the review for.
- * @param productId - The ID of the product to retrieve the review for.
- * @returns The review for the specified product by the user.
+ * Get reviews of a user for a specific product with cursor pagination.
+ * This function retrieves reviews for a specific product made by a specific user.
+ * @param userId - The ID of the user to retrieve the reviews for.
+ * @param productId - The ID of the product to retrieve the reviews for.
+ * @param cursor - Optional cursor for pagination (review ID to start from).
+ * @param limit - Number of reviews per page (default: 15).
+ * @returns Paginated reviews for the specified product by the user.
  */
 const userReviewPerProduct = async ({
   userId,
   productId,
+  cursor,
+  limit = 15,
 }: {
   userId: string;
   productId: string;
-}): Promise<CustomResponseType<IReview | null>> => {
+  cursor?: string;
+  limit?: number;
+}): Promise<CustomResponseType<IReview[]> & { meta?: { nextCursor: string | null; count: number } }> => {
   try {
-    const review = await Review.aggregate([
-      { $match: { reviewBy: new ObjectId(userId), product: new ObjectId(productId) } },
+    // Build match condition with cursor for pagination
+    const matchCondition: Record<string, unknown> = {
+      reviewBy: new ObjectId(userId),
+      product: new ObjectId(productId),
+    };
+
+    // If cursor provided, get reviews after this ID
+    if (cursor) {
+      matchCondition._id = { $gt: new ObjectId(cursor) };
+    }
+
+    const reviews = await Review.aggregate([
+      { $match: matchCondition },
+      { $sort: { _id: 1 } }, // Sort by ID for consistent cursor pagination
+      { $limit: limit + 1 }, // Fetch one extra to check if there are more
       {
         $lookup: {
           from: 'users',
@@ -671,10 +736,11 @@ const userReviewPerProduct = async ({
           _id: 1,
           reviewBy: {
             _id: '$reviewBy',
-            name: { $concat: ['$userDetails.firstName', ' ', '$userDetails.lastName'] },
+            firstName: '$userDetails.firstName',
+            lastName: '$userDetails.lastName',
             image: '$userDetails.image',
           },
-          review: 1,
+          message: '$review',
           rating: 1,
           product: 1,
           createdAt: 1,
@@ -685,20 +751,122 @@ const userReviewPerProduct = async ({
           fit: 1,
           likesCount: { $size: '$likes' },
           repliesCount: { $size: '$replies' },
+          title: 1,
+          transactionId: 1,
         },
       },
     ]);
 
+    // Check if there are more results
+    const hasMore = reviews.length > limit;
+    const data = hasMore ? reviews.slice(0, limit) : reviews;
+
+    // Get next cursor (last item's ID) - null indicates no more results
+    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1]._id.toString() : null;
+
     return {
-      message: 'User review for product retrieved successfully',
-      data: review.length > 0 ? review[0] : null,
+      message: 'User reviews for product retrieved successfully',
+      data,
+      code: 200,
+      meta: {
+        nextCursor,
+        count: data.length,
+      },
+    };
+  } catch (error) {
+    console.error(error);
+    return {
+      message: 'Something went wrong',
+      data: [],
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Get review statistics for a product
+ * Returns total ratings, average rating, and star distribution
+ * @param productId - The ID of the product
+ * @returns Review statistics
+ */
+const getProductReviewStats = async (
+  productId: string
+): Promise<
+  CustomResponseType<{
+    totalRatings: number;
+    averageRating: number;
+    starDistribution: {
+      5: number;
+      4: number;
+      3: number;
+      2: number;
+      1: number;
+    };
+  }>
+> => {
+  try {
+    const stats = await Review.aggregate([
+      { $match: { product: new ObjectId(productId) } },
+      {
+        $facet: {
+          totalAndAverage: [
+            {
+              $group: {
+                _id: null,
+                totalRatings: { $sum: 1 },
+                averageRating: { $avg: '$rating' },
+              },
+            },
+          ],
+          starDistribution: [
+            {
+              $group: {
+                _id: '$rating',
+                count: { $sum: 1 },
+              },
+            },
+          ],
+        },
+      },
+    ]);
+
+    const totalAndAverage = stats[0].totalAndAverage[0] || { totalRatings: 0, averageRating: 0 };
+    const starDistributionArray = stats[0].starDistribution || [];
+
+    // Initialize star distribution with zeros
+    const starDistribution = {
+      5: 0,
+      4: 0,
+      3: 0,
+      2: 0,
+      1: 0,
+    };
+
+    // Fill in actual counts from database
+    starDistributionArray.forEach((item: { _id: number; count: number }) => {
+      if (item._id >= 1 && item._id <= 5) {
+        starDistribution[item._id as keyof typeof starDistribution] = item.count;
+      }
+    });
+
+    return {
+      message: 'Review statistics retrieved successfully',
+      data: {
+        totalRatings: totalAndAverage.totalRatings,
+        averageRating: Math.round(totalAndAverage.averageRating * 10) / 10, // Round to 1 decimal
+        starDistribution,
+      },
       code: 200,
     };
   } catch (error) {
     console.error(error);
     return {
       message: 'Something went wrong',
-      data: null,
+      data: {
+        totalRatings: 0,
+        averageRating: 0,
+        starDistribution: { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 },
+      },
       code: 500,
     };
   }
@@ -718,6 +886,7 @@ const ReviewService = {
   allReviews,
   userReviews,
   userReviewPerProduct,
+  getProductReviewStats,
 };
 
 export default ReviewService;

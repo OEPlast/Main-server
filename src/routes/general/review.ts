@@ -5,9 +5,11 @@ import ReviewValidator from '../../validators/ReviewValidator';
 
 const router = express.Router();
 
-// reviews for product
-//TODO: add pagination
+// reviews for product with cursor pagination and filters
 router.get('/product/:productId', authenticateUser_No_Force, ReviewController.getOneProductReview);
+
+// get review statistics for a product (total, average, star distribution)
+router.get('/product/:productId/stats', ReviewController.getProductReviewStats);
 
 // get likes for one review <not needed?>
 router.get('/:reviewId/likeCount', ...ReviewValidator.validateReviewId, ReviewController.getLikeCount);

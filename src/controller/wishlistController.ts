@@ -42,6 +42,8 @@ const getAllWishlists = async (req: Request, res: Response) => {
     }
     const { page = 1, limit = 50 } = req.query;
     const user = req.userId;
+    console.log(user);
+    
     const { data, message, code, meta } = await WishlistService.getAllWishlists({
       page: Number(page),
       limit: Number(limit),

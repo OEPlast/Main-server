@@ -5,6 +5,11 @@ import { CustomResponsePromise } from '@/types';
 import mongoose, { PipelineStage } from 'mongoose';
 import { duplicateMessage, isDuplicateKeyError } from '@/middleware/mongodb';
 
+// Guardrail to prevent shipping from exceeding a healthy share of cart value
+const MAX_SHIPPING_SUBTOTAL_RATIO = 0.055;
+const WHOLESALE_BATCH_SIZE = 24;
+const SECONDARY_ITEM_RATE = 0.3;
+
 const getConfigByCountry = async (country: string): CustomResponsePromise<LogisticsConfigType> => {
   try {
     const cfg = await LogisticsConfigModel.findOne({ countryName: country }).collation({ locale: 'en', strength: 2 });
@@ -80,6 +85,20 @@ const listCountries = async (): CustomResponsePromise<
   }
 };
 
+const listAllConfigs = async (): CustomResponsePromise<LogisticsConfigType[]> => {
+  try {
+    const configs = await LogisticsConfigModel.find().sort({ countryName: 1 });
+    return {
+      message: 'Logistics configurations retrieved successfully',
+      data: configs,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('listAllConfigs error:', error);
+    return { message: 'Something went wrong', data: null, code: 500 };
+  }
+};
+
 const quote = async (input: QuoteInput): CustomResponsePromise<QuoteResult> => {
   try {
     const { productId, quantity = 1, destination } = input;
@@ -96,9 +115,7 @@ const quote = async (input: QuoteInput): CustomResponsePromise<QuoteResult> => {
     const config = cfgResp.data;
 
     // Locate base price and eta based on specificity: city/lga > state fallback > 0
-    const state = config.states.find(
-      (s) => s.name.toLowerCase() === (destination.stateName || '').toLowerCase()
-    );
+    const state = config.states.find((s) => s.name.toLowerCase() === (destination.stateName || '').toLowerCase());
 
     let basePrice = 0;
     let etaDays = 0;
@@ -209,6 +226,73 @@ const listLocationsTree = async (): CustomResponsePromise<LocationTree> => {
   }
 };
 
+/**
+ * Get location hierarchy for a specific country (for address forms)
+ * Returns: Country → States → LGAs & Cities (no pricing info)
+ */
+const getLocationsByCountry = async (
+  countryName: string
+): CustomResponsePromise<{
+  countryCode: string;
+  countryName: string;
+  states: Array<{
+    name: string;
+    cities: Array<{ name: string }>;
+    lgas: Array<{ name: string }>;
+  }>;
+}> => {
+  try {
+    const pipeline: PipelineStage[] = [
+      {
+        $match: {
+          countryName: { $regex: new RegExp(`^${countryName}$`, 'i') }, // Case-insensitive match
+        },
+      },
+      {
+        $project: {
+          _id: 0,
+          countryCode: 1,
+          countryName: 1,
+          states: {
+            $map: {
+              input: { $ifNull: ['$states', []] },
+              as: 's',
+              in: {
+                name: '$$s.name',
+                cities: {
+                  $map: {
+                    input: { $ifNull: ['$$s.cities', []] },
+                    as: 'c',
+                    in: { name: '$$c.name' },
+                  },
+                },
+                lgas: {
+                  $map: {
+                    input: { $ifNull: ['$$s.lgas', []] },
+                    as: 'l',
+                    in: { name: '$$l.name' },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    ];
+
+    const result = await LogisticsConfigModel.aggregate(pipeline);
+
+    if (!result || result.length === 0) {
+      return { message: 'Country not found in logistics config', data: null, code: 404 };
+    }
+
+    return { message: 'Location hierarchy retrieved successfully', data: result[0], code: 200 };
+  } catch (error) {
+    console.error('getLocationsByCountry error:', error);
+    return { message: 'Something went wrong', data: null, code: 500 };
+  }
+};
+
 const createEmptyCountry = async (
   countryCode: string,
   countryName: string
@@ -272,7 +356,8 @@ const updateCountryName = async (
 type Destination = {
   countryName: string;
   stateName: string;
-  lgaName: string;
+  lgaName?: string;
+  cityName?: string;
 };
 
 type OrderItem = {
@@ -280,221 +365,165 @@ type OrderItem = {
   quantity: number;
 };
 
-// Shipping pricing tuning knobs (change these to adjust growth behavior)
-// Progressive shipping constants
-const PROG_FIRST_INTERVAL = 3; // first N units at full base shipping (reduced for higher costs)
-const PROG_INTERVAL_SIZE = 15; // progressive blocks after first interval (smaller intervals for higher costs)
-const PROG_FLOOR_RATIO = 0.15; // min fraction of baseShipping per unit at very large quantities (increased from 0.04)
-const PROG_DECAY_RATE = 0.8; // speed of decay per interval towards the floor ratio (slower decay for higher costs)
-// Cart-level saturation and cap (to avoid runaway totals)
-const PROG_SATURATION_FLOOR = 0.55; // minimum multiplier applied to rawShipping after grouping (increased from 0.18)
-const PROG_SATURATION_LN_COEFF = 0.25; // how fast saturation decreases with ln(qty) (slower decrease for higher costs)
-const PROG_CAP_BASE = 15; // base term for the cap function (increased)
-const PROG_CAP_LN_COEFF = 8; // coefficient of ln(qty) in the cap (increased)
-const PROG_CAP_MULTIPLIER = 25; // overall multiplier for the cap (increased)
-
+/**
+ * Calculate shipping cost with fair pricing model
+ *
+ * Logic:
+ * 1. Base Price Lookup (Priority Order):
+ *    - City price (if city provided and found)
+ *    - LGA price (if LGA provided and city not found)
+ *    - State fallback price (if neither city nor LGA found)
+ *    - Default fallback (1200 NGN if no config exists)
+ *
+ * 2. Product-Specific Costs:
+ *    - shipping.addedCost: Fixed cost added to base (per item type, not multiplied by quantity)
+ *    - shipping.increaseCostBy: Percentage increase on base price (per item type)
+ *
+ * 3. Quantity Scaling (Fair Model):
+ *    - First 5 units: Full shipping cost per unit
+ *    - 6-20 units: 70% of shipping cost per unit
+ *    - 21-50 units: 50% of shipping cost per unit
+ *    - 51+ units: 30% of shipping cost per unit
+ *
+ * 4. Delivery Time (ETA):
+ *    - Use the HIGHEST addedDays from all products (not sum)
+ *    - Base ETA from location config (city > lga > state fallback)
+ *
+ * @param items - Array of cart items with productId and quantity
+ * @param destination - Shipping destination with country, state, optional city/lga
+ * @returns Total shipping cost in NGN
+ */
 export async function calculateProgressiveShipping(items: OrderItem[], destination: Destination): Promise<number> {
   if (!items.length) return 0;
 
-  const productIds = items.map((i) => new mongoose.Types.ObjectId(i.productId));
-
-  // Fetch logistics config
-  const logisticsConfig: LogisticsConfigType | null = await LogisticsConfigModel.findOne({
+  // Step 1: Get base shipping price from logistics config
+  const logisticsConfig = await LogisticsConfigModel.findOne({
     countryName: destination.countryName,
   });
 
-  // If no logistics config found, use reasonable defaults for Nigeria
-  let fallbackPrice = 1200; // Default minimum shipping cost (increased from 500)
+  let basePrice = 1200; // Default fallback for Nigeria
+  let baseEtaDays = 3; // Default 3 days
 
   if (logisticsConfig) {
     const stateConfig = logisticsConfig.states.find(
-      (s) => s.name?.toLowerCase() === destination.stateName.toLowerCase()
+      (s) => s.name?.toLowerCase() === destination.stateName?.toLowerCase()
     );
-    const lgaConfig = stateConfig?.lgas.find((l) => l.name?.toLowerCase() === destination.lgaName.toLowerCase());
 
-    // Use configured price, or fall back to minimum
-    fallbackPrice = lgaConfig?.price ?? stateConfig?.fallbackPrice ?? 1200;
+    if (stateConfig) {
+      // Priority 1: Check for city price
+      if (destination.cityName && stateConfig.cities?.length) {
+        const cityConfig = stateConfig.cities.find(
+          (c) => c.name?.toLowerCase() === destination.cityName!.toLowerCase()
+        );
+        if (cityConfig && cityConfig.price != null) {
+          basePrice = cityConfig.price;
+          if (cityConfig.etaDays != null) {
+            baseEtaDays = cityConfig.etaDays;
+          }
+        }
+      }
+
+      // Priority 2: Check for LGA price (only if city not found)
+      if (basePrice === 1200 && destination.lgaName && stateConfig.lgas?.length) {
+        const lgaConfig = stateConfig.lgas.find((l) => l.name?.toLowerCase() === destination.lgaName!.toLowerCase());
+        if (lgaConfig && lgaConfig.price != null) {
+          basePrice = lgaConfig.price;
+          if (lgaConfig.etaDays != null) {
+            baseEtaDays = lgaConfig.etaDays;
+          }
+        }
+      }
+
+      // Priority 3: Use state fallback (if neither city nor LGA found)
+      if (basePrice === 1200) {
+        basePrice = stateConfig.fallbackPrice ?? 1200;
+        baseEtaDays = stateConfig.fallbackEtaDays ?? 3;
+      }
+    }
   }
 
-  // Use tuning constants
-  const FIRST_INTERVAL = PROG_FIRST_INTERVAL;
-  const INTERVAL_SIZE = PROG_INTERVAL_SIZE;
-  // New model: per-unit cost factor in interval i is
-  // unitFactor(i) = FLOOR_RATIO + (1 - FLOOR_RATIO) / (1 + DECAY_RATE * i)
-  // where i starts at 1. This creates a logarithmic decay towards FLOOR_RATIO.
-  const FLOOR_RATIO = PROG_FLOOR_RATIO; // minimum fraction at very large quantities
-  const DECAY_RATE = PROG_DECAY_RATE; // decay speed
+  // Step 2: Fetch products and calculate per-product shipping
+  const productIds = items.map((i) => new mongoose.Types.ObjectId(i.productId));
+  const products = await Product.find({ _id: { $in: productIds } }).select('shipping price');
 
-  // Prepare cart quantity mapping
-  const qtyMap: Record<string, number> = {};
-  for (const i of items) {
-    // Use stringified ObjectId as keys to match aggregation $toString("$_id") lookups
-    qtyMap[String(i.productId)] = i.quantity;
+  let rawTotalShipping = 0;
+  let maxAddedDays = 0;
+  let orderSubtotal = 0;
+  let highestShipping = 0;
+
+  for (const item of items) {
+    const product = products.find((p) => p._id.toString() === item.productId.toString());
+    if (!product) continue;
+
+    const qty = item.quantity;
+
+    // Product-specific shipping adjustments (applied once per product type, not per quantity)
+    const addedCost = product.shipping?.addedCost ?? 0;
+    const increaseCostBy = product.shipping?.increaseCostBy ?? 0;
+    const addedDays = product.shipping?.addedDays ?? 0;
+
+    // Track highest delivery days (not sum)
+    if (addedDays > maxAddedDays) {
+      maxAddedDays = addedDays;
+    }
+
+    // Calculate adjusted base price for this product type
+    const productBasePrice = basePrice + (basePrice * increaseCostBy) / 100 + addedCost;
+
+    if (typeof product.price === 'number') {
+      orderSubtotal += product.price * qty;
+    }
+
+    // Apply wholesale batching (per two dozen) with discounted extra batches
+    const batches = Math.max(1, Math.ceil(qty / WHOLESALE_BATCH_SIZE));
+    const extraBatches = Math.max(0, batches - 1);
+    const productShipping = productBasePrice + extraBatches * productBasePrice * SECONDARY_ITEM_RATE;
+
+    rawTotalShipping += productShipping;
+    if (productShipping > highestShipping) {
+      highestShipping = productShipping;
+    }
   }
 
-  const aggregationResult = await Product.aggregate([
-    { $match: { _id: { $in: productIds } } },
+  if (rawTotalShipping === 0) {
+    return 0;
+  }
 
-    // Attach quantity from cart
-    {
-      $addFields: {
-        // Pull quantity from the input items map by matching on product _id string
-        qty: {
-          $ifNull: [
-            {
-              $getField: {
-                input: { $literal: qtyMap },
-                field: { $toString: '$_id' },
-              },
-            },
-            0,
-          ],
-        },
-        // If product has a positive explicit addedCost, use it; otherwise fall back to location price
-        baseShipping: {
-          $let: {
-            vars: { ship: { $ifNull: ['$shipping.addedCost', null] } },
-            in: { $cond: [{ $gt: ['$$ship', 0] }, '$$ship', fallbackPrice] },
-          },
-        },
-      },
-    },
+  // Step 3: Blend the cart – most expensive lane fully charged, others discounted
+  const ratioCap = orderSubtotal > 0 ? orderSubtotal * MAX_SHIPPING_SUBTOTAL_RATIO : null;
+  const highestCapped = ratioCap != null ? Math.min(highestShipping, ratioCap) : highestShipping;
+  const othersShipping = Math.max(0, rawTotalShipping - highestShipping);
+  const weightedShipping = highestCapped + othersShipping * SECONDARY_ITEM_RATE;
 
-    // Compute total line shipping with progressive intervals (log-decay model)
-    {
-      $addFields: {
-        totalLineShipping: {
-          $let: {
-            vars: {
-              remainingQty: { $max: [{ $subtract: ['$qty', FIRST_INTERVAL] }, 0] },
-            },
-            in: {
-              $add: [
-                // First block at full price (up to FIRST_INTERVAL)
-                { $multiply: [{ $min: ['$qty', FIRST_INTERVAL] }, '$baseShipping'] },
+  // Step 4: Apply cart-level cap to avoid runaway totals
+  const adjustedShipping = ratioCap != null ? Math.min(weightedShipping, ratioCap) : weightedShipping;
 
-                // Remaining intervals with logarithmic decay and floor ratio
-                {
-                  $sum: {
-                    $map: {
-                      input: {
-                        $range: [
-                          1,
-                          {
-                            $add: [
-                              1,
-                              {
-                                $ceil: {
-                                  $divide: ['$$remainingQty', INTERVAL_SIZE],
-                                },
-                              },
-                            ],
-                          },
-                        ],
-                      },
-                      as: 'i',
-                      in: {
-                        $let: {
-                          vars: {
-                            unitsInInterval: {
-                              $min: [
-                                INTERVAL_SIZE,
-                                {
-                                  $max: [
-                                    {
-                                      $subtract: [
-                                        '$$remainingQty',
-                                        { $multiply: [{ $subtract: ['$$i', 1] }, INTERVAL_SIZE] },
-                                      ],
-                                    },
-                                    0,
-                                  ],
-                                },
-                              ],
-                            },
-                            unitFactor: {
-                              $add: [
-                                FLOOR_RATIO,
-                                {
-                                  $divide: [
-                                    { $subtract: [1, FLOOR_RATIO] },
-                                    { $add: [1, { $multiply: [DECAY_RATE, '$$i'] }] },
-                                  ],
-                                },
-                              ],
-                            },
-                          },
-                          in: { $multiply: ['$$unitsInInterval', '$baseShipping', '$$unitFactor'] },
-                        },
-                      },
-                    },
-                  },
-                },
-              ],
-            },
-          },
-        },
-      },
-    },
+  const finalShipping = Math.round(Math.max(0, adjustedShipping) * 100) / 100;
+  const finalEta = baseEtaDays + maxAddedDays;
 
-    // Sum across all products and gather total quantity
-    {
-      $group: {
-        _id: null,
-        rawShipping: { $sum: '$totalLineShipping' },
-        qtyTotal: { $sum: '$qty' },
-      },
+  console.log('Shipping calculation:', {
+    destination: {
+      country: destination.countryName,
+      state: destination.stateName,
+      city: destination.cityName,
+      lga: destination.lgaName,
     },
-    // Cart-level saturation and dynamic cap to avoid runaway totals
-    {
-      $addFields: {
-        // Saturation multiplier decreases slowly with cart size but floors at a reasonable value
-        saturationMultiplier: {
-          $max: [
-            PROG_SATURATION_FLOOR,
-            {
-              $divide: [
-                1,
-                {
-                  $add: [1, { $multiply: [PROG_SATURATION_LN_COEFF, { $ln: { $add: ['$qtyTotal', 1] } }] }],
-                },
-              ],
-            },
-          ],
-        },
-        // Cap grows sublinearly with total qty - ensure reasonable minimum cap
-        capLimit: {
-          $max: [
-            { $multiply: [fallbackPrice, 2] }, // Minimum cap of 2x fallback price
-            {
-              $multiply: [
-                fallbackPrice,
-                {
-                  $add: [PROG_CAP_BASE, { $multiply: [PROG_CAP_LN_COEFF, { $ln: { $add: ['$qtyTotal', 1] } }] }],
-                },
-                PROG_CAP_MULTIPLIER,
-              ],
-            },
-          ],
-        },
-      },
-    },
-    {
-      $addFields: {
-        flatShipping: { $min: [{ $multiply: ['$rawShipping', '$saturationMultiplier'] }, '$capLimit'] },
-      },
-    },
-  ]);
-
-  console.log('Shipping calculation details:', {
-    destination,
-    fallbackPrice,
+    basePrice,
+    baseEtaDays,
+    maxAddedDays,
+    finalEta,
     itemsCount: items.length,
     totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
-    aggregationResult: aggregationResult[0],
+    orderSubtotal: Math.round(orderSubtotal * 100) / 100,
+    rawTotalShipping: Math.round(rawTotalShipping * 100) / 100,
+    highestShipping: Math.round(highestShipping * 100) / 100,
+    highestCapped: Math.round(highestCapped * 100) / 100,
+    weightedShipping: Math.round(weightedShipping * 100) / 100,
+    ratioCap: ratioCap != null ? Math.round(ratioCap * 100) / 100 : null,
+    finalShipping,
   });
 
-  return aggregationResult[0]?.flatShipping ?? 0;
+  return finalShipping;
 }
 
 export default {
@@ -502,8 +531,10 @@ export default {
   createConfig,
   updateConfig,
   listCountries,
+  listAllConfigs,
   quote,
   listLocationsTree,
+  getLocationsByCountry,
   createEmptyCountry,
   deleteCountry,
   updateCountryName,
