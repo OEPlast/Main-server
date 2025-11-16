@@ -1,12 +1,12 @@
 import type { NextFunction, Request, Response } from 'express';
-import { checkSchema, validationResult } from 'express-validator';
+import { checkExact, checkSchema, validationResult } from 'express-validator';
 
 //order validator for user
 
 const validateSecureCheckout = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({
     // Items array validation
-    'items': {
+    items: {
       in: ['body'],
       isArray: {
         options: { min: 1 },
@@ -39,32 +39,32 @@ const validateSecureCheckout = (req: Request, res: Response, next: NextFunction)
         errorMessage: 'Each item must have a valid total price.',
       },
     },
-    
+
     // Cart totals validation
-    'subtotal': {
+    subtotal: {
       in: ['body'],
       isFloat: {
         options: { min: 0 },
         errorMessage: 'Subtotal must be a positive number.',
       },
     },
-    'total': {
+    total: {
       in: ['body'],
       isFloat: {
         options: { min: 0 },
         errorMessage: 'Total must be a positive number.',
       },
     },
-    'totalDiscount': {
+    totalDiscount: {
       in: ['body'],
       isFloat: {
         options: { min: 0 },
         errorMessage: 'Total discount must be a positive number.',
       },
     },
-    
+
     // Coupon codes validation (optional array of strings)
-    'couponCodes': {
+    couponCodes: {
       in: ['body'],
       optional: true,
       isArray: {
@@ -85,9 +85,9 @@ const validateSecureCheckout = (req: Request, res: Response, next: NextFunction)
         errorMessage: 'Coupon codes can only contain uppercase letters, numbers, hyphens, and underscores.',
       },
     },
-    
+
     // Shipping address validation
-    'shippingAddress': {
+    shippingAddress: {
       in: ['body'],
       notEmpty: true,
       errorMessage: 'Shipping address is required.',
@@ -134,9 +134,9 @@ const validateSecureCheckout = (req: Request, res: Response, next: NextFunction)
         errorMessage: 'Country must be between 2 and 50 characters.',
       },
     },
-    
+
     // Delivery type validation
-    'deliveryType': {
+    deliveryType: {
       in: ['body'],
       optional: true,
       isIn: {
@@ -144,9 +144,9 @@ const validateSecureCheckout = (req: Request, res: Response, next: NextFunction)
         errorMessage: 'Delivery type must be either "shipping" or "pickup".',
       },
     },
-    
+
     // Shipping cost validation (required if delivery type is shipping)
-    'shippingCost': {
+    shippingCost: {
       in: ['body'],
       optional: true,
       isFloat: {
@@ -154,9 +154,9 @@ const validateSecureCheckout = (req: Request, res: Response, next: NextFunction)
         errorMessage: 'Shipping cost must be a positive number.',
       },
     },
-    
+
     // Payment method validation
-    'paymentMethod': {
+    paymentMethod: {
       in: ['body'],
       optional: true,
       isIn: {
@@ -168,9 +168,9 @@ const validateSecureCheckout = (req: Request, res: Response, next: NextFunction)
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       message: 'Validation failed',
-      errors: errors.array() 
+      errors: errors.array(),
     });
   }
   next();
@@ -179,7 +179,7 @@ const validateSecureCheckout = (req: Request, res: Response, next: NextFunction)
 const validateShippingCalculation = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({
     // Items array validation
-    'items': {
+    items: {
       in: ['body'],
       isArray: {
         options: { min: 1 },
@@ -205,9 +205,9 @@ const validateShippingCalculation = (req: Request, res: Response, next: NextFunc
         errorMessage: 'Each item must have a valid total price.',
       },
     },
-    
+
     // Delivery type validation
-    'deliveryType': {
+    deliveryType: {
       in: ['body'],
       optional: true,
       isIn: {
@@ -215,9 +215,9 @@ const validateShippingCalculation = (req: Request, res: Response, next: NextFunc
         errorMessage: 'Delivery type must be either "shipping" or "pickup".',
       },
     },
-    
+
     // Conditional shipping address validation - only required if delivery type is shipping
-    'shippingAddress': {
+    shippingAddress: {
       in: ['body'],
       optional: true,
       custom: {
@@ -258,22 +258,24 @@ const validateShippingCalculation = (req: Request, res: Response, next: NextFunc
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       message: 'Validation failed',
-      errors: errors.array() 
+      errors: errors.array(),
     });
   }
   next();
 };
 
-const validateOrderId = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    id: {
-      in: ['params'],
-      isMongoId: true,
-      errorMessage: 'Order ID must be a valid MongoDB ID.',
-    },
-  });
+const validateOrderId = async (req: Request, res: Response, next: NextFunction) => {
+  await checkExact(
+    checkSchema({
+      id: {
+        in: ['params'],
+        isMongoId: true,
+        errorMessage: 'Order ID must be a valid MongoDB ID.',
+      },
+    })
+  ).run(req);
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -348,7 +350,8 @@ const validateOrderQueryParams = (req: Request, res: Response, next: NextFunctio
       optional: true,
       isIn: {
         options: [['all', 'pending', 'completed', 'failed', 'cancelled', 'refunded', 'partially_refunded']],
-        errorMessage: 'Transaction status must be one of: all, pending, completed, failed, cancelled, refunded, partially_refunded',
+        errorMessage:
+          'Transaction status must be one of: all, pending, completed, failed, cancelled, refunded, partially_refunded',
       },
     },
   });

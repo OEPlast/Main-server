@@ -6,8 +6,8 @@ import { OrderType } from '@/models/Order';
 import LogisticsService from '@/services/LogisticsService';
 // import CartService from '@/services/cartService';
 // import Cart from '@/models/Cart';
-import { populateOrderWithDeliveryStatus } from '@/helpers/orderPopulation';
 import CheckoutService, { SecureCheckoutPayload } from '@/services/CheckoutService';
+import { TransactionStatus } from '@/models/Transaction';
 
 // Fetch paginated order history for a user
 export const getOrders = async (req: Request, res: Response) => {
@@ -22,13 +22,25 @@ export const getOrders = async (req: Request, res: Response) => {
     } as unknown as {
       userId: string;
       status?: OrderType['status'];
-      transactionStatus?: import('../models/Transaction').TransactionStatus | 'all';
+      transactionStatus?: TransactionStatus | 'all';
     };
 
-    const { data, message, code } = await OrderService.getOrderHistory(~~page, ~~limit, filters);
-    return res.status(code).json({ message, data });
+    const { data, message, code, meta } = await OrderService.getOrderHistory(Number(page), Number(limit), filters);
+    return res.status(code).json({ message, data, meta });
   } catch (error) {
     console.error('Error in getOrders:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Get order statistics for dashboard
+const getOrderStatistics = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthenticatedRequest).userId!;
+    const { data, message, code } = await OrderService.getOrderStatistics(userId);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getOrderStatistics:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -40,12 +52,6 @@ export const getOrderById = async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId!;
 
     const { data, message, code } = await OrderService.getOneOrder({ orderId: id, userId });
-
-    if (data) {
-      // Populate the order with delivery status from shipment
-      const populatedOrder = await populateOrderWithDeliveryStatus(data);
-      return res.status(code).json({ message, data: populatedOrder });
-    }
 
     return res.status(code).json({ message, data });
   } catch (error) {
@@ -229,5 +235,6 @@ const OrderController = {
   getAllReturns,
   calculateShipping,
   secureCheckout,
+  getOrderStatistics,
 };
 export default OrderController;

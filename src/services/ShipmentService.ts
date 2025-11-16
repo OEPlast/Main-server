@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 import Shipment, { IShipment } from '@/models/Shipment';
-import Order, { OrderType } from '@/models/Order';
+import Order from '@/models/Order';
 import { CustomResponseType } from '@/types';
 import eventPublisher from '@/events/eventPublisher';
 
@@ -13,7 +13,7 @@ const createShipmentForOrder = async (
 ): Promise<{ shipment: IShipment; trackingNumber: string } | null> => {
   try {
     const order = await Order.findById(orderId).session(session || null);
-    
+
     if (!order) {
       throw new Error('Order not found');
     }
@@ -25,14 +25,9 @@ const createShipmentForOrder = async (
     if (!order.shippingAddress) {
       throw new Error('Shipping address is required for shipping orders');
     }
-
-    // Generate unique tracking number
-    const trackingNumber = `TRK${Date.now()}${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
-
     // Create shipment with order data
     const shipmentData = {
       orderId: order._id,
-      trackingNumber,
       courier: 'Default Courier', // Default courier - can be updated by admin later
       status: 'In-Warehouse' as IShipment['status'],
       shippingAddress: {
@@ -43,6 +38,7 @@ const createShipmentForOrder = async (
         address2: order.shippingAddress.address2 || '',
         city: order.shippingAddress.city || '',
         state: order.shippingAddress.state || '',
+        lga: order.shippingAddress.lga || '',
         zipCode: order.shippingAddress.zipCode || '',
         country: order.shippingAddress.country || 'Nigeria',
       },
@@ -59,16 +55,14 @@ const createShipmentForOrder = async (
     const shipment = new Shipment(shipmentData);
     await shipment.save({ session: session || undefined });
 
-    // Update order with shipment reference
-    order.shipmentId = shipment._id as mongoose.Types.ObjectId;
-    await order.save({ session: session || undefined });
+    await Order.updateOne({ _id: orderId }, { $set: { shipmentId: shipment._id } }, { session: session || undefined });
 
     // Publish shipment created event
     try {
       await eventPublisher.publishShipmentCreated({
         shipmentId: shipment._id.toString(),
         orderId: order._id.toString(),
-        trackingNumber: shipment.trackingNumber,
+        trackingNumber: shipment.trackingNumber!,
         status: shipment.status,
       });
     } catch (eventError) {
@@ -76,7 +70,7 @@ const createShipmentForOrder = async (
       // Don't fail shipment creation if event publishing fails
     }
 
-    return { shipment, trackingNumber: shipment.trackingNumber };
+    return { shipment, trackingNumber: shipment.trackingNumber! };
   } catch (error) {
     console.error('Error creating shipment for order:', error);
     throw error;
@@ -86,10 +80,7 @@ const createShipmentForOrder = async (
 /**
  * Gets shipment for a specific order
  */
-const getShipmentForOrder = async (
-  orderId: string,
-  userId?: string
-): Promise<CustomResponseType<IShipment>> => {
+const getShipmentForOrder = async (orderId: string, userId?: string): Promise<CustomResponseType<IShipment>> => {
   try {
     // First verify order exists and belongs to user if userId provided
     const orderQuery: Record<string, unknown> = { _id: orderId };
@@ -98,7 +89,7 @@ const getShipmentForOrder = async (
     }
 
     const order = await Order.findOne(orderQuery).select('shipmentId deliveryType');
-    
+
     if (!order) {
       return {
         message: 'Order not found',
@@ -124,7 +115,7 @@ const getShipmentForOrder = async (
     }
 
     const shipment = await Shipment.findById(order.shipmentId).populate('orderId', 'total status');
-    
+
     if (!shipment) {
       return {
         message: 'Shipment not found',
@@ -158,13 +149,13 @@ const getUserShipments = async (
 ): Promise<CustomResponseType<{ shipments: IShipment[]; total: number; page: number; limit: number }>> => {
   try {
     // Find all orders for this user that have shipping
-    const userOrders = await Order.find({ 
-      user: userId, 
+    const userOrders = await Order.find({
+      user: userId,
       deliveryType: 'shipping',
-      shipmentId: { $exists: true, $ne: null }
+      shipmentId: { $exists: true, $ne: null },
     }).select('shipmentId');
 
-    const shipmentIds = userOrders.map(order => order.shipmentId).filter(Boolean);
+    const shipmentIds = userOrders.map((order) => order.shipmentId).filter(Boolean);
 
     if (shipmentIds.length === 0) {
       return {
@@ -201,13 +192,10 @@ const getUserShipments = async (
 /**
  * Tracks shipment by tracking number (public endpoint)
  */
-const trackShipmentByTrackingNumber = async (
-  trackingNumber: string
-): Promise<CustomResponseType<IShipment>> => {
+const trackShipmentByTrackingNumber = async (trackingNumber: string): Promise<CustomResponseType<IShipment>> => {
   try {
-    const shipment = await Shipment.findOne({ trackingNumber })
-      .populate('orderId', 'total status');
-    
+    const shipment = await Shipment.findOne({ trackingNumber }).populate('orderId', 'total status');
+
     if (!shipment) {
       return {
         message: 'Shipment not found with this tracking number',
@@ -237,7 +225,7 @@ const trackShipmentByTrackingNumber = async (
 const getDeliveryStatus = async (orderId: string): Promise<string> => {
   try {
     const order = await Order.findById(orderId).select('deliveryType shipmentId');
-    
+
     if (!order) {
       return 'Unknown';
     }
@@ -251,7 +239,7 @@ const getDeliveryStatus = async (orderId: string): Promise<string> => {
     }
 
     const shipment = await Shipment.findById(order.shipmentId).select('status');
-    
+
     return shipment?.status || 'Unknown';
   } catch (error) {
     console.error('Error getting delivery status:', error);

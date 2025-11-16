@@ -158,6 +158,50 @@ export type ValidateAndCorrectCartResult = {
   correctedCart: CorrectedCart;
   changes: string[];
   changeDetails: CartChangeDetail[];
+  checkoutErrors?: {
+    products?: Array<{
+      productId: string;
+      productName: string;
+      productSlug: string;
+      cartItemId: string;
+      issueType: 'outOfStock' | 'quantityReduced' | 'priceChanged' | 'attributeUnavailable' | 'saleExpired';
+      message: string;
+      severity: 'critical' | 'warning' | 'info';
+      currentQty: number;
+      availableStock: number;
+      currentPrice: number | null;
+      correctedPrice: number | null;
+      unavailableAttributes: Array<{ name: string; value: string }> | null;
+      availableAttributes: Array<Array<{ name: string; value: string }>> | null;
+      suggestedAction: 'remove' | 'reduceQuantity' | 'changeAttribute' | 'acceptPrice';
+      saleInfo?: {
+        previousSaleId: string;
+        previousDiscount: number;
+        expiryReason: 'endDateReached' | 'maxBuysReached' | 'deactivated';
+      };
+    }>;
+    coupons?: Array<{
+      code: string;
+      reason: string;
+      previousDiscount: number;
+      expiryDate?: string;
+    }>;
+    shipping?: {
+      previousCost: number;
+      currentCost: number;
+      reason: string;
+      destination?: {
+        state: string;
+        city?: string;
+      };
+    };
+    total?: {
+      expectedTotal: number;
+      calculatedTotal: number;
+      discrepancy: number;
+      message: string;
+    };
+  };
 };
 
 // Individual calculation functions using arrow functions
@@ -624,6 +668,202 @@ export const recalculateCartTotals = async (
   }
 };
 
+// Helper function to detect product-level issues
+type ProductIssueType = {
+  productId: string;
+  productName: string;
+  productSlug: string;
+  cartItemId: string;
+  issueType: 'outOfStock' | 'quantityReduced' | 'priceChanged' | 'attributeUnavailable' | 'saleExpired';
+  message: string;
+  severity: 'critical' | 'warning' | 'info';
+  currentQty: number;
+  availableStock: number;
+  currentPrice: number | null;
+  correctedPrice: number | null;
+  unavailableAttributes: Array<{ name: string; value: string }> | null;
+  availableAttributes: Array<Array<{ name: string; value: string }>> | null;
+  suggestedAction: 'remove' | 'reduceQuantity' | 'changeAttribute' | 'acceptPrice';
+  saleInfo?: {
+    previousSaleId: string;
+    previousDiscount: number;
+    expiryReason: 'endDateReached' | 'maxBuysReached' | 'deactivated';
+  };
+};
+
+const detectProductIssues = async (
+  item: FrontendCartItemInput,
+  itemValidation: ItemPriceValidation
+): Promise<ProductIssueType | null> => {
+  try {
+    const product = await ProductModel.findById(item.product)
+      .select('name slug stock attributes')
+      .lean<{ name?: string; slug?: string; stock?: number; attributes?: AttributeType[] }>();
+
+    if (!product) return null;
+
+    const cartItemId = item._id || item.product;
+    const productId = item.product;
+    const productName = product.name || 'Product';
+    const productSlug = product.slug || '';
+
+    // Check 1: Out of stock
+    if (product.stock === 0) {
+      return {
+        productId,
+        productName,
+        productSlug,
+        cartItemId,
+        issueType: 'outOfStock',
+        message: 'This product is currently out of stock',
+        severity: 'critical',
+        currentQty: item.qty,
+        availableStock: 0,
+        currentPrice: null,
+        correctedPrice: null,
+        unavailableAttributes: null,
+        availableAttributes: null,
+        suggestedAction: 'remove',
+      };
+    }
+
+    // Check 2: Quantity reduced (requested more than available)
+    const productStock = product.stock ?? 0;
+    if (item.qty > productStock) {
+      return {
+        productId,
+        productName,
+        productSlug,
+        cartItemId,
+        issueType: 'quantityReduced',
+        message: `Only ${productStock} unit${productStock !== 1 ? 's' : ''} available (you requested ${item.qty})`,
+        severity: 'warning',
+        currentQty: item.qty,
+        availableStock: productStock,
+        currentPrice: itemValidation.frontendPrice,
+        correctedPrice: itemValidation.backendPrice,
+        unavailableAttributes: null,
+        availableAttributes: null,
+        suggestedAction: 'reduceQuantity',
+      };
+    }
+
+    // Check 3: Attribute unavailable (check if selected attributes are in stock)
+    if (item.selectedAttributes && item.selectedAttributes.length > 0 && product.attributes) {
+      for (const selectedAttr of item.selectedAttributes) {
+        const matchingAttribute = product.attributes.find((attr) => attr.name === selectedAttr.name);
+        if (matchingAttribute) {
+          const matchingChild = matchingAttribute.children.find((child) => child.name === selectedAttr.value);
+          if (matchingChild && matchingChild.stock === 0) {
+            // This attribute variant is out of stock - find available alternatives
+            const availableChildren = matchingAttribute.children.filter((child) => child.stock > 0);
+            const availableAttributes: Array<Array<{ name: string; value: string }>> = availableChildren.map(
+              (child) => [{ name: matchingAttribute.name, value: child.name }]
+            );
+
+            return {
+              productId,
+              productName,
+              productSlug,
+              cartItemId,
+              issueType: 'attributeUnavailable',
+              message: `Selected variant (${selectedAttr.name}: ${selectedAttr.value}) is no longer available`,
+              severity: 'warning',
+              currentQty: item.qty,
+              availableStock: productStock,
+              currentPrice: itemValidation.frontendPrice,
+              correctedPrice: itemValidation.backendPrice,
+              unavailableAttributes: [selectedAttr],
+              availableAttributes: availableAttributes.length > 0 ? availableAttributes : null,
+              suggestedAction: availableAttributes.length > 0 ? 'changeAttribute' : 'remove',
+            };
+          }
+        }
+      }
+    }
+
+    // Check 4: Price changed (including sale expiry)
+    if (!itemValidation.valid) {
+      const priceIncreased = itemValidation.backendPrice > itemValidation.frontendPrice;
+
+      // Check if this was due to sale expiry
+      if (item.sale) {
+        const salesData = await SalesModel.findById(item.sale).lean<{
+          isActive?: boolean;
+          startDate?: Date;
+          endDate?: Date;
+        }>();
+
+        let saleExpired = false;
+        let expiryReason: 'endDateReached' | 'maxBuysReached' | 'deactivated' = 'deactivated';
+
+        if (salesData) {
+          if (!salesData.isActive) {
+            saleExpired = true;
+            expiryReason = 'deactivated';
+          } else if (salesData.endDate && new Date() > new Date(salesData.endDate)) {
+            saleExpired = true;
+            expiryReason = 'endDateReached';
+          }
+        } else {
+          saleExpired = true; // Sale doesn't exist anymore
+        }
+
+        if (saleExpired && priceIncreased) {
+          return {
+            productId,
+            productName,
+            productSlug,
+            cartItemId,
+            issueType: 'saleExpired',
+            message: `Sale ended - price increased from ₦${itemValidation.frontendPrice.toLocaleString()} to ₦${itemValidation.backendPrice.toLocaleString()}`,
+            severity: 'info',
+            currentQty: item.qty,
+            availableStock: productStock,
+            currentPrice: itemValidation.frontendPrice,
+            correctedPrice: itemValidation.backendPrice,
+            unavailableAttributes: null,
+            availableAttributes: null,
+            suggestedAction: 'acceptPrice',
+            saleInfo: {
+              previousSaleId: item.sale,
+              previousDiscount: Math.round(
+                ((itemValidation.backendPrice - itemValidation.frontendPrice) / itemValidation.backendPrice) * 100
+              ),
+              expiryReason,
+            },
+          };
+        }
+      }
+
+      // Regular price change (not sale related)
+      return {
+        productId,
+        productName,
+        productSlug,
+        cartItemId,
+        issueType: 'priceChanged',
+        message: `Price ${
+          priceIncreased ? 'increased' : 'decreased'
+        }: ₦${itemValidation.frontendPrice.toLocaleString()} → ₦${itemValidation.backendPrice.toLocaleString()}`,
+        severity: 'info',
+        currentQty: item.qty,
+        availableStock: productStock,
+        currentPrice: itemValidation.frontendPrice,
+        correctedPrice: itemValidation.backendPrice,
+        unavailableAttributes: null,
+        availableAttributes: null,
+        suggestedAction: 'acceptPrice',
+      };
+    }
+
+    return null; // No issues detected
+  } catch (error) {
+    console.error('Error detecting product issues:', error);
+    return null;
+  }
+};
+
 // Simplified validation function that returns either success or corrected cart
 export const validateAndCorrectCart = async (
   frontendCartData: FrontendCartData,
@@ -635,10 +875,17 @@ export const validateAndCorrectCart = async (
     const correctedItems: Array<FrontendCartItemInput & { unitPrice: number; totalPrice: number }> = [];
     const changes: string[] = [];
     const changeDetails: CartChangeDetail[] = [];
+    const productIssues: ProductIssueType[] = [];
     let needsUpdate = false;
 
     for (const item of frontendCartData.items) {
       const itemValidation = await validateItemPrice(item, item.unitPrice);
+
+      // Detect product-level issues
+      const productIssue = await detectProductIssues(item, itemValidation);
+      if (productIssue) {
+        productIssues.push(productIssue);
+      }
 
       // Update item with backend prices
       const correctedItem = {
@@ -674,6 +921,12 @@ export const validateAndCorrectCart = async (
     let backendCouponDiscount = 0;
     const validatedCoupons: ValidatedCoupon[] = [];
     const rejectedCoupons: RejectedCoupon[] = [];
+    const couponIssues: Array<{
+      code: string;
+      reason: string;
+      previousDiscount: number;
+      expiryDate?: string;
+    }> = [];
 
     if (couponCodes?.length) {
       // Validate each coupon code against active coupons in database
@@ -689,14 +942,22 @@ export const validateAndCorrectCart = async (
 
           if (!coupon) {
             rejectedCoupons.push({ code, reason: 'Coupon not found or expired' });
+            couponIssues.push({
+              code,
+              reason: 'Coupon not found or expired',
+              previousDiscount: 0,
+            });
             continue;
           }
 
           // Check minimum order value
           if (coupon.minOrderValue && backendSubtotal < coupon.minOrderValue) {
-            rejectedCoupons.push({
+            const reason = `Minimum order value of ₦${coupon.minOrderValue.toLocaleString()} required`;
+            rejectedCoupons.push({ code, reason });
+            couponIssues.push({
               code,
-              reason: `Minimum order value of ₦${coupon.minOrderValue.toLocaleString()} required`,
+              reason,
+              previousDiscount: 0,
             });
             continue;
           }
@@ -719,10 +980,20 @@ export const validateAndCorrectCart = async (
             backendCouponDiscount += couponDiscountAmount;
           } else {
             rejectedCoupons.push({ code, reason: 'No discount applicable' });
+            couponIssues.push({
+              code,
+              reason: 'No discount applicable',
+              previousDiscount: 0,
+            });
           }
         } catch (error) {
           console.error(`Error validating coupon ${code}:`, error);
           rejectedCoupons.push({ code, reason: 'Error validating coupon' });
+          couponIssues.push({
+            code,
+            reason: 'Error validating coupon',
+            previousDiscount: 0,
+          });
         }
       }
     }
@@ -784,6 +1055,22 @@ export const validateAndCorrectCart = async (
       needsUpdate = true; // Force update if any coupons were rejected
     }
 
+    // Mark as needing update if there are any product issues
+    if (productIssues.length > 0) {
+      needsUpdate = true;
+    }
+
+    // Build structured checkout errors
+    const checkoutErrors: ValidateAndCorrectCartResult['checkoutErrors'] = {};
+
+    if (productIssues.length > 0) {
+      checkoutErrors.products = productIssues;
+    }
+
+    if (couponIssues.length > 0) {
+      checkoutErrors.coupons = couponIssues;
+    }
+
     const result: ValidateAndCorrectCartResult = {
       needsUpdate,
       correctedCart: {
@@ -802,6 +1089,7 @@ export const validateAndCorrectCart = async (
       },
       changes,
       changeDetails,
+      checkoutErrors: Object.keys(checkoutErrors).length > 0 ? checkoutErrors : undefined,
     };
 
     return {

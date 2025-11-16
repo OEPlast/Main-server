@@ -1,10 +1,11 @@
 import { model, Schema, InferSchemaType } from 'mongoose';
+import shortUUID from 'short-uuid';
 
 const shipmentSchema = new Schema(
   {
     orderId: { type: Schema.Types.ObjectId, ref: 'Order', required: true },
-    trackingNumber: { type: String, required: true, unique: true },
-    courier: { type: String},
+    trackingNumber: { type: String, unique: true }, // Remove 'required: true' - will be auto-generated
+    courier: { type: String },
     courierUser: { type: Schema.Types.ObjectId, ref: 'User' },
     status: {
       type: String,
@@ -12,7 +13,6 @@ const shipmentSchema = new Schema(
       default: 'In-Warehouse',
     },
     estimatedDelivery: { type: Date },
-    // actualDelivery: { type: Date }, changed to deliveredOn
     deliveredOn: { type: Date },
     shippingAddress: {
       firstName: { type: String, required: true },
@@ -44,12 +44,19 @@ const shipmentSchema = new Schema(
   { timestamps: true }
 );
 
+// Pre-save hook to generate tracking number
+shipmentSchema.pre('save', async function (next) {
+  if (!this.trackingNumber) {
+    const translator = shortUUID();
+    // Generate tracking number from MongoDB _id
+    this.trackingNumber = translator.fromUUID(this._id.toString());
+  }
+  next();
+});
+
 // Indexes for integrity and performance
-// Unique tracking number already defined at field level, keep an explicit index for clarity
 shipmentSchema.index({ trackingNumber: 1 }, { unique: true });
-// Ensure one shipment per order (if orderId exists)
 shipmentSchema.index({ orderId: 1 }, { unique: true, partialFilterExpression: { orderId: { $exists: true } } });
-// Performance indexes for courier assignments and status filtering
 shipmentSchema.index({ courierUser: 1, status: 1, createdAt: -1 });
 shipmentSchema.index({ status: 1, createdAt: -1 });
 

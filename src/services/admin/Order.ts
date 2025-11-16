@@ -1,8 +1,102 @@
 import mongoose from 'mongoose';
 import Order, { OrderType } from '../../models/Order';
-import Transaction, { TransactionStatus } from '../../models/Transaction';
+import { TransactionStatus } from '../../models/Transaction';
 import { CustomResponseType } from '@/types';
 import AnalyticsService from '../MainAnalyticsService';
+
+/**
+ * Enriched order response type with all details
+ */
+export type EnrichedOrder = {
+  _id: string;
+  orderNumber: string;
+
+  // Order summary
+  total: number;
+  totalBeforeDiscount: number;
+  couponDiscount: number;
+  shippingPrice: number;
+  taxPrice: number;
+  status: OrderType['status'];
+  isPaid: boolean;
+  deliveryType: 'shipping' | 'pickup';
+  deliveryStatus?: string;
+  createdAt: Date;
+  updatedAt: Date;
+  paidAt?: Date;
+  deliveredAt?: Date;
+
+  // Coupon info
+  coupon: {
+    code?: string;
+    discount: number;
+    name?: string;
+  };
+
+  // Contact information
+  contact: {
+    name: string;
+    phone?: string;
+    email: string;
+  };
+
+  // Addresses
+  shippingAddress: OrderType['shippingAddress'] | null;
+  billingAddress: OrderType['shippingAddress'] | null;
+
+  // Products with enriched details
+  products: Array<{
+    _id: mongoose.Types.ObjectId;
+    name: string;
+    slug: string;
+    image?: string;
+    quantity: number;
+    price: number;
+    attributes: Array<{ name: string; value: string }>;
+    sale?: mongoose.Types.ObjectId | null;
+    saleDiscount: number;
+  }>;
+
+  // Transaction details
+  transaction: {
+    _id: mongoose.Types.ObjectId;
+    reference: string;
+    amount: number;
+    paymentMethod: string;
+    paymentGateway: string;
+    status: string;
+    paidAt?: Date;
+    transactionDate: Date;
+  } | null;
+
+  // Shipment details
+  shipment: {
+    _id: mongoose.Types.ObjectId;
+    trackingNumber: string;
+    status: string;
+    courier?: string;
+    estimatedDelivery?: Date;
+    deliveredOn?: Date;
+    shippingAddress: {
+      firstName: string;
+      lastName: string;
+      phoneNumber: string;
+      address1: string;
+      address2?: string;
+      city: string;
+      state: string;
+      zipCode: string;
+      country: string;
+      lga?: string;
+    };
+    trackingHistory: Array<{
+      location?: string;
+      timestamp: Date;
+      description?: string;
+    }>;
+    cost: number;
+  } | null;
+};
 
 /**
  * Fetches orders with optional filters and pagination including transaction status.
@@ -43,13 +137,13 @@ const getOrders = async (
           from: 'transactions',
           localField: 'transactionId',
           foreignField: '_id',
-          as: 'transaction'
-        }
+          as: 'transaction',
+        },
       });
       pipeline.push({
         $match: {
-          'transaction.status': filters.transactionStatus
-        }
+          'transaction.status': filters.transactionStatus,
+        },
       });
     } else if (!filters?.transactionStatus || filters.transactionStatus === 'all') {
       // Default behavior: only show orders with completed transactions (paid orders)
@@ -58,13 +152,13 @@ const getOrders = async (
           from: 'transactions',
           localField: 'transactionId',
           foreignField: '_id',
-          as: 'transaction'
-        }
+          as: 'transaction',
+        },
       });
       pipeline.push({
         $match: {
-          'transaction.status': 'completed'
-        }
+          'transaction.status': 'completed',
+        },
       });
     }
 
@@ -72,9 +166,9 @@ const getOrders = async (
     pipeline.push({
       $addFields: {
         totalQty: {
-          $sum: '$products.qty'
-        }
-      }
+          $sum: '$products.qty',
+        },
+      },
     });
 
     // Lookup transaction to get payment status
@@ -83,20 +177,17 @@ const getOrders = async (
         from: 'transactions',
         localField: 'transactionId',
         foreignField: '_id',
-        as: 'transactionDetails'
-      }
+        as: 'transactionDetails',
+      },
     });
 
     // Add paymentStatus field from transaction
     pipeline.push({
       $addFields: {
         paymentStatus: {
-          $ifNull: [
-            { $arrayElemAt: ['$transactionDetails.status', 0] },
-            'pending'
-          ]
-        }
-      }
+          $ifNull: [{ $arrayElemAt: ['$transactionDetails.status', 0] }, 'pending'],
+        },
+      },
     });
 
     // Sort by creation date
@@ -109,18 +200,15 @@ const getOrders = async (
 
     // Add pagination if specified
     if (page && limit) {
-      pipeline.push(
-        { $skip: (page - 1) * limit },
-        { $limit: limit }
-      );
+      pipeline.push({ $skip: (page - 1) * limit }, { $limit: limit });
     }
 
     // Remove transaction fields from final result (keeping it lean)
     pipeline.push({
       $project: {
         transaction: 0,
-        transactionDetails: 0
-      }
+        transactionDetails: 0,
+      },
     });
 
     const orders = await Order.aggregate(pipeline);
@@ -141,12 +229,231 @@ const getOrders = async (
 };
 
 /**
- * Fetches an order by its ID.
+ * Fetches an order by its ID with complete details including products, shipment, and transaction.
  * @param orderId - The ID of the order to fetch.
  */
-const getOrderById = async (orderId: string): Promise<CustomResponseType<OrderType>> => {
+const getOrderById = async (orderId: string): Promise<CustomResponseType<EnrichedOrder>> => {
   try {
-    const order = await Order.findById(orderId);
+    const pipeline = [
+      { $match: { _id: new mongoose.Types.ObjectId(orderId) } },
+
+      // Lookup products with details
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'productDetails',
+        },
+      },
+
+      // Lookup transaction details
+      {
+        $lookup: {
+          from: 'transactions',
+          localField: 'transactionId',
+          foreignField: '_id',
+          as: 'transaction',
+        },
+      },
+      { $unwind: { path: '$transaction', preserveNullAndEmptyArrays: true } },
+
+      // Lookup shipment details
+      {
+        $lookup: {
+          from: 'shipments',
+          localField: 'shipmentId',
+          foreignField: '_id',
+          as: 'shipment',
+        },
+      },
+      { $unwind: { path: '$shipment', preserveNullAndEmptyArrays: true } },
+
+      // Lookup coupon details
+      {
+        $lookup: {
+          from: 'coupons',
+          localField: 'coupon',
+          foreignField: '_id',
+          as: 'couponDetails',
+        },
+      },
+      { $unwind: { path: '$couponDetails', preserveNullAndEmptyArrays: true } },
+
+      // Lookup user details
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'user',
+          foreignField: '_id',
+          as: 'userDetails',
+        },
+      },
+      { $unwind: { path: '$userDetails', preserveNullAndEmptyArrays: true } },
+
+      // Project final structure
+      {
+        $project: {
+          _id: 1,
+          orderNumber: { $toString: '$_id' },
+
+          // Order summary
+          total: 1,
+          totalBeforeDiscount: 1,
+          couponDiscount: 1,
+          shippingPrice: 1,
+          taxPrice: 1,
+          status: 1,
+          isPaid: 1,
+          deliveryType: 1,
+          deliveryStatus: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          paidAt: 1,
+          deliveredAt: 1,
+
+          // Coupon info
+          coupon: {
+            code: '$couponCode',
+            discount: '$couponDiscount',
+            name: '$couponDetails.name',
+          },
+
+          // Contact information
+          contact: {
+            name: {
+              $concat: ['$userDetails.firstName', ' ', '$userDetails.lastName'],
+            },
+            phone: {
+              $cond: {
+                if: { $eq: ['$deliveryType', 'pickup'] },
+                then: '$userDetails.phone',
+                else: '$shippingAddress.phoneNumber',
+              },
+            },
+            email: '$userDetails.email',
+          },
+
+          // Shipping address (only if delivery type is shipping)
+          shippingAddress: {
+            $cond: {
+              if: { $eq: ['$deliveryType', 'shipping'] },
+              then: '$shippingAddress',
+              else: null,
+            },
+          },
+
+          // Billing address (same as shipping for now)
+          billingAddress: {
+            $cond: {
+              if: { $eq: ['$deliveryType', 'shipping'] },
+              then: '$shippingAddress',
+              else: null,
+            },
+          },
+
+          // Products with enriched details
+          products: {
+            $map: {
+              input: '$products',
+              as: 'orderProduct',
+              in: {
+                $let: {
+                  vars: {
+                    productDetail: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: '$productDetails',
+                            as: 'pd',
+                            cond: { $eq: ['$$pd._id', '$$orderProduct.product'] },
+                          },
+                        },
+                        0,
+                      ],
+                    },
+                  },
+                  in: {
+                    _id: '$$orderProduct.product',
+                    name: '$$productDetail.name',
+                    slug: '$$productDetail.slug',
+                    image: {
+                      $ifNull: [
+                        {
+                          $arrayElemAt: [
+                            {
+                              $map: {
+                                input: {
+                                  $filter: {
+                                    input: '$$productDetail.description_images',
+                                    as: 'img',
+                                    cond: { $eq: ['$$img.cover_image', true] },
+                                  },
+                                },
+                                as: 'coverImg',
+                                in: '$$coverImg.url',
+                              },
+                            },
+                            0,
+                          ],
+                        },
+                        { $arrayElemAt: ['$$productDetail.description_images.url', 0] },
+                      ],
+                    },
+                    quantity: '$$orderProduct.qty',
+                    price: '$$orderProduct.price',
+                    attributes: '$$orderProduct.attributes',
+                    sale: '$$orderProduct.sale',
+                    saleDiscount: '$$orderProduct.saleDiscount',
+                  },
+                },
+              },
+            },
+          },
+
+          // Transaction details
+          transaction: {
+            $cond: {
+              if: { $ne: ['$transaction', null] },
+              then: {
+                _id: '$transaction._id',
+                reference: '$transaction.reference',
+                amount: '$transaction.amount',
+                paymentMethod: '$transaction.paymentMethod',
+                paymentGateway: '$transaction.paymentGateway',
+                status: '$transaction.status',
+                paidAt: '$transaction.paidAt',
+                transactionDate: '$transaction.paymentDate',
+              },
+              else: null,
+            },
+          },
+
+          // Shipment details
+          shipment: {
+            $cond: {
+              if: { $ne: ['$shipment', null] },
+              then: {
+                _id: '$shipment._id',
+                trackingNumber: '$shipment.trackingNumber',
+                status: '$shipment.status',
+                courier: '$shipment.courier',
+                estimatedDelivery: '$shipment.estimatedDelivery',
+                deliveredOn: '$shipment.deliveredOn',
+                shippingAddress: '$shipment.shippingAddress',
+                trackingHistory: '$shipment.trackingHistory',
+                cost: '$shipment.cost',
+              },
+              else: null,
+            },
+          },
+        },
+      },
+    ];
+
+    const result = await Order.aggregate(pipeline);
+    const order = result[0];
+
     if (!order) {
       return {
         message: 'Order not found',
@@ -154,6 +461,7 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<OrderTy
         code: 404,
       };
     }
+
     return {
       message: 'Order retrieved successfully',
       data: order,
@@ -168,7 +476,6 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<OrderTy
     };
   }
 };
-
 /**
  * Updates order details for admin.
  * @param orderId - The ID of the order to update.
@@ -176,9 +483,7 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<OrderTy
  */
 const updateOrderDetails = async (
   orderId: string,
-  updates: Partial<
-    Pick<OrderType, 'status' | 'products' | 'shippingAddress' | 'deliveredAt'>
-  >
+  updates: Partial<Pick<OrderType, 'status' | 'products' | 'shippingAddress' | 'deliveredAt'>>
 ): Promise<CustomResponseType<null>> => {
   try {
     const previousOrder = await Order.findById(orderId);

@@ -32,6 +32,10 @@ const addressSchema = new mongoose.Schema({
     type: String,
     required: '"Please enter a address state.',
   },
+  lga: {
+    type: String,
+    required: '"Please enter a address LGA.',
+  },
   country: {
     type: String,
     required: '"Please enter a address country.',

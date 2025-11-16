@@ -1,4 +1,4 @@
-import mongoose, { Document, Schema } from 'mongoose';
+import mongoose, { Document, InferSchemaType, Schema } from 'mongoose';
 
 export interface IReturnItem {
   product: mongoose.Types.ObjectId;
@@ -15,10 +15,10 @@ export interface IReturn extends Document {
   user: mongoose.Types.ObjectId;
   items: IReturnItem[];
   type: 'refund' | 'exchange';
-  status: 
-    | 'pending' 
-    | 'approved' 
-    | 'rejected' 
+  status:
+    | 'pending'
+    | 'approved'
+    | 'rejected'
     | 'items_received'
     | 'inspecting'
     | 'inspection_passed'
@@ -164,7 +164,7 @@ ReturnSchema.methods.isWithinReturnWindow = function (deliveryDate: Date): boole
   const now = new Date();
   const windowEndDate = new Date(deliveryDate);
   windowEndDate.setDate(windowEndDate.getDate() + RETURN_WINDOW_DAYS);
-  
+
   return now <= windowEndDate;
 };
 
@@ -185,5 +185,5 @@ ReturnSchema.pre('save', async function (next) {
 });
 
 const Return = mongoose.model<IReturn>('Return', ReturnSchema);
-
+export type ReturnType = InferSchemaType<typeof Return>;
 export default Return;

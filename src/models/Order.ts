@@ -91,6 +91,9 @@ const orderSchema = new mongoose.Schema(
       country: {
         type: String,
       },
+      lga: {
+        type: String,
+      },
     },
     paymentMethod: {
       type: String,
@@ -143,7 +146,7 @@ const orderSchema = new mongoose.Schema(
     status: {
       type: String,
       default: 'Pending',
-      enum: ['Pending', 'Processing', 'Cancelled', 'Completed'],
+      enum: ['Pending', 'Processing', 'Cancelled', 'Completed', 'Failed'],
     },
     shipmentId: {
       type: ObjectId,

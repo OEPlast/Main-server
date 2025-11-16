@@ -6,6 +6,7 @@ import eventPublisher from '@/events/eventPublisher';
 import { EventType } from '@/events/eventTypes';
 import { CustomResponseType } from '@/types';
 import { logger } from '@/lib/logger';
+import ShipmentService from './ShipmentService';
 import crypto, { randomUUID } from 'crypto';
 import {
   PaystackCreateRefundResponse,
@@ -23,7 +24,9 @@ const initializePayment = async (paymentData: {
   amount: number;
   currency?: string;
   metadata?: Record<string, unknown>;
-}): Promise<CustomResponseType<{ paymentUrl: string; reference: string; transaction: ITransaction }>> => {
+}): Promise<
+  CustomResponseType<{ access_code: string; paymentUrl: string; reference: string; transaction: ITransaction }>
+> => {
   try {
     // Use mongo orderId as reference (ensure stable per order)
     const reference = paymentData.orderId;
@@ -36,7 +39,8 @@ const initializePayment = async (paymentData: {
 
     const currency = paymentData.currency || 'NGN';
     const amount = typeof order.total === 'number' ? order.total : paymentData.amount;
-    const amountInKobo = currency === 'NGN' ? amount * 100 : amount;
+    const amountInKobo = Math.round(currency === 'NGN' ? amount * 100 : amount);
+    console.log(amountInKobo);
 
     // Initialize payment with Paystack first to get transaction ID
     const paystackData: PaystackInitializeData = {
@@ -58,7 +62,6 @@ const initializePayment = async (paymentData: {
     });
 
     const result = (await paystackResponse.json()) as PaystackResponse;
-
     console.log(result);
 
     if (!result.status) {
@@ -103,7 +106,12 @@ const initializePayment = async (paymentData: {
 
     return {
       message: 'Payment initialized successfully',
-      data: { paymentUrl: result.data.authorization_url, reference: result.data.reference, transaction },
+      data: {
+        paymentUrl: result.data.authorization_url,
+        reference: result.data.reference,
+        transaction,
+        access_code: result.data.access_code,
+      },
       code: 200,
     };
   } catch (error) {
@@ -170,7 +178,35 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<ITra
 
       // Update Order
       if (isSuccess && transaction.orderId) {
-        await Order.findByIdAndUpdate(transaction.orderId, { isPaid: true, paidAt: new Date() });
+        const order = await Order.findByIdAndUpdate(
+          transaction.orderId,
+          { isPaid: true, paidAt: new Date() },
+          { new: true }
+        );
+
+        // Update order status to Processing
+        await Order.findByIdAndUpdate(transaction.orderId, { status: 'Processing' });
+
+        // Create shipment if delivery type is shipping
+        if (order && order.deliveryType === 'shipping') {
+          try {
+            const shipmentResult = await ShipmentService.createShipmentForOrder(transaction.orderId.toString());
+            if (shipmentResult) {
+              logger.info(
+                `Shipment created for order ${transaction.orderId.toString()} - Tracking: ${
+                  shipmentResult.trackingNumber
+                }`
+              );
+            }
+          } catch (shipmentError) {
+            logger.error(
+              `Failed to create shipment for order ${transaction.orderId.toString()}: ${
+                (shipmentError as Error).message
+              }`
+            );
+            // Don't fail payment verification if shipment creation fails
+          }
+        }
       } else if (!isSuccess && transaction.orderId) {
         // Restore stock when payment fails
         const order = await Order.findById(transaction.orderId);
@@ -188,6 +224,9 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<ITra
           logger.info(
             `Stock restored for ${order.products.length} products in order ${transaction.orderId.toString()}`
           );
+
+          // Update order status to Cancelled
+          await Order.findByIdAndUpdate(transaction.orderId, { status: 'Cancelled' });
         }
       }
 
@@ -297,7 +336,39 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
 
       if (isSuccess && transaction.orderId) {
         logger.info(`Paystack webhook: marking order as paid (orderId=${transaction.orderId.toString()})`);
-        await Order.findByIdAndUpdate(transaction.orderId, { isPaid: true, paidAt: new Date() });
+
+        // Update order to paid
+        const order = await Order.findByIdAndUpdate(
+          transaction.orderId,
+          { isPaid: true, paidAt: new Date() },
+          { new: true }
+        ).populate('user', 'email firstName lastName');
+
+        // Update order status to Processing
+        await Order.findByIdAndUpdate(transaction.orderId, { status: 'Processing' });
+
+        // Create shipment if delivery type is shipping
+        if (order && order.deliveryType === 'shipping') {
+          try {
+            const shipmentResult = await ShipmentService.createShipmentForOrder(transaction.orderId.toString());
+            if (shipmentResult) {
+              logger.info(
+                `Paystack webhook: Shipment created for order ${transaction.orderId.toString()} - Tracking: ${
+                  shipmentResult.trackingNumber
+                }`
+              );
+            }
+          } catch (shipmentError) {
+            logger.error(
+              `Paystack webhook: Failed to create shipment for order ${transaction.orderId.toString()}: ${
+                (shipmentError as Error).message
+              }`
+            );
+            // Don't fail webhook processing if shipment creation fails
+          }
+        }
+
+        // Publish payment successful event
         await eventPublisher.publishPaymentSuccessful({
           orderId: transaction.orderId.toString(),
           userId: transaction.userId.toString(),
@@ -306,6 +377,29 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
           paymentMethod: 'paystack',
         });
         logger.info(`Paystack webhook: published payment successful event (orderId=${transaction.orderId.toString()})`);
+
+        // Publish ORDER_SUCCESSFUL event to trigger email confirmation and clear timeout
+        if (order) {
+          const populatedUser = order.user as unknown as { email?: string };
+          await eventPublisher.publishOrderSuccessful({
+            orderId: order._id.toString(),
+            userId: typeof order.user === 'string' ? order.user : order.user.toString(),
+            orderNumber: order._id.toString(),
+            totalAmount: order.total,
+            customerInfo: {
+              firstName: order.shippingAddress?.firstName || '',
+              lastName: order.shippingAddress?.lastName || '',
+              email: populatedUser.email || '',
+            },
+            items: order.products.map((item) => ({
+              productId: item.product?.toString() || '',
+              quantity: item.qty || 0,
+              price: item.price || 0,
+            })),
+          });
+          logger.info(`Paystack webhook: published ORDER_SUCCESSFUL event (orderId=${transaction.orderId.toString()})`);
+        }
+
         await eventPublisher.publishWebsocketOrderUpdate({ orderId: transaction.orderId.toString(), status: 'paid' });
         logger.debug(
           `Paystack webhook: published websocket update (orderId=${transaction.orderId.toString()}, status=paid)`
@@ -329,6 +423,9 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
               order.products.length
             } products in order ${transaction.orderId.toString()}`
           );
+
+          // Update order status to Cancelled
+          await Order.findByIdAndUpdate(transaction.orderId, { status: 'Cancelled' });
         }
 
         await eventPublisher.publish(EventType.PAYMENT_FAILED, {

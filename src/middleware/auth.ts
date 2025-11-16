@@ -8,6 +8,11 @@ if (!JWT_SECRET) {
   throw new Error('Set JWT secret');
 }
 
+const INTERNAL_SERVICE_KEY = process.env.INTERNAL_SERVICE_KEY;
+if (!INTERNAL_SERVICE_KEY) {
+  throw new Error('Set INTERNAL_SERVICE_KEY in environment variables');
+}
+
 export const authenticateUser = async (req: Request, res: Response, next: NextFunction) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
@@ -101,4 +106,30 @@ export const requirePermission = (resource: string, action: string) => {
       return res.status(500).json({ message: 'Permission check failed' });
     }
   };
+};
+
+/**
+ * Verify internal service authentication for event-bus or other microservices
+ * Checks X-Service-Key header and sets isInternalService flag to bypass rate limiting
+ */
+export const verifyInternalService = (req: Request, res: Response, next: NextFunction) => {
+  const serviceKey = req.headers['x-service-key'] as string;
+
+  if (!serviceKey) {
+    return res.status(401).json({
+      message: 'Internal service authentication required',
+      code: 'MISSING_SERVICE_KEY',
+    });
+  }
+
+  if (serviceKey !== INTERNAL_SERVICE_KEY) {
+    return res.status(403).json({
+      message: 'Invalid service key',
+      code: 'INVALID_SERVICE_KEY',
+    });
+  }
+
+  // Set flag to bypass rate limiting
+  (req as any).isInternalService = true;
+  next();
 };

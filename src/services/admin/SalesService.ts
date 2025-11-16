@@ -147,7 +147,7 @@ export const getSaleById = async (id: string): CustomResponsePromise<AggregatedS
           deleted: 1,
           createdAt: 1,
           updatedAt: 1,
-          isHot:1,
+          isHot: 1,
           product: '$productInfo',
           createdBy: {
             _id: '$creator._id',
@@ -176,7 +176,20 @@ export const updateSale = async (
   userId: string
 ): CustomResponsePromise<SalesType> => {
   try {
-    const sale = await Sales.findByIdAndUpdate(id, { ...data, updatedBy: userId }, { new: true });
+    const updateFields: Record<string, unknown> = { ...data, updatedBy: userId };
+    const unsetFields: Record<string, ''> = {};
+
+    if (data.type === 'Normal') {
+      unsetFields.endDate = '';
+      unsetFields.startDate = '';
+      // Remove from updateFields if they exist
+      delete updateFields.endDate;
+      delete updateFields.startDate;
+    }
+
+    const updateQuery = Object.keys(unsetFields).length > 0 ? { ...updateFields, $unset: unsetFields } : updateFields;
+
+    const sale = await Sales.findByIdAndUpdate(id, updateQuery, { new: true });
     return { message: sale ? 'Sale updated successfully' : 'Sale not found', data: sale, code: sale ? 200 : 404 };
   } catch (error) {
     console.error(error);

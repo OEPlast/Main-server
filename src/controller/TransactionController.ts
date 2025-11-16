@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import TransactionService from '../services/TransactionService';
 import { isAuthenticatedRequest } from '@/types';
+import { logger } from '@/lib/logger';
 
 /**
  * Initialize payment
@@ -64,7 +65,7 @@ const verifyPayment = async (req: Request, res: Response): Promise<void> => {
 const handleWebhook = async (req: Request, res: Response): Promise<void> => {
   try {
     const signature = req.headers['x-paystack-signature'] as string;
-
+    logger.info('[webhook hit]');
     if (!signature) {
       res.status(400).json({
         message: 'Missing signature',

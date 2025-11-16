@@ -54,6 +54,50 @@ export type SecureCheckoutCorrection = {
   correctedCart: CorrectedCart;
   changes: string[];
   changeDetails: CartChangeDetail[];
+  checkoutErrors?: {
+    products?: Array<{
+      productId: string;
+      productName: string;
+      productSlug: string;
+      cartItemId: string;
+      issueType: 'outOfStock' | 'quantityReduced' | 'priceChanged' | 'attributeUnavailable' | 'saleExpired';
+      message: string;
+      severity: 'critical' | 'warning' | 'info';
+      currentQty: number;
+      availableStock: number;
+      currentPrice: number | null;
+      correctedPrice: number | null;
+      unavailableAttributes: Array<{ name: string; value: string }> | null;
+      availableAttributes: Array<Array<{ name: string; value: string }>> | null;
+      suggestedAction: 'remove' | 'reduceQuantity' | 'changeAttribute' | 'acceptPrice';
+      saleInfo?: {
+        previousSaleId: string;
+        previousDiscount: number;
+        expiryReason: 'endDateReached' | 'maxBuysReached' | 'deactivated';
+      };
+    }>;
+    coupons?: Array<{
+      code: string;
+      reason: string;
+      previousDiscount: number;
+      expiryDate?: string;
+    }>;
+    shipping?: {
+      previousCost: number;
+      currentCost: number;
+      reason: string;
+      destination?: {
+        state: string;
+        city?: string;
+      };
+    };
+    total?: {
+      expectedTotal: number;
+      calculatedTotal: number;
+      discrepancy: number;
+      message: string;
+    };
+  };
 };
 
 export type SecureCheckoutSuccess = {
@@ -172,6 +216,9 @@ class CheckoutService {
     const changeDetails = [...validationResult.data.changeDetails];
     const changes = [...validationResult.data.changes];
 
+    // Get checkoutErrors from validation result (includes products and coupons)
+    const checkoutErrors = validationResult.data.checkoutErrors || {};
+
     // Compare shipping cost with frontend provided value (if any)
     if (frontendShippingCost !== undefined && Math.abs((frontendShippingCost ?? 0) - shippingCost) > 0.01) {
       const message = `Shipping cost updated: ₦${(
@@ -185,11 +232,54 @@ class CheckoutService {
         message,
         context: 'shipping',
       });
+
+      // Add shipping error to checkoutErrors
+      checkoutErrors.shipping = {
+        previousCost: frontendShippingCost ?? 0,
+        currentCost: shippingCost,
+        reason: 'Shipping rate updated for your location',
+        destination: shippingAddress
+          ? {
+              state: shippingAddress.state || '',
+              city: shippingAddress.city || undefined,
+            }
+          : undefined,
+      };
     }
 
     const expectedTotal = Math.round((total - (frontendShippingCost || 0) + shippingCost) * 100) / 100;
 
     if (validationResult.data.needsUpdate || Math.abs(total - expectedTotal) > 1) {
+      // Check for total-only discrepancy (no other errors)
+      const hasOtherErrors = checkoutErrors.products || checkoutErrors.coupons || checkoutErrors.shipping;
+
+      if (!hasOtherErrors && Math.abs(total - expectedTotal) > 1) {
+        // Total mismatch with no other errors - this is a blocking error
+        return {
+          message: 'Order total verification failed',
+          data: {
+            needsUpdate: true,
+            shippingCost,
+            deliveryType,
+            correctedCart: {
+              ...correctedCart,
+              estimatedShipping: correctedCart.estimatedShipping || { cost: shippingCost, days: 0 },
+            },
+            changes: ['Total verification failed'],
+            changeDetails: [],
+            checkoutErrors: {
+              total: {
+                expectedTotal: total,
+                calculatedTotal: expectedTotal,
+                discrepancy: Math.abs(total - expectedTotal),
+                message: 'Order total verification failed. Please refresh and try again.',
+              },
+            },
+          } as SecureCheckoutCorrection,
+          code: 400,
+        };
+      }
+
       await CheckoutService.syncServerCart(userId, correctedCart, shippingCost, deliveryType);
 
       return {
@@ -204,6 +294,7 @@ class CheckoutService {
           },
           changes,
           changeDetails,
+          checkoutErrors: Object.keys(checkoutErrors).length > 0 ? checkoutErrors : undefined,
         },
         code: 400,
       };
@@ -244,15 +335,6 @@ class CheckoutService {
       status: 'Pending' as OrderType['status'],
     } as unknown as Parameters<typeof OrderService.placeOrderWithStockValidation>[0];
 
-    const placed = await OrderService.placeOrderWithStockValidation(orderInput);
-    if (!placed.data) {
-      return {
-        message: placed.message,
-        data: null,
-        code: placed.code,
-      };
-    }
-
     const userDoc = await User.findById(userId).select('email');
     if (!userDoc?.email) {
       return {
@@ -262,8 +344,18 @@ class CheckoutService {
       };
     }
 
+    const placed = await OrderService.placeOrderWithStockValidation(orderInput);
+    if (!placed.data) {
+      return {
+        message: placed.message,
+        data: null,
+        code: placed.code,
+      };
+    }
+
     const order = placed.data.order;
     const orderId = (order as unknown as { _id: { toString(): string } })._id.toString();
+    console.log(finalTotal);
 
     const paymentInit = await PaymentService.initializePayment({
       orderId,
@@ -308,6 +400,7 @@ class CheckoutService {
           const transaction = paymentData.transaction as ITransaction | undefined;
           const transactionId = transaction && transaction._id ? transaction._id.toString() : '';
           return {
+            access_code: paymentData.access_code,
             paymentUrl: paymentData.paymentUrl,
             reference: paymentData.reference,
             transactionId,

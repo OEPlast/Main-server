@@ -4,16 +4,7 @@ import OrderService from '../../services/admin/Order';
 // Get all orders
 const getOrders = async (req: Request, res: Response) => {
   try {
-    const { 
-      page = 1, 
-      limit = 10, 
-      status, 
-      orderId, 
-      customerId, 
-      startDate, 
-      endDate,
-      transactionStatus 
-    } = req.query;
+    const { page = 1, limit = 10, status, orderId, customerId, startDate, endDate, transactionStatus } = req.query;
 
     const filters: Record<string, unknown> = {};
     if (status) filters.status = status;
@@ -34,8 +25,8 @@ const getOrders = async (req: Request, res: Response) => {
 // Get order by ID
 const getOrderById = async (req: Request, res: Response) => {
   try {
-    const { orderId } = req.params;
-    const { data, message, code } = await OrderService.getOrderById(orderId);
+    const { id } = req.params;
+    const { data, message, code } = await OrderService.getOrderById(id);
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getOrderById:', error);

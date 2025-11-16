@@ -49,6 +49,7 @@ import {
 } from './routes/admin';
 import FileUploadRoute from '@/routes/general/fileUpload';
 import EmailProcessor from './services/EmailProcessor';
+import InternalServiceRoutes from '@/routes/internal/serviceRoutes';
 
 // Helper to capture raw body without using any
 const rawBodySaver = (req: Request & { rawBody?: Buffer }, _res: Response, buf: Buffer) => {
@@ -78,6 +79,9 @@ app.use(morganMiddleware);
     console.error('EventPublisher failed to connect:', err);
   }
 })();
+
+// Internal Service Routes (MUST be registered BEFORE other routes for priority)
+app.use('/api/internal', InternalServiceRoutes);
 
 // Root Route
 app.use('/auth', AuthRoute);

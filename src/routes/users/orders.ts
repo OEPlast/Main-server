@@ -9,6 +9,9 @@ const router = express.Router();
 // Fetch user orders
 router.get('/orders', authenticateUser, OrderValidator.validateOrderQueryParams, OrderController.getOrders);
 
+// Fetch order statistics for dashboard (must be before :id route)
+router.get('/orders/statistics', authenticateUser, OrderController.getOrderStatistics);
+
 // Fetch all returned orders (placed before :id route to avoid shadowing)
 router.get('/orders/returns', authenticateUser, OrderController.getAllReturns);
 

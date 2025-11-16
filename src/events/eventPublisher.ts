@@ -103,15 +103,8 @@ class EventPublisher {
     await this.publish(EventType.USER_SIGNUP, data, { userId: data.userId });
   }
 
-  async publishOrderCreated(orderData: {
-    orderId: string;
-    userId: string;
-    orderNumber: string;
-    totalAmount: number;
-    items: Array<{ productId: string; quantity: number; price: number }>;
-    customerInfo: { email: string; name: string; phone?: string };
-  }): Promise<void> {
-    await this.publish(EventType.ORDER_CREATED, orderData, { userId: orderData.userId });
+  async publishOrderCreated(orderData: { orderId: string }): Promise<void> {
+    await this.publish(EventType.ORDER_CREATED, orderData);
   }
 
   async publishPaymentSuccessful(paymentData: {
@@ -184,6 +177,17 @@ class EventPublisher {
     items: Array<{ productId: string; quantity: number; price: number }>;
   }): Promise<void> {
     await this.publish(EventType.ORDER_PAID, data, { userId: data.userId });
+  }
+
+  async publishOrderSuccessful(data: {
+    orderId: string;
+    userId: string;
+    orderNumber: string;
+    totalAmount: number;
+    customerInfo: { firstName: string; lastName: string; email: string };
+    items: Array<{ productId: string; quantity: number; price: number }>;
+  }): Promise<void> {
+    await this.publish(EventType.ORDER_SUCCESSFUL, data, { userId: data.userId });
   }
 
   async publishWebsocketOrderUpdate(data: { orderId: string; status: string; message?: string }): Promise<void> {

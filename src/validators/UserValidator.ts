@@ -129,6 +129,7 @@ const validateAddAddress = async (req: Request, res: Response, next: NextFunctio
       city: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'city is required' },
       zipCode: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'zipCode is required' },
       state: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'state is required' },
+      lga: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'lga is required' },
       country: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'country is required' },
       active: { in: ['body'], optional: true, isBoolean: true, errorMessage: 'active must be boolean' },
     })
@@ -151,6 +152,7 @@ const validateUpdateAddress = async (req: Request, res: Response, next: NextFunc
       city: { in: ['body'], optional: true, isString: true },
       zipCode: { in: ['body'], optional: true, isString: true },
       state: { in: ['body'], optional: true, isString: true },
+      lga: { in: ['body'], optional: true, isString: true },
       country: { in: ['body'], optional: true, isString: true },
       active: { in: ['body'], optional: true, isBoolean: true },
     })
@@ -165,6 +167,7 @@ const validateUpdateAddress = async (req: Request, res: Response, next: NextFunc
     checkSchema({ city: { in: ['body'], exists: true } }),
     checkSchema({ zipCode: { in: ['body'], exists: true } }),
     checkSchema({ state: { in: ['body'], exists: true } }),
+    checkSchema({ lga: { in: ['body'], exists: true } }),
     checkSchema({ country: { in: ['body'], exists: true } }),
     checkSchema({ active: { in: ['body'], exists: true } }),
   ]).run(req);

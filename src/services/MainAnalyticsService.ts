@@ -63,6 +63,8 @@ class AnalyticsService {
    */
   static async trackOrderPlaced(orderId: string, amount: number): Promise<void> {
     try {
+      console.log({ orderId, amount });
+
       // Increment order count and revenue
       await incrementAnalyticalField('totalOrders', 1);
       await incrementAnalyticalField('totalAmount', amount);

@@ -1,8 +1,6 @@
 import mongoose from 'mongoose';
 import Order, { OrderType } from '../models/Order';
-import { TransactionStatus } from '../models/Transaction';
 import Product from '@/models/Product';
-import User from '@/models/User';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import AnalyticsService from './MainAnalyticsService';
 import { findActiveSaleForProduct, checkSaleAvailability } from '@/helpers/salesUtils';
@@ -19,6 +17,8 @@ import Coupon, { CouponType as CouponSchemaType } from '@/models/Coupon';
 import CouponRedemption from '@/models/CouponRedemption';
 import LogisticsService from '@/services/LogisticsService';
 import ShipmentService from '@/services/ShipmentService';
+import Return, { ReturnType } from '../models/Return';
+import { EnrichedOrder } from './admin/Order';
 
 function calculateUnitPrice({
   product,
@@ -225,7 +225,8 @@ function computeCouponDiscount({
 }
 
 /**
- * Fetches paginated orders for user with optional filters including transaction status.
+ * Fetches paginated orders for user with optional filters.
+ * Enhanced to populate first 2 products with full details (name, image, slug, etc.)
  * @param page - Current page number.
  * @param limit - Number of orders per page.
  * @param filters - Filters for searching orders.
@@ -236,82 +237,184 @@ const getOrderHistory = async (
   filters: {
     userId: string;
     status?: OrderType['status'];
-    transactionStatus?: TransactionStatus | 'all';
   }
-): CustomResponseTypeWithMeta<{
-  orders: OrderType[];
-  totalOrders: number;
-  meta: { page: number; limit: number; total: number };
-}> => {
+): CustomResponseTypeWithMeta<
+  { orders: OrderType[] },
+  { page: number; limit: number; total: number; totalPages: number }
+> => {
   try {
     const pipeline: mongoose.PipelineStage[] = [];
-
     // Base match stage for user
-    const matchStage: Record<string, unknown> = { user: filters.userId };
 
-    // Add order filters
-    if (filters.status) {
+    const matchStage: Record<string, unknown> = { user: new mongoose.Types.ObjectId(filters.userId) };
+
+    console.log({ aa: filters.status, bb: filters?.status?.toLowerCase() });
+
+    // Add order status filter
+    if (filters.status && filters.status.toLowerCase() !== 'all') {
       matchStage.status = filters.status;
     }
 
     pipeline.push({ $match: matchStage });
 
-    // Handle transaction status filtering
-    if (filters.transactionStatus && filters.transactionStatus !== 'all') {
-      // Filter by specific transaction status
-      pipeline.push({
-        $lookup: {
-          from: 'transactions',
-          localField: 'transactionId',
-          foreignField: '_id',
-          as: 'transaction',
-        },
-      });
-      pipeline.push({
-        $match: {
-          'transaction.status': filters.transactionStatus,
-        },
-      });
-    } else if (!filters.transactionStatus || filters.transactionStatus === 'all') {
-      // Default behavior: only show orders with completed transactions (paid orders)
-      pipeline.push({
-        $lookup: {
-          from: 'transactions',
-          localField: 'transactionId',
-          foreignField: '_id',
-          as: 'transaction',
-        },
-      });
-      pipeline.push({
-        $match: {
-          'transaction.status': 'completed',
-        },
-      });
-    }
-
     // Sort by creation date
     pipeline.push({ $sort: { createdAt: -1 } });
 
-    // Count total documents
-    const countPipeline = [...pipeline, { $count: 'total' }];
-    const totalResult = await Order.aggregate(countPipeline);
-    const totalOrders = totalResult[0]?.total || 0;
-
-    // Add pagination
-    pipeline.push({ $skip: (page - 1) * limit }, { $limit: limit });
-
-    // Remove transaction field from final result (keeping it lean)
+    // Use $facet to count and paginate in a single aggregation
     pipeline.push({
-      $project: {
-        transaction: 0,
+      $facet: {
+        metadata: [{ $count: 'total' }],
+        orders: [
+          { $skip: (page - 1) * limit },
+          { $limit: limit },
+          // ENHANCEMENT: Populate first 2 products with full details
+          // Step 1: Lookup product details for the first 2 products
+          {
+            $lookup: {
+              from: 'products',
+              let: {
+                productIds: { $slice: [{ $map: { input: '$products', as: 'p', in: '$$p.product' } }, 2] },
+              },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $in: ['$_id', '$$productIds'] },
+                  },
+                },
+                {
+                  $project: {
+                    _id: 1,
+                    name: 1,
+                    slug: 1,
+                    description_images: 1,
+                  },
+                },
+              ],
+              as: 'productDetails',
+            },
+          },
+          // Step 2: Add computed fields for order summary
+          {
+            $addFields: {
+              totalProducts: { $size: '$products' },
+              totalItems: {
+                $reduce: {
+                  input: '$products',
+                  initialValue: 0,
+                  in: { $add: ['$$value', '$$this.qty'] },
+                },
+              },
+            },
+          },
+          // Step 3: Map first 2 products with enriched details
+          {
+            $addFields: {
+              enrichedProducts: {
+                $map: {
+                  input: { $slice: ['$products', 2] },
+                  as: 'orderProduct',
+                  in: {
+                    $let: {
+                      vars: {
+                        productDetail: {
+                          $arrayElemAt: [
+                            {
+                              $filter: {
+                                input: '$productDetails',
+                                as: 'pd',
+                                cond: { $eq: ['$$pd._id', '$$orderProduct.product'] },
+                              },
+                            },
+                            0,
+                          ],
+                        },
+                      },
+                      in: {
+                        _id: '$$orderProduct.product',
+                        name: { $ifNull: ['$$productDetail.name', 'Product Not Found'] },
+                        slug: { $ifNull: ['$$productDetail.slug', 'unknown'] },
+                        image: {
+                          $let: {
+                            vars: {
+                              coverImage: {
+                                $arrayElemAt: [
+                                  {
+                                    $map: {
+                                      input: {
+                                        $filter: {
+                                          input: { $ifNull: ['$$productDetail.description_images', []] },
+                                          as: 'img',
+                                          cond: { $eq: ['$$img.cover_image', true] },
+                                        },
+                                      },
+                                      as: 'coverImg',
+                                      in: '$$coverImg.url',
+                                    },
+                                  },
+                                  0,
+                                ],
+                              },
+                              firstImage: {
+                                $arrayElemAt: [
+                                  {
+                                    $map: {
+                                      input: { $ifNull: ['$$productDetail.description_images', []] },
+                                      as: 'img',
+                                      in: '$$img.url',
+                                    },
+                                  },
+                                  0,
+                                ],
+                              },
+                            },
+                            in: { $ifNull: ['$$coverImage', '$$firstImage'] },
+                          },
+                        },
+                        quantity: '$$orderProduct.qty',
+                        price: '$$orderProduct.price',
+                        attributes: { $ifNull: ['$$orderProduct.attributes', []] },
+                        sale: '$$orderProduct.sale',
+                        saleDiscount: { $ifNull: ['$$orderProduct.saleDiscount', 0] },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          // Step 4: Final projection - clean up intermediate fields
+          {
+            $project: {
+              productDetails: 0,
+              products: 0,
+            },
+          },
+          // Step 5: Rename enrichedProducts to products
+          {
+            $addFields: {
+              products: '$enrichedProducts',
+            },
+          },
+          {
+            $project: {
+              shippingAddress: 0,
+              enrichedProducts: 0,
+              paymentMethod: 0,
+            },
+          },
+        ],
       },
     });
 
-    const orders = await Order.aggregate(pipeline);
+    const result = await Order.aggregate(pipeline);
+    const total: number = result[0]?.metadata[0]?.total || 0;
+    const orders = result[0]?.orders || [];
+    const totalPages = Math.ceil(total / limit);
 
     return {
       message: 'Orders retrieved successfully',
-      data: { orders, totalOrders, meta: { page, limit, total: totalOrders } },
+      data: { orders: orders as unknown as OrderType[] },
+      meta: { page, limit, total, totalPages },
       code: 200,
     };
   } catch (error) {
@@ -544,6 +647,8 @@ const placeOrderWithStockValidation = async (
     // Atomically update sale counters (limit, boughtCount, etc.)
     await updateSaleCountersOnOrder(products as SaleOrderProduct[], session);
 
+    console.log('--------fdffdfdfdfdfd----------');
+    console.log({ orderData });
     // Calculate shipping cost using LogisticsService
     let calculatedShipping = 0;
     try {
@@ -558,7 +663,8 @@ const placeOrderWithStockValidation = async (
         const destination = {
           countryName: orderData.shippingAddress.country || 'Nigeria', // Default to Nigeria if not provided
           stateName: orderData.shippingAddress.state || 'Lagos', // Default to Lagos if not provided
-          lgaName: 'Default', // LGA not provided in shipping address, use default
+          lgaName: orderData.shippingAddress.lga || '', // LGA not provided in shipping address, use default
+          city: orderData.shippingAddress.city || '',
         };
 
         // Calculate progressive shipping cost
@@ -568,6 +674,7 @@ const placeOrderWithStockValidation = async (
       } else {
         console.warn('[OrderService] No shipping address provided, using fallback shipping cost');
         calculatedShipping = Number(orderData.shippingPrice || 0);
+        console.log(calculatedShipping);
       }
     } catch (shippingError) {
       console.error('[OrderService] Shipping calculation failed, using provided/fallback value:', shippingError);
@@ -579,6 +686,8 @@ const placeOrderWithStockValidation = async (
     const tax = Math.round(Number(orderData.taxPrice || 0) * 100) / 100;
     const subtotalAfterCoupon = Math.round(Math.max(0, itemsSubtotal - finalCouponDiscount) * 100) / 100;
     const finalTotal = Math.round((subtotalAfterCoupon + shipping + tax) * 100) / 100;
+    console.log('--------orderData-------');
+    console.log({ orderData });
 
     // Create the order with recomputed totals
     const order = new Order({
@@ -590,7 +699,7 @@ const placeOrderWithStockValidation = async (
       // Handle multiple coupons if applied
       ...(appliedCouponDocs.length > 0
         ? {
-            coupon: appliedCouponDocs[0]._id, // Legacy single coupon field
+            coupon: appliedCouponDocs[0]._id,
             couponCode: appliedCouponDocs[0].coupon,
             couponDiscount: finalCouponDiscount,
             couponApplied: appliedCouponDocs.map((c) => c.coupon).join(', '),
@@ -610,20 +719,8 @@ const placeOrderWithStockValidation = async (
             }
           : {}),
     });
-    await order.save({ session });
 
-    // Create shipment for shipping orders
-    if (orderData.deliveryType === 'shipping') {
-      try {
-        const shipmentResult = await ShipmentService.createShipmentForOrder(order._id, session);
-        if (shipmentResult) {
-          console.log(`[OrderService] Created shipment ${shipmentResult.trackingNumber} for order ${order._id}`);
-        }
-      } catch (shipmentError) {
-        console.error('[OrderService] Failed to create shipment, but order was placed successfully:', shipmentError);
-        // Don't fail the order if shipment creation fails - admin can create manually later
-      }
-    }
+    await order.save({ session });
 
     // Record coupon redemptions for all applied coupons
     if (appliedCouponDocs.length > 0) {
@@ -695,33 +792,13 @@ const placeOrderWithStockValidation = async (
 
     await session.commitTransaction();
     session.endSession();
-
+    /*
     // Fetch user details for order created event
     try {
-      const userDoc = await User.findById(orderData.user).select('firstName lastName email');
-      if (userDoc) {
-        const customerInfo = {
-          email: userDoc.email,
-          name: `${userDoc.firstName} ${userDoc.lastName}`.trim(),
-          phone: orderData.shippingAddress?.phoneNumber || undefined,
-        };
-
-        // Publish ORDER_CREATED event for email notifications and other processing
-        await eventPublisher.publishOrderCreated({
-          orderId: order._id.toString(),
-          userId: orderData.user.toString(),
-          orderNumber: order._id.toString(), // Using order ID as order number since no orderNumber field exists
-          totalAmount: order.total,
-          items: order.products
-            .filter((item) => item.product && typeof item.qty === 'number' && typeof item.price === 'number')
-            .map((item) => ({
-              productId: item.product!.toString(),
-              quantity: item.qty!,
-              price: item.price!,
-            })),
-          customerInfo,
-        });
-      }
+      // Publish ORDER_CREATED event for email notifications and other processing
+      await eventPublisher.publishOrderCreated({
+        orderId: order._id.toString(),
+      });
     } catch (eventError) {
       console.error('Failed to publish ORDER_CREATED event:', eventError);
       // Don't fail the order creation if event publishing fails
@@ -731,7 +808,14 @@ const placeOrderWithStockValidation = async (
     AnalyticsService.trackOrderPlaced(order._id.toString(), order.total).catch((err) =>
       console.error('Failed to track order analytics:', err)
     );
+    */
 
+    console.log({
+      order,
+      couponResults, // Include coupon application results in response
+      appliedCoupons: appliedCouponDocs.length,
+      totalCouponDiscount: finalCouponDiscount,
+    });
     return {
       message: 'Order placed successfully',
       data: {
@@ -784,7 +868,7 @@ const updateOrderDetails = async (
     await order.save();
 
     return { message: 'Order updated successfully', data: null, code: 200 };
-  } catch (error) {
+  } catch {
     return { message: 'Failed to update order', data: null, code: 500 };
   }
 };
@@ -859,18 +943,248 @@ const getOneOrder = async ({
 }: {
   orderId: string;
   userId: string;
-}): Promise<CustomResponseType<OrderType>> => {
+}): Promise<CustomResponseType<EnrichedOrder>> => {
   try {
-    const order = await Order.findOne({ _id: orderId, user: userId });
+    const pipeline = [
+      { $match: { _id: new mongoose.Types.ObjectId(orderId), user: new mongoose.Types.ObjectId(userId) } },
+
+      // Lookup products with details
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'products.product',
+          foreignField: '_id',
+          as: 'productDetails',
+        },
+      },
+
+      // Lookup transaction details
+      {
+        $lookup: {
+          from: 'transactions',
+          localField: 'transactionId',
+          foreignField: '_id',
+          as: 'transaction',
+        },
+      },
+      { $unwind: { path: '$transaction', preserveNullAndEmptyArrays: true } },
+
+      // Lookup shipment details
+      {
+        $lookup: {
+          from: 'shipments',
+          localField: 'shipmentId',
+          foreignField: '_id',
+          as: 'shipment',
+        },
+      },
+      { $unwind: { path: '$shipment', preserveNullAndEmptyArrays: true } },
+
+      // Lookup coupon details
+      {
+        $lookup: {
+          from: 'coupons',
+          localField: 'coupon',
+          foreignField: '_id',
+          as: 'couponDetails',
+        },
+      },
+      { $unwind: { path: '$couponDetails', preserveNullAndEmptyArrays: true } },
+
+      // Lookup user details
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'user',
+          foreignField: '_id',
+          as: 'userDetails',
+        },
+      },
+      { $unwind: { path: '$userDetails', preserveNullAndEmptyArrays: true } },
+
+      // Project final structure
+      {
+        $project: {
+          _id: 1,
+          orderNumber: { $toString: '$_id' },
+
+          // Order summary
+          total: 1,
+          totalBeforeDiscount: 1,
+          couponDiscount: 1,
+          shippingPrice: 1,
+          taxPrice: 1,
+          status: 1,
+          isPaid: 1,
+          deliveryType: 1,
+          deliveryStatus: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          paidAt: 1,
+          deliveredAt: 1,
+
+          // Coupon info
+          coupon: {
+            code: '$couponCode',
+            discount: '$couponDiscount',
+            name: '$couponDetails.name',
+          },
+
+          // Contact information
+          contact: {
+            name: {
+              $concat: ['$userDetails.firstName', ' ', '$userDetails.lastName'],
+            },
+            phone: {
+              $cond: {
+                if: { $eq: ['$deliveryType', 'pickup'] },
+                then: '$userDetails.phone',
+                else: '$shippingAddress.phoneNumber',
+              },
+            },
+            email: '$userDetails.email',
+          },
+
+          // Shipping address (only if delivery type is shipping)
+          shippingAddress: {
+            $cond: {
+              if: { $eq: ['$deliveryType', 'shipping'] },
+              then: '$shippingAddress',
+              else: null,
+            },
+          },
+
+          // Billing address (same as shipping for now)
+          billingAddress: {
+            $cond: {
+              if: { $eq: ['$deliveryType', 'shipping'] },
+              then: '$shippingAddress',
+              else: null,
+            },
+          },
+
+          // Products with enriched details
+          products: {
+            $map: {
+              input: '$products',
+              as: 'orderProduct',
+              in: {
+                $let: {
+                  vars: {
+                    productDetail: {
+                      $arrayElemAt: [
+                        {
+                          $filter: {
+                            input: '$productDetails',
+                            as: 'pd',
+                            cond: { $eq: ['$$pd._id', '$$orderProduct.product'] },
+                          },
+                        },
+                        0,
+                      ],
+                    },
+                  },
+                  in: {
+                    _id: '$$orderProduct.product',
+                    name: '$$productDetail.name',
+                    slug: '$$productDetail.slug',
+                    image: {
+                      $ifNull: [
+                        {
+                          $arrayElemAt: [
+                            {
+                              $map: {
+                                input: {
+                                  $filter: {
+                                    input: '$$productDetail.description_images',
+                                    as: 'img',
+                                    cond: { $eq: ['$$img.cover_image', true] },
+                                  },
+                                },
+                                as: 'coverImg',
+                                in: '$$coverImg.url',
+                              },
+                            },
+                            0,
+                          ],
+                        },
+                        { $arrayElemAt: ['$$productDetail.description_images.url', 0] },
+                      ],
+                    },
+                    quantity: '$$orderProduct.qty',
+                    price: '$$orderProduct.price',
+                    attributes: '$$orderProduct.attributes',
+                    sale: '$$orderProduct.sale',
+                    saleDiscount: '$$orderProduct.saleDiscount',
+                  },
+                },
+              },
+            },
+          },
+
+          // Transaction details
+          transaction: {
+            $cond: {
+              if: { $ne: ['$transaction', null] },
+              then: {
+                _id: '$transaction._id',
+                reference: '$transaction.reference',
+                amount: '$transaction.amount',
+                paymentMethod: '$transaction.paymentMethod',
+                paymentGateway: '$transaction.paymentGateway',
+                status: '$transaction.status',
+                paidAt: '$transaction.paidAt',
+                transactionDate: '$transaction.paymentDate',
+              },
+              else: null,
+            },
+          },
+
+          // Shipment details
+          shipment: {
+            $cond: {
+              if: { $ne: ['$shipment', null] },
+              then: {
+                _id: '$shipment._id',
+                trackingNumber: '$shipment.trackingNumber',
+                status: '$shipment.status',
+                courier: '$shipment.courier',
+                estimatedDelivery: '$shipment.estimatedDelivery',
+                deliveredOn: '$shipment.deliveredOn',
+                shippingAddress: '$shipment.shippingAddress',
+                trackingHistory: '$shipment.trackingHistory',
+                cost: '$shipment.cost',
+              },
+              else: null,
+            },
+          },
+        },
+      },
+    ];
+
+    const result = await Order.aggregate(pipeline);
+    const order = result[0];
 
     if (!order) {
-      return { message: 'Order not found', data: null, code: 404 };
+      return {
+        message: 'Order not found',
+        data: null,
+        code: 404,
+      };
     }
 
-    return { message: 'Order retrieved successfully', data: order, code: 200 };
+    return {
+      message: 'Order retrieved successfully',
+      data: order,
+      code: 200,
+    };
   } catch (error) {
-    console.error('Error fetching order:', error);
-    return { message: 'Failed to fetch order', data: null, code: 500 };
+    console.error('Error fetching order by ID:', error);
+    return {
+      message: 'Failed to fetch order',
+      data: null,
+      code: 500,
+    };
   }
 };
 
@@ -1001,11 +1315,13 @@ const getAllReturns = async ({
 /**
  * Get order with new returns populated
  */
-const getOrderWithReturns = async (orderId: string): Promise<CustomResponseType<any>> => {
+const getOrderWithReturns = async (
+  orderId: string
+): Promise<CustomResponseType<OrderType & { returns: ReturnType[] }>> => {
   try {
     const order = await Order.findById(orderId)
-      .populate('userId', 'firstName lastName email')
-      .populate('items.product', 'name images')
+      .populate('user', 'firstName lastName email')
+      .populate('products.product', 'name images')
       .lean();
 
     if (!order) {
@@ -1017,24 +1333,78 @@ const getOrderWithReturns = async (orderId: string): Promise<CustomResponseType<
     }
 
     // Populate returns from the new Return model
-    const Return = (await import('../models/Return')).default;
-    const returns = await Return.find({ order: orderId })
+    const returns = (await Return.find({ order: orderId })
       .populate('user', 'firstName lastName email')
       .populate('items.product', 'name images')
-      .lean();
+      .lean()) as ReturnType[];
 
     return {
       message: 'Order with returns fetched successfully',
       data: {
         ...order,
         returns,
-      },
+      } as OrderType & { returns: ReturnType[] },
       code: 200,
     };
   } catch (error) {
     console.error('Error fetching order with returns:', error);
     return {
       message: error instanceof Error ? error.message : 'Failed to fetch order with returns',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
+ * Get order statistics for dashboard
+ */
+const getOrderStatistics = async (
+  userId: string
+): Promise<
+  CustomResponseType<{
+    totalOrders: number;
+    pendingOrders: number;
+    processingOrders: number;
+    completedOrders: number;
+    cancelledOrders: number;
+    failedOrders: number;
+  }>
+> => {
+  try {
+    const pipeline = [
+      { $match: { user: new mongoose.Types.ObjectId(userId) } },
+      {
+        $facet: {
+          total: [{ $count: 'count' }],
+          pending: [{ $match: { status: 'Pending' } }, { $count: 'count' }],
+          processing: [{ $match: { status: 'Processing' } }, { $count: 'count' }],
+          completed: [{ $match: { status: 'Completed' } }, { $count: 'count' }],
+          cancelled: [{ $match: { status: 'Cancelled' } }, { $count: 'count' }],
+          failed: [{ $match: { status: 'Failed' } }, { $count: 'count' }],
+        },
+      },
+    ];
+
+    const result = await Order.aggregate(pipeline);
+    const stats = result[0];
+
+    return {
+      message: 'Order statistics retrieved successfully',
+      data: {
+        totalOrders: stats.total[0]?.count || 0,
+        pendingOrders: stats.pending[0]?.count || 0,
+        processingOrders: stats.processing[0]?.count || 0,
+        completedOrders: stats.completed[0]?.count || 0,
+        cancelledOrders: stats.cancelled[0]?.count || 0,
+        failedOrders: stats.failed[0]?.count || 0,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error fetching order statistics:', error);
+    return {
+      message: 'Failed to fetch order statistics',
       data: null,
       code: 500,
     };
@@ -1050,6 +1420,7 @@ const OrderService = {
   initiateReturn,
   getAllReturns,
   getOrderWithReturns,
+  getOrderStatistics,
 };
 
 export default OrderService;
