@@ -23,6 +23,7 @@ import LogisticsPublicRoute from '@/routes/general/logistics';
 import UserShipmentsRoute from '@/routes/users/shipments';
 import UserCampaignsRoute from '@/routes/users/campaigns';
 import UserReturnsRoute from '@/routes/users/returns';
+import CouponsRoute from '@/routes/general/coupons';
 import { eventPublisher } from '@/events';
 
 import {
@@ -96,6 +97,7 @@ app.use('/payments', TransactionRoute);
 app.use('/reviews/user', UserReviewsRoute);
 app.use('/reviews', ReviewRoute);
 app.use('/returns', UserReturnsRoute);
+app.use('/coupons', CouponsRoute);
 
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);

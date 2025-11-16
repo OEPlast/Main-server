@@ -17,6 +17,7 @@ const createCoupon = async ({
   maxUsage,
   maxUsagePerUser,
   minOrderValue,
+  showOnCartPage,
   discountType,
   stackable,
   notes,
@@ -35,6 +36,7 @@ const createCoupon = async ({
   discountType: 'percentage' | 'fixed';
   stackable: boolean;
   notes: string;
+  showOnCartPage: boolean;
 }): Promise<CustomResponseType<CouponType>> => {
   try {
     const creatorId = new mongoose.Types.ObjectId(creator);
@@ -49,6 +51,7 @@ const createCoupon = async ({
       creator: creatorId,
       discountType,
       stackable,
+      showOnCartPage,
       notes,
       ...(couponType ? { couponType } : {}),
       ...(allowedUserId ? { allowedUser: allowedUserId } : {}),
@@ -230,6 +233,7 @@ const updateCoupon = async (
     stackable: boolean;
     appliesTo: { scope: 'order' | 'product' | 'category'; productIds?: string[]; categoryIds?: string[] };
     notes: string;
+    showOnCartPage: boolean;
   }>
 ): Promise<CustomResponseType<CouponType>> => {
   try {
@@ -252,6 +256,7 @@ const updateCoupon = async (
         categoryIds?: mongoose.Types.ObjectId[];
       };
       notes: string;
+      showOnCartPage: boolean;
     }> = {};
 
     if (updateData.startDate) payload.startDate = new Date(updateData.startDate);
@@ -276,6 +281,7 @@ const updateCoupon = async (
       };
     }
     if (typeof updateData.notes === 'string') payload.notes = updateData.notes;
+    if (typeof updateData.showOnCartPage === 'boolean') payload.showOnCartPage = updateData.showOnCartPage;
 
     // prevent timesUsed edits
     // eslint-disable-next-line @typescript-eslint/no-unused-vars

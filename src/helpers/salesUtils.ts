@@ -35,10 +35,30 @@ export function checkSaleAvailability(
       return { available: false };
     }
   }
-  
+
+  // Helper to check if value is null or 'all'/'All'
+  const isAllOrNull = (value: string | null | undefined): boolean => {
+    return value === null || value === undefined || value === 'all' || value === 'All';
+  };
+
   // If sale has variants, try to match attributes
   if (Array.isArray(sale.variants) && sale.variants.length > 0) {
-    // First, try to find exact attribute match if attributes are provided
+    // First, check for general sales (applies to all)
+    const generalSaleIdx = sale.variants.findIndex(
+      (v) => isAllOrNull(v.attributeName) && (v.maxBuys === 0 || v.boughtCount < v.maxBuys)
+    );
+
+    if (generalSaleIdx !== -1) {
+      const variant = sale.variants[generalSaleIdx]!;
+      return {
+        available: variant.maxBuys === 0 || variant.boughtCount < variant.maxBuys,
+        variantIndex: generalSaleIdx,
+        discount: variant.discount,
+        amountOff: variant.amountOff,
+      };
+    }
+
+    // Then try to find exact attribute match if attributes are provided
     if (attributes && attributes.length > 0) {
       const exactMatchIdx = sale.variants.findIndex(
         (v) =>
@@ -56,30 +76,11 @@ export function checkSaleAvailability(
         };
       }
     }
-    
-    // If no exact match, look for general sales (null attributeName and attributeValue)
-    const generalSaleIdx = sale.variants.findIndex(
-      (v) =>
-        v.attributeName === null &&
-        v.attributeValue === null &&
-        (v.maxBuys === 0 || v.boughtCount < v.maxBuys)
-    );
-    
-    if (generalSaleIdx !== -1) {
-      const variant = sale.variants[generalSaleIdx]!;
-      return {
-        available: variant.maxBuys === 0 || variant.boughtCount < variant.maxBuys,
-        variantIndex: generalSaleIdx,
-        discount: variant.discount,
-        amountOff: variant.amountOff,
-      };
-    }
-    
+
     return { available: false };
   }
-  
+
   // No variants, check sale-wide limits
-  // With current schema, there is no top-level limit/discount; availability is based on active flag and Flash window
   return { available: true, discount: 0, amountOff: 0 };
 }
 
@@ -87,9 +88,12 @@ export function checkSaleAvailability(
  * Returns the discount to apply for a product (and variant if matched).
  * Returns { discount, amountOff } - use discount for percentage, amountOff for fixed amount
  */
-export function getSaleDiscount(sale: SalesType | null, attributes?: { name: string; value: string }[]): { discount: number; amountOff: number } {
+export function getSaleDiscount(
+  sale: SalesType | null,
+  attributes?: { name: string; value: string }[]
+): { discount: number; amountOff: number } {
   if (!sale) return { discount: 0, amountOff: 0 };
-  
+
   if (Array.isArray(sale.variants) && sale.variants.length > 0) {
     // First, try to find exact attribute match if attributes are provided
     if (attributes && attributes.length > 0) {
@@ -97,25 +101,23 @@ export function getSaleDiscount(sale: SalesType | null, attributes?: { name: str
         (v) => v.attributeName === attributes[0]?.name && v.attributeValue === attributes[0]?.value
       );
       if (exactMatch) {
-        return { 
-          discount: exactMatch.discount || 0, 
-          amountOff: exactMatch.amountOff || 0 
+        return {
+          discount: exactMatch.discount || 0,
+          amountOff: exactMatch.amountOff || 0,
         };
       }
     }
-    
+
     // If no exact match, look for general sales (null attributeName and attributeValue)
-    const generalSale = sale.variants.find(
-      (v) => v.attributeName === null && v.attributeValue === null
-    );
+    const generalSale = sale.variants.find((v) => v.attributeName === null && v.attributeValue === null);
     if (generalSale) {
-      return { 
-        discount: generalSale.discount || 0, 
-        amountOff: generalSale.amountOff || 0 
+      return {
+        discount: generalSale.discount || 0,
+        amountOff: generalSale.amountOff || 0,
       };
     }
   }
-  
+
   // No top-level discount in current schema
   return { discount: 0, amountOff: 0 };
 }

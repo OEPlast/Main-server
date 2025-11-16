@@ -64,6 +64,7 @@ const createCoupon = async (req: Request, res: Response) => {
       discountType,
       stackable,
       notes,
+      showOnCartPage,
     } = req.body as {
       coupon: string;
       startDate: string;
@@ -77,6 +78,7 @@ const createCoupon = async (req: Request, res: Response) => {
       minOrderValue: number | null;
       discountType: 'percentage' | 'fixed';
       stackable: boolean;
+      showOnCartPage: boolean;
       notes: string;
     };
 
@@ -95,6 +97,7 @@ const createCoupon = async (req: Request, res: Response) => {
       discountType,
       stackable,
       notes,
+      showOnCartPage,
     };
 
     const { message, data, code } = await CouponService.createCoupon(mainData);
@@ -124,6 +127,7 @@ const updateCoupon = async (req: Request, res: Response) => {
       stackable,
       appliesTo,
       notes,
+      showOnCartPage,
     } = req.body as {
       startDate?: string;
       endDate?: string;
@@ -139,6 +143,7 @@ const updateCoupon = async (req: Request, res: Response) => {
       stackable?: boolean;
       appliesTo?: { scope: 'order' | 'product' | 'category'; productIds?: string[]; categoryIds?: string[] };
       notes?: string;
+      showOnCartPage: boolean;
     };
 
     const updateData = {
@@ -156,6 +161,7 @@ const updateCoupon = async (req: Request, res: Response) => {
       stackable,
       appliesTo,
       notes,
+      showOnCartPage,
     };
     // Ensure timesUsed cannot be altered
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -178,6 +184,7 @@ const updateCoupon = async (req: Request, res: Response) => {
         stackable: boolean;
         appliesTo: { scope: 'order' | 'product' | 'category'; productIds?: string[]; categoryIds?: string[] };
         notes: string;
+        showOnCartPage: boolean;
       }>
     );
     return res.status(code).json({ message, data });

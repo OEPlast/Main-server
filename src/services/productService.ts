@@ -1,6 +1,6 @@
 import Order from '@/models/Order';
 import Product, { ProductType } from '../models/Product';
-import Sales, { SalesType } from '../models/Sales';
+import { SalesType } from '../models/Sales';
 import Category from '@/models/Category';
 import mongoose, { PipelineStage } from 'mongoose';
 import { buildPriceFilter, buildTagsFilter } from './aggregation';
@@ -205,6 +205,7 @@ const getAllProducts = async (
                 slug: '$category.slug',
               },
               description_images: 1,
+              pricingTiers: 1,
               sale: 1, // Include sale field
             },
           },
@@ -624,7 +625,8 @@ const getWeekProducts = async (
               stock: 1,
               originStock: 1,
               rating: 1,
-              images: '$description_images',
+              description_images: 1,
+              pricingTiers: 1,
               category: 1,
               packSizes: 1,
               attributes: 1,
@@ -822,7 +824,8 @@ const getTopSoldProducts = async (
               stock: 1,
               originStock: 1,
               rating: 1,
-              images: '$description_images',
+              description_images: 1,
+              pricingTiers: 1,
               category: 1,
               packSizes: 1,
               attributes: 1,
@@ -891,7 +894,8 @@ const getHotSalesProducts = async (
                 stock: 1,
                 originStock: 1,
                 rating: 1,
-                images: '$description_images', // Rename description_images to images
+                description_images: 1,
+                pricingTiers: 1,
                 category: 1,
                 packSizes: 1,
                 attributes: 1,
@@ -1734,7 +1738,8 @@ const getNewProducts = async (
               stock: 1,
               originStock: 1,
               rating: 1,
-              images: '$description_images', // Rename description_images to images
+              description_images: 1,
+              pricingTiers: 1,
               category: 1,
               attributes: 1,
               packSizes: 1,
@@ -1999,8 +2004,9 @@ const getDealsOfTheDay = async (
           stock: 1,
           originStock: 1,
           rating: 1,
-          images: '$description_images', // Rename description_images to images
+          description_images: 1,
           sale: 1,
+          pricingTiers: 1,
           attributes: 1,
           packSizes: 1,
           'category._id': 1,
@@ -2280,7 +2286,8 @@ const getProductsByCampaignSlug = async (
         stock: 1,
         originStock: 1,
         rating: 1,
-        images: '$description_images', // Rename description_images to images
+        description_images: 1,
+        pricingTiers: 1,
         sale: 1,
         attributes: 1,
         packSizes: 1,
@@ -2319,7 +2326,7 @@ const getProductsByCampaignSlug = async (
     if (total === 0 && products.length === 0) {
       return {
         message: 'No active campaign found or campaign has no active products',
-        data: { campaign: null, products: [] } as any,
+        data: { campaign: null, products: [] },
         code: 404,
         meta: {
           total: 0,
@@ -2338,7 +2345,7 @@ const getProductsByCampaignSlug = async (
     if (!campaign) {
       return {
         message: 'Campaign not found or inactive',
-        data: { campaign: null, products: [] } as any,
+        data: { campaign: null, products: [] },
         code: 404,
         meta: {
           total: 0,
@@ -2367,7 +2374,7 @@ const getProductsByCampaignSlug = async (
     console.error('Error in getProductsByCampaignSlug:', error);
     return {
       message: 'Failed to fetch campaign products',
-      data: { campaign: null, products: [] } as any,
+      data: { campaign: null, products: [] },
       code: 500,
       meta: {
         total: 0,
@@ -3473,6 +3480,7 @@ const getRelatedProducts = async (productId: string, limit = 8): Promise<CustomR
           slug: 1,
           price: 1,
           description_images: 1,
+          pricingTiers: 1,
           category: 1,
           stock: 1,
           rating: 1,
@@ -3576,6 +3584,7 @@ const getPopularProducts = async (limit = 8): Promise<CustomResponseType<Product
           slug: 1,
           price: 1,
           description_images: 1,
+          pricingTiers: 1,
           category: 1,
           stock: 1,
           rating: 1,

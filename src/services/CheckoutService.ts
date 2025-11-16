@@ -217,18 +217,19 @@ class CheckoutService {
 
     const orderInput = {
       user: userId,
-      products: items.map((item) => ({
-        product: item.product,
-        qty: item.qty,
-        price: item.unitPrice,
+      // Use server-corrected pricing from CartValidationService
+      products: correctedCart.items.map((correctedItem) => ({
+        product: correctedItem.product,
+        qty: correctedItem.qty,
+        price: correctedItem.unitPrice, // Server-calculated unit price
         attributes:
-          item.selectedAttributes?.map((attr) => ({
+          correctedItem.selectedAttributes?.map((attr) => ({
             name: attr.name,
             value: attr.value,
           })) || [],
-        sale: item.sale,
+        sale: correctedItem.sale,
         saleType: undefined,
-        saleDiscount: item.appliedDiscount || 0,
+        saleDiscount: correctedItem.appliedDiscount || 0,
       })),
       shippingAddress: deliveryType === 'shipping' ? shippingAddress : undefined,
       deliveryType,
@@ -290,14 +291,15 @@ class CheckoutService {
       };
     }
 
-    const responseItems = items.map((item) => ({
-      product: item.product,
-      qty: item.qty,
-      price: item.unitPrice,
-      attributes: item.selectedAttributes || [],
-      sale: item.sale,
+    // Use server-corrected pricing for response items
+    const responseItems = correctedCart.items.map((correctedItem) => ({
+      product: correctedItem.product,
+      qty: correctedItem.qty,
+      price: correctedItem.unitPrice, // Server-calculated unit price
+      attributes: correctedItem.selectedAttributes || [],
+      sale: correctedItem.sale,
       saleType: undefined,
-      saleDiscount: item.appliedDiscount ?? 0,
+      saleDiscount: correctedItem.appliedDiscount ?? 0,
     }));
 
     const paymentData = paymentInit.data;

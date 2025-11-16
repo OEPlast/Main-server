@@ -32,7 +32,7 @@ const couponSchema = new mongoose.Schema(
       uppercase: true,
       required: true,
       minLength: 4,
-      maxLength:20,
+      maxLength: 20,
     },
     startDate: {
       type: Date,
@@ -63,6 +63,11 @@ const couponSchema = new mongoose.Schema(
     },
     stackable: {
       //allow if coupon can be used with other coupons or not
+      type: Boolean,
+      default: false,
+    },
+    showOnCartPage: {
+      // Whether to display this coupon on the cart page for customers to see
       type: Boolean,
       default: false,
     },

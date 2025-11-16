@@ -369,13 +369,19 @@ const placeOrderWithStockValidation = async (
         if (!item.product) {
           throw new Error('Product reference is missing for a sale item.');
         }
+        const productDoc = productDocs.find((p) => p._id.toString() === item.product!.toString());
+        const productName = productDoc?.name || 'Unknown product';
+        const productSku = productDoc?.sku || item.product.toString();
+
         const sale = (await findActiveSaleForProduct(item.product.toString())) as unknown as SalesType | null;
+        console.log(sale);
+
         if (!sale) {
-          throw new Error('Sale no longer available for a product.');
+          throw new Error(`Sale no longer available for product: ${productName} (SKU: ${productSku})`);
         }
         const { available } = checkSaleAvailability(sale, item.attributes);
         if (!available) {
-          throw new Error('Sale/variant is no longer available for a product.');
+          throw new Error(`Sale/variant is no longer available for product: ${productName} (SKU: ${productSku})`);
         }
       }
     }
@@ -897,7 +903,9 @@ const initiateReturn = async (orderId: string, userId: string): Promise<CustomRe
     if (order.deliveryType === 'shipping' && order.shipmentId) {
       // We'll let the admin shipment service handle updating the shipment status
       // For now, just mark the order as having a return initiated
-      console.log(`[OrderService] Return initiated for order ${orderId} - shipment ${order.shipmentId} should be updated`);
+      console.log(
+        `[OrderService] Return initiated for order ${orderId} - shipment ${order.shipmentId} should be updated`
+      );
     }
 
     await session.commitTransaction();
@@ -939,29 +947,29 @@ const getAllReturns = async ({
     // In a full implementation, we might track returns in a separate collection
     // or use shipment status to determine returns
     const pipeline = [
-      { 
-        $match: { 
+      {
+        $match: {
           user: userId,
           // We could add a 'returnInitiated' flag to orders, or check shipment status
           // For now, let's return orders that are completed (as potential returns)
-          status: 'Completed' 
-        } 
+          status: 'Completed',
+        },
       },
       {
         $lookup: {
           from: 'shipments',
           localField: 'shipmentId',
           foreignField: '_id',
-          as: 'shipment'
-        }
+          as: 'shipment',
+        },
       },
       {
         $match: {
           $or: [
             { 'shipment.status': 'Returned' }, // Shipping orders with returned status
-            { deliveryType: 'pickup', status: 'Completed' } // Pickup orders that are completed
-          ]
-        }
+            { deliveryType: 'pickup', status: 'Completed' }, // Pickup orders that are completed
+          ],
+        },
       },
       {
         $facet: {

@@ -214,31 +214,71 @@ const calculatePricingTierDiscount = (
 
 const calculateSalesDiscount = (
   basePrice: number,
+  quantity: number,
   selectedAttributes: Array<{ name: string; value: string }> | undefined,
-  salesData: { variants?: SalesVariantType[] | null } | null | undefined
+  salesData:
+    | { variants?: SalesVariantType[] | null; isActive?: boolean; startDate?: Date; endDate?: Date }
+    | null
+    | undefined
 ): number => {
-  if (!salesData?.variants || salesData.variants.length === 0) return 0;
+  if (!salesData?.variants || salesData.variants.length === 0 || !salesData.isActive) return 0;
 
-  // Find matching variant based on selected attributes
-  let matchingVariant: SalesVariantType | undefined;
-
-  // First, try to find exact attribute match if attributes are provided
-  if (selectedAttributes && selectedAttributes.length > 0) {
-    matchingVariant = salesData.variants.find((variant) => {
-      return selectedAttributes.some(
-        (attr) => attr.name === variant.attributeName && attr.value === variant.attributeValue
-      );
-    });
+  // Check date range if provided
+  if (salesData.startDate && salesData.endDate) {
+    const now = new Date();
+    const start = new Date(salesData.startDate);
+    const end = new Date(salesData.endDate);
+    if (now < start || now > end) return 0;
   }
 
-  // If no exact match found, look for general sales (null attributeName and attributeValue)
-  if (!matchingVariant) {
-    matchingVariant = salesData.variants.find((variant) => {
-      return variant.attributeName == null && variant.attributeValue == null;
-    });
+  // Helper to check if value is null or 'all'/'All'
+  const isAllOrNull = (value: string | null | undefined): boolean => {
+    return value === null || value === undefined || value === 'all' || value === 'All';
+  };
+
+  // Find matching variant based on client sale matching rules
+  let matchingVariant: SalesVariantType | undefined;
+
+  for (const variant of salesData.variants) {
+    const attrName = variant.attributeName;
+    const attrValue = variant.attributeValue;
+
+    // Rule 1: attributeName is null or 'all'/'All' → applies to all products/variants
+    if (isAllOrNull(attrName)) {
+      matchingVariant = variant;
+      break;
+    }
+
+    // Rule 2: attributeName exists BUT attributeValue is null or 'all'/'All' → applies to all values of that attribute
+    if (attrName && isAllOrNull(attrValue)) {
+      const hasAttribute = selectedAttributes?.some((attr) => attr.name === attrName);
+      if (hasAttribute || !selectedAttributes || selectedAttributes.length === 0) {
+        matchingVariant = variant;
+        break;
+      }
+    }
+
+    // Rule 3: Both attributeName AND attributeValue specified → exact match required
+    if (attrName && attrValue && !isAllOrNull(attrValue) && selectedAttributes) {
+      const exactMatch = selectedAttributes.some((attr) => attr.name === attrName && attr.value === attrValue);
+      if (exactMatch) {
+        matchingVariant = variant;
+        break;
+      }
+    }
   }
 
   if (!matchingVariant) return 0;
+
+  // MAXBUYS LIMIT CHECK: If sale type is 'Limited', verify qty doesn't exceed remaining stock
+  const maxBuys = matchingVariant.maxBuys || 0;
+  const boughtCount = matchingVariant.boughtCount || 0;
+  const remainingStock = maxBuys - boughtCount;
+
+  // Only apply sale if quantity doesn't exceed remaining stock (maxBuys = 0 means unlimited)
+  if (maxBuys > 0 && quantity > remainingStock) {
+    return 0; // Quantity exceeds sale limit, no sale applied
+  }
 
   // Handle both percentage discount and fixed amount off
   if (matchingVariant.amountOff > 0) {
@@ -292,22 +332,29 @@ export const validateItemPrice = async (
 
     const adjustedBasePrice = basePrice + attributeAdjustments;
 
-    // Calculate discounts
-    const pricingTierDiscount = calculatePricingTierDiscount(
-      item.qty, // Using qty instead of quantity
-      adjustedBasePrice,
-      product.pricingTiers
-    );
+    // Apply discounts sequentially (tier first, then sale)
+    let currentPrice = adjustedBasePrice;
 
-    // Fetch sales data if sale is referenced
+    // Calculate and apply pricing tier discount first
+    const pricingTierDiscount = calculatePricingTierDiscount(item.qty, currentPrice, product.pricingTiers);
+    currentPrice = currentPrice - pricingTierDiscount;
+
+    // Then calculate and apply sale discount on top of tier price
     let salesDiscount = 0;
     if (item.sale) {
-      const salesData = await SalesModel.findById(item.sale).lean<{ variants?: SalesVariantType[] }>();
-      salesDiscount = calculateSalesDiscount(adjustedBasePrice, item.selectedAttributes, salesData);
+      const salesData = await SalesModel.findById(item.sale).lean<{
+        variants?: SalesVariantType[];
+        isActive?: boolean;
+        startDate?: Date;
+        endDate?: Date;
+      }>();
+      // Apply sale discount to price AFTER tier discount (not base price)
+      salesDiscount = calculateSalesDiscount(currentPrice, item.qty, item.selectedAttributes, salesData);
     }
+    currentPrice = currentPrice - salesDiscount;
 
     // Calculate final unit price
-    const finalUnitPrice = Math.max(0, adjustedBasePrice - pricingTierDiscount - salesDiscount);
+    const finalUnitPrice = Math.max(0, currentPrice);
 
     const backendPrice = finalUnitPrice;
     const discrepancy = Math.abs(frontendPrice - backendPrice);

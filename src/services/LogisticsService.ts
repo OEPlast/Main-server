@@ -8,7 +8,7 @@ import { duplicateMessage, isDuplicateKeyError } from '@/middleware/mongodb';
 // Guardrail to prevent shipping from exceeding a healthy share of cart value
 const MAX_SHIPPING_SUBTOTAL_RATIO = 0.055;
 const WHOLESALE_BATCH_SIZE = 24;
-const SECONDARY_ITEM_RATE = 0.3;
+const SECONDARY_ITEM_RATE = 0.25;
 
 const getConfigByCountry = async (country: string): CustomResponsePromise<LogisticsConfigType> => {
   try {
