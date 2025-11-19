@@ -27,8 +27,8 @@ const updateProfile = async (req: Request, res: Response) => {
 
     const userId = req.userId;
     const updates = req.body;
-    const result = await UserService.updateUserProfile(userId, updates);
-    return res.status(result.code).json({ message: result.message, data: result.data });
+    const { code, data, message } = await UserService.updateUserProfile(userId, updates);
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in updateProfile:', error);
     return res.status(500).json({ error: 'Internal server error' });

@@ -1,6 +1,9 @@
 import { Request, Response } from 'express';
 import { AuthenticatedRequest, isAuthenticatedRequest } from '@/types';
 import ReviewService from '@/services/reviewService';
+import Review from '@/models/Review';
+import Order from '@/models/Order';
+import { ObjectId } from 'mongodb';
 
 // Get product review statistics
 const getProductReviewStats = async (req: Request, res: Response) => {
@@ -235,6 +238,184 @@ const getOneProductReview = async (req: Request, res: Response) => {
   }
 };
 
+// Check if user can review a product (purchase verification + existing review check)
+const canReview = async (req: Request, res: Response) => {
+  try {
+    const { productId } = req.params;
+
+    // Check if user is authenticated
+    if (!isAuthenticatedRequest(req)) {
+      return res.status(200).json({
+        message: 'Login required to review products',
+        data: {
+          canReview: false,
+          reason: 'Login required',
+        },
+      });
+    }
+
+    const userId = req.userId!;
+
+    // Check if user has already reviewed this product
+    const existingReview = await Review.aggregate([
+      {
+        $match: {
+          product: new ObjectId(productId),
+          reviewBy: new ObjectId(userId),
+        },
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'reviewBy',
+          foreignField: '_id',
+          as: 'userDetails',
+        },
+      },
+      { $unwind: '$userDetails' },
+      {
+        $addFields: {
+          likesCount: { $size: { $ifNull: ['$likes', []] } },
+          repliesCount: { $size: { $ifNull: ['$replies', []] } },
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          rating: 1,
+          review: 1,
+          title: 1,
+          images: 1,
+          size: 1,
+          style: 1,
+          fit: 1,
+          likesCount: 1,
+          repliesCount: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          reviewBy: {
+            _id: '$reviewBy',
+            firstName: '$userDetails.firstName',
+            lastName: '$userDetails.lastName',
+            image: '$userDetails.image',
+          },
+        },
+      },
+    ]);
+
+    if (existingReview && existingReview.length > 0) {
+      // User has already reviewed, but check if they bought again
+      const eligibility = await (ReviewService as any).verifyPurchaseEligibility?.(userId, productId);
+
+      // If user has purchased again, they can update their review
+      const canUpdate = eligibility?.eligible || false;
+
+      let orderInfo;
+      if (canUpdate && eligibility) {
+        // Get order details to extract qty and attributes for the new purchase
+        const order = await Order.findById(eligibility.orderId).select('products');
+        if (order) {
+          const productInOrder = order.products.find((p: any) => p.product.toString() === productId);
+          if (productInOrder) {
+            orderInfo = {
+              transactionId: eligibility.transactionId,
+              orderId: eligibility.orderId,
+              qty: productInOrder.qty,
+              attributes: productInOrder.attributes || [],
+            };
+          }
+        }
+      }
+
+      return res.status(200).json({
+        message: canUpdate
+          ? 'You have already reviewed this product, but you can update it since you purchased again'
+          : 'You have already reviewed this product',
+        data: {
+          canReview: false,
+          canUpdate,
+          reason: 'Already reviewed',
+          hasExistingReview: true,
+          existingReview: existingReview[0],
+          ...(orderInfo ? { orderInfo } : {}),
+        },
+      });
+    }
+
+    // Verify purchase eligibility using existing service method
+    const eligibility = await (ReviewService as any).verifyPurchaseEligibility?.(userId, productId);
+
+    if (!eligibility) {
+      return res.status(500).json({
+        message: 'Unable to verify purchase eligibility',
+        data: {
+          canReview: false,
+          reason: 'Verification error',
+        },
+      });
+    }
+
+    if (!eligibility.eligible) {
+      return res.status(200).json({
+        message: eligibility.message || 'Not eligible to review this product',
+        data: {
+          canReview: false,
+          reason: eligibility.message || 'Purchase not verified',
+        },
+      });
+    }
+
+    // Get order details to extract qty and attributes
+    const order = await Order.findById(eligibility.orderId).select('products');
+
+    if (!order) {
+      return res.status(200).json({
+        message: 'Order information not found',
+        data: {
+          canReview: false,
+          reason: 'Order not found',
+        },
+      });
+    }
+
+    // Find the specific product in the order
+    const productInOrder = order.products.find((p: any) => p.product.toString() === productId);
+
+    if (!productInOrder) {
+      return res.status(200).json({
+        message: 'Product not found in order',
+        data: {
+          canReview: false,
+          reason: 'Product not in order',
+        },
+      });
+    }
+
+    // User is eligible to review
+    return res.status(200).json({
+      message: 'You can review this product',
+      data: {
+        canReview: true,
+        orderInfo: {
+          transactionId: eligibility.transactionId,
+          orderId: eligibility.orderId,
+          qty: productInOrder.qty,
+          attributes: productInOrder.attributes || [],
+        },
+      },
+    });
+  } catch (error) {
+    console.error('Error in canReview:', error);
+    return res.status(500).json({
+      message: 'Something went wrong',
+      data: {
+        canReview: false,
+        reason: 'Server error',
+      },
+    });
+  }
+};
+
 const ReviewController = {
   getReviews,
   createReview,
@@ -249,6 +430,7 @@ const ReviewController = {
   getUserProductReview,
   getOneProductReview,
   getProductReviewStats,
+  canReview,
 };
 
 export default ReviewController;

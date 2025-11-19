@@ -61,6 +61,18 @@ const orderSchema = new mongoose.Schema(
         saleDiscount: {
           type: Number,
         },
+        // Sale snapshot for reversal on cancellation
+        saleSnapshot: {
+          type: {
+            type: String,
+            enum: ['Flash', 'Limited', 'Normal'],
+          },
+          variantIndex: Number,
+          maxBuys: Number,
+          boughtCount: Number,
+          attributeName: String,
+          attributeValue: String,
+        },
       },
     ],
     shippingAddress: {

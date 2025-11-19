@@ -105,7 +105,7 @@ class EmailProcessor {
         <p>Hi ${data.firstName},</p>
         <p>Thank you for signing up! To complete your registration, please use the verification code below:</p>
         <div style="background: #f5f5f5; padding: 20px; text-align: center; margin: 20px 0; border-radius: 5px;">
-          <h2 style="color: #333; font-size: 32px; letter-spacing: 2px; margin: 0;">${data.otpCode}</h2>
+          <h2 style="color: #333; font-size: 32px; letter-spacing: 2px; margin: 0;">&#8358;{data.otpCode}</h2>
         </div>
         <p><strong>This code will expire in ${expirationTime} minutes.</strong></p>
         <p>If you didn't request this code, please ignore this email.</p>
@@ -134,7 +134,7 @@ class EmailProcessor {
         <p>Hi ${data.firstName},</p>
         <p>We received a request to reset your password. Use the code below to reset your password:</p>
         <div style="background: #f5f5f5; padding: 20px; text-align: center; margin: 20px 0; border-radius: 5px;">
-          <h2 style="color: #333; font-size: 32px; letter-spacing: 2px; margin: 0;">${data.resetCode}</h2>
+          <h2 style="color: #333; font-size: 32px; letter-spacing: 2px; margin: 0;">&#8358;{data.resetCode}</h2>
         </div>
         <p><strong>This code will expire in ${expirationTime} minutes.</strong></p>
         <p>If you didn't request a password reset, please ignore this email or contact support if you have concerns.</p>

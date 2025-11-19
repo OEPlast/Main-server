@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import Shipment, { IShipment } from '../../models/Shipment';
 import { CustomResponseType } from '@/types';
 
@@ -166,6 +167,7 @@ const updateShipment = async (
 const trackShipment = async (trackingNumber: string): Promise<CustomResponseType<IShipment>> => {
   try {
     const shipment = await Shipment.findOne({ trackingNumber }).populate('orderId', 'orderNumber customerInfo');
+    console.log({ shipment });
 
     if (!shipment) {
       return {
@@ -478,7 +480,7 @@ const statsByCourierUser = async (
 ): Promise<CustomResponseType<Record<ShipmentStatus | 'total', number>>> => {
   try {
     const pipeline = [
-      { $match: { courierUser: new (require('mongoose').Types.ObjectId)(userId) } },
+      { $match: { courierUser: new mongoose.Types.ObjectId(userId) } },
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ];
     const results = await Shipment.aggregate(pipeline);
@@ -527,10 +529,7 @@ const statsAll = async (): Promise<CustomResponseType<Record<ShipmentStatus | 't
 };
 
 // Update notes separately with delivered lock
-const updateNotes = async (
-  shipmentId: string,
-  notes: string
-): Promise<CustomResponseType<IShipment>> => {
+const updateNotes = async (shipmentId: string, notes: string): Promise<CustomResponseType<IShipment>> => {
   try {
     const shipment = await Shipment.findById(shipmentId);
     if (!shipment) {

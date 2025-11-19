@@ -6,6 +6,8 @@ import { verifyInternalService } from '@/middleware/auth';
 import { logger } from '@/lib/logger';
 import eventPublisher from '@/events/eventPublisher';
 import TransactionService from '@/services/TransactionService';
+import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
+import mongoose from 'mongoose';
 
 const router = Router();
 
@@ -187,7 +189,7 @@ router.post('/orders/verify-and-restore-stock', async (req: Request, res: Respon
 });
 
 /**
- * Helper function to restore stock for order items
+ * Helper function to restore stock and reverse sale counters for order items
  */
 async function restoreStock(orderId: string, items: Array<{ productId: string; quantity: number }>): Promise<void> {
   try {
@@ -200,6 +202,33 @@ async function restoreStock(orderId: string, items: Array<{ productId: string; q
 
     await Product.bulkWrite(bulkUpdates);
     logger.info(`Stock restored for ${items.length} products in order ${orderId}`);
+
+    // Reverse sale counters if order has snapshots
+    const order = await Order.findById(orderId);
+    if (order && order.products) {
+      const session = await mongoose.startSession();
+      session.startTransaction();
+      try {
+        await reverseSaleCountersOnCancel(
+          order.products
+            .filter((item) => item.product && item.qty)
+            .map((item) => ({
+              product: item.product!,
+              qty: item.qty!,
+              sale: (item as any).sale,
+              saleSnapshot: (item as any).saleSnapshot,
+            })),
+          session
+        );
+        await session.commitTransaction();
+        logger.info(`Sale counters reversed for order ${orderId}`);
+      } catch (err) {
+        await session.abortTransaction();
+        logger.error(`Failed to reverse sale counters for order ${orderId}:`, err);
+      } finally {
+        session.endSession();
+      }
+    }
   } catch (error) {
     logger.error(`Failed to restore stock for order ${orderId}:`, error);
     throw error;

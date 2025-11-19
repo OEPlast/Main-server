@@ -11,12 +11,15 @@ router.get('/product/:productId', authenticateUser_No_Force, ReviewController.ge
 // get review statistics for a product (total, average, star distribution)
 router.get('/product/:productId/stats', ReviewController.getProductReviewStats);
 
+// check if user can review a product (purchase verification + existing review check)
+router.get('/can-review/:productId', authenticateUser_No_Force, ReviewController.canReview);
+
 // get likes for one review <not needed?>
 router.get('/:reviewId/likeCount', ...ReviewValidator.validateReviewId, ReviewController.getLikeCount);
 
 // Protected routes (auth required)
-router.post('/:reviewId/like', authenticateUser, ...ReviewValidator.validateReviewId, ReviewController.likeReview);
-router.post('/:reviewId/unlike', authenticateUser, ...ReviewValidator.validateReviewId, ReviewController.unlikeReview);
+router.post('/:reviewId/like', authenticateUser, ReviewController.likeReview);
+router.post('/:reviewId/unlike', authenticateUser, ReviewController.unlikeReview);
 router.get(
   '/:reviewId/isLikedByUser',
   authenticateUser,

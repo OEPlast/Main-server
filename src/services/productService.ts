@@ -2084,6 +2084,135 @@ const getDealsOfTheDay = async (
 };
 
 /**
+ * Get products for comparison by mixed IDs and slugs
+ * Supports up to 3 products, returns full ProductDetail with null for not-found products
+ * Preserves the order of identifiers in the response
+ *
+ * @param identifiers - Array of product IDs or slugs (max 3)
+ * @returns Array of ProductType | null in the same order as identifiers
+ */
+const getProductsForComparison = async (
+  identifiers: string[]
+): Promise<CustomResponseType<(ProductType | null)[]>> => {
+  try {
+    // Validate maximum 3 products
+    if (identifiers.length > 3) {
+      return {
+        message: 'Maximum 3 products allowed for comparison',
+        data: null,
+        code: 400,
+      };
+    }
+
+    // If no identifiers provided, return empty array
+    if (identifiers.length === 0) {
+      return {
+        message: 'No product identifiers provided',
+        data: [],
+        code: 200,
+      };
+    }
+
+    // Separate valid ObjectIds from slugs
+    const validIds: mongoose.Types.ObjectId[] = [];
+    const slugs: string[] = [];
+
+    identifiers.forEach((id) => {
+      if (mongoose.Types.ObjectId.isValid(id)) {
+        validIds.push(new mongoose.Types.ObjectId(id));
+      } else {
+        slugs.push(id);
+      }
+    });
+
+    // Build aggregation pipeline to fetch products
+    const pipeline: PipelineStage[] = [
+      // Step 1: Match products by ID or slug
+      {
+        $match: {
+          $or: [
+            { _id: { $in: validIds } },
+            { slug: { $in: slugs } },
+          ],
+          status: 'active',
+        },
+      },
+      // Step 2: Lookup category information
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'category',
+          foreignField: '_id',
+          as: 'category',
+        },
+      },
+      {
+        $unwind: {
+          path: '$category',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      // Step 3: Add sale lookup for cart pricing
+      ...addSaleLookupStages(),
+      // Step 4: Project all required fields for ProductDetail and cart compatibility
+      {
+        $project: {
+          _id: 1,
+          name: 1,
+          slug: 1,
+          price: 1,
+          originPrice: 1,
+          sku: 1,
+          brand: 1,
+          stock: 1,
+          originStock: 1,
+          lowStockThreshold: 1,
+          description: 1,
+          tags: 1,
+          attributes: 1,
+          specifications: 1,
+          category: 1,
+          description_images: 1,
+          dimension: 1,
+          pricingTiers: 1,
+          packSizes: 1,
+          shipping: 1,
+          rating: 1,
+          sale: 1,
+          status: 1,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+    ];
+
+    // Execute aggregation
+    const products = await Product.aggregate(pipeline).exec();
+
+    // Map results to preserve order - return null for not-found products
+    const orderedProducts = identifiers.map((identifier) => {
+      const found = products.find(
+        (p) => String(p._id) === identifier || p.slug === identifier
+      );
+      return found || null;
+    });
+
+    return {
+      message: 'Products for comparison retrieved successfully',
+      data: orderedProducts as (ProductType | null)[],
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error in getProductsForComparison:', error);
+    return {
+      message: 'Failed to fetch products for comparison',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+/**
  * Get products from a specific campaign with pagination and filtering
  * Uses full aggregation pipeline for efficient campaign lookup and product fetching
  *
@@ -3627,6 +3756,7 @@ const ProductService = {
   getNewProducts,
   searchAutocomplete,
   getDealsOfTheDay,
+  getProductsForComparison,
   getProductsByCampaignSlug,
   getNewProductsFilters,
   getWeekProductsFilters,

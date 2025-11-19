@@ -49,7 +49,7 @@ shipmentSchema.pre('save', async function (next) {
   if (!this.trackingNumber) {
     const translator = shortUUID();
     // Generate tracking number from MongoDB _id
-    this.trackingNumber = translator.fromUUID(this._id.toString());
+    this.trackingNumber = translator.fromUUID(this._id.toString()).toUpperCase();
   }
   next();
 });

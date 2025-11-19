@@ -887,6 +887,7 @@ const ReviewService = {
   userReviews,
   userReviewPerProduct,
   getProductReviewStats,
+  verifyPurchaseEligibility,
 };
 
 export default ReviewService;

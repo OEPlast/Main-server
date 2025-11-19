@@ -4,3 +4,6 @@ node_modules/
 
 dist/
 .env
+
+# Generated review IDs from populate-reviews.ts
+generated-review-ids.json

@@ -25,6 +25,9 @@ router.get('/top-categories', ProductController.getTopCategories);
 // Campaign products - must come before /by-slug to avoid route conflicts
 router.get('/campaign/:slug', ProductController.getProductsByCampaignSlug);
 
+// Product comparison - must come before /by-slug to avoid route conflicts
+router.get('/compare', ProductController.getProductsForComparison);
+
 router.get('/category/:slug', ...ProductValidator.validateCategorySlug, ProductController.getByCategorySlug);
 router.get('/by-slug/:slug', ...validateProductSlug, ProductController.getProductBySlugOrIdController);
 router.get('/by-id/:id', ...ProductValidator.validateProductId, ProductController.getProductById);

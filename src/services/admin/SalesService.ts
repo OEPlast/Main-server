@@ -179,7 +179,7 @@ export const updateSale = async (
     const updateFields: Record<string, unknown> = { ...data, updatedBy: userId };
     const unsetFields: Record<string, ''> = {};
 
-    if (data.type === 'Normal') {
+    if (data.type === 'Normal' || data.type === 'Limited') {
       unsetFields.endDate = '';
       unsetFields.startDate = '';
       // Remove from updateFields if they exist

@@ -801,6 +801,44 @@ const getPopularProductsController = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Get products for comparison by mixed IDs and slugs
+ * GET /compare?identifiers=id1,slug2,id3
+ */
+const getProductsForComparison = async (req: Request, res: Response) => {
+  try {
+    // Parse identifiers from query string
+    const identifiersParam = req.query.identifiers as string;
+    
+    if (!identifiersParam) {
+      return res.status(400).json({ 
+        message: 'No product identifiers provided',
+        data: null 
+      });
+    }
+
+    // Split comma-separated identifiers and trim whitespace
+    const identifiers = identifiersParam
+      .split(',')
+      .map((id) => id.trim())
+      .filter(Boolean);
+
+    // Validate max 3 products
+    if (identifiers.length > 3) {
+      return res.status(400).json({
+        message: 'Maximum 3 products allowed for comparison',
+        data: null,
+      });
+    }
+
+    const { data, message, code } = await ProductService.getProductsForComparison(identifiers);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getProductsForComparison:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 export default {
   getAllProducts,
   searchProducts,
@@ -816,6 +854,7 @@ export default {
   getNewProducts,
   searchAutocomplete,
   getDealsOfTheDay,
+  getProductsForComparison,
   getProductsByCampaignSlug,
   getNewProductsFilters,
   getWeekProductsFilters,

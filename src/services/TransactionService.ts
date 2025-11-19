@@ -4,6 +4,7 @@ import Product from '../models/Product';
 import mongoose from 'mongoose';
 import eventPublisher from '@/events/eventPublisher';
 import { EventType } from '@/events/eventTypes';
+import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
 import { CustomResponseType } from '@/types';
 import { logger } from '@/lib/logger';
 import ShipmentService from './ShipmentService';
@@ -224,6 +225,30 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<ITra
           logger.info(
             `Stock restored for ${order.products.length} products in order ${transaction.orderId.toString()}`
           );
+
+          // Reverse sale counters using session for atomicity
+          const session = await mongoose.startSession();
+          session.startTransaction();
+          try {
+            await reverseSaleCountersOnCancel(
+              order.products
+                .filter((item) => item.product && item.qty)
+                .map((item) => ({
+                  product: item.product!,
+                  qty: item.qty!,
+                  sale: (item as any).sale || undefined,
+                  saleSnapshot: (item as any).saleSnapshot,
+                })),
+              session
+            );
+            await session.commitTransaction();
+            logger.info(`Sale counters reversed for order ${transaction.orderId.toString()}`);
+          } catch (err) {
+            await session.abortTransaction();
+            logger.error(`Failed to reverse sale counters for order ${transaction.orderId.toString()}:`, err);
+          } finally {
+            session.endSession();
+          }
 
           // Update order status to Cancelled
           await Order.findByIdAndUpdate(transaction.orderId, { status: 'Cancelled' });

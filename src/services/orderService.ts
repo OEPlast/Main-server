@@ -4,7 +4,7 @@ import Product from '@/models/Product';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import AnalyticsService from './MainAnalyticsService';
 import { findActiveSaleForProduct, checkSaleAvailability } from '@/helpers/salesUtils';
-import { SaleOrderProduct, updateSaleCountersOnOrder } from '@/helpers/saleOrderUtils';
+import { SaleOrderProduct, updateSaleCountersOnOrder, reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
 import type { SalesType } from '@/models/Sales';
 import eventPublisher from '@/events/eventPublisher';
 import {
@@ -138,7 +138,7 @@ async function validateCouponCodes({
         }
       }
 
-      if (typeof couponDoc.maxUsagePerUser === 'number' && couponDoc.maxUsagePerUser >= 0) {
+      if (typeof couponDoc.maxUsagePerUser === 'number' && couponDoc.maxUsagePerUser > 0) {
         const userUsageCount = await CouponRedemption.countDocuments({
           coupon: couponDoc._id,
           user: userId,
@@ -148,7 +148,6 @@ async function validateCouponCodes({
           continue;
         }
       }
-
       // Check minimum order value
       if (typeof couponDoc.minOrderValue === 'number' && itemsSubtotal < couponDoc.minOrderValue) {
         invalidCoupons.push({
@@ -644,8 +643,17 @@ const placeOrderWithStockValidation = async (
       }
     }
 
-    // Atomically update sale counters (limit, boughtCount, etc.)
-    await updateSaleCountersOnOrder(products as SaleOrderProduct[], session);
+    // Atomically update sale counters (limit, boughtCount, etc.) and get snapshots
+    const saleSnapshots = await updateSaleCountersOnOrder(products as SaleOrderProduct[], session);
+
+    // Store sale snapshots in product items for reversal on cancellation
+    for (const product of products) {
+      const productId = product.product!.toString();
+      const snapshot = saleSnapshots.get(productId);
+      if (snapshot) {
+        (product as any).saleSnapshot = snapshot;
+      }
+    }
 
     console.log('--------fdffdfdfdfdfd----------');
     console.log({ orderData });
@@ -696,6 +704,7 @@ const placeOrderWithStockValidation = async (
       totalBeforeDiscount: Math.round(itemsBaseSubtotal * 100) / 100,
       shippingPrice: shipping, // Use calculated shipping price
       products,
+      couponDiscount: finalCouponDiscount,
       // Handle multiple coupons if applied
       ...(appliedCouponDocs.length > 0
         ? {
@@ -906,6 +915,19 @@ const cancelOrder = async (orderId: string, userId: string): Promise<CustomRespo
     }));
 
     await Product.bulkWrite(bulkUpdates, { session });
+
+    // Reverse sale counters if snapshots exist
+    await reverseSaleCountersOnCancel(
+      order.products
+        .filter((item) => item.product && item.qty)
+        .map((item) => ({
+          product: item.product!,
+          qty: item.qty!,
+          sale: item.sale || undefined,
+          saleSnapshot: (item as any).saleSnapshot,
+        })),
+      session
+    );
 
     // Update order status
     order.status = 'Cancelled';
