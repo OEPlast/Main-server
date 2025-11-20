@@ -99,7 +99,14 @@ const getAllShipments = async (
 
 const getShipmentById = async (shipmentId: string): Promise<CustomResponseType<IShipment>> => {
   try {
-    const shipment = await Shipment.findById(shipmentId).populate('orderId', 'orderNumber totalAmount customerInfo');
+    const shipment = await Shipment.findById(shipmentId).populate({
+      path: 'orderId',
+      select: 'orderNumber products',
+      populate: {
+        path: 'products.product',
+        select: 'name slug description_images'
+      }
+    });
 
     if (!shipment) {
       return {
