@@ -181,11 +181,32 @@ const getOrders = async (
       },
     });
 
+    // Lookup user details
+    pipeline.push({
+      $lookup: {
+        from: 'users',
+        localField: 'user',
+        foreignField: '_id',
+        as: 'userDetails',
+      },
+    });
+
+    pipeline.push({
+      $unwind: { path: '$userDetails', preserveNullAndEmptyArrays: true },
+    });
+
     // Add paymentStatus field from transaction
     pipeline.push({
       $addFields: {
         paymentStatus: {
           $ifNull: [{ $arrayElemAt: ['$transactionDetails.status', 0] }, 'pending'],
+        },
+        user: {
+          _id: '$userDetails._id',
+          firstName: '$userDetails.firstName',
+          lastName: '$userDetails.lastName',
+          email: '$userDetails.email',
+          image: '$userDetails.image',
         },
       },
     });
@@ -208,6 +229,7 @@ const getOrders = async (
       $project: {
         transaction: 0,
         transactionDetails: 0,
+        userDetails: 0,
       },
     });
 
@@ -296,7 +318,13 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<Enriche
         $project: {
           _id: 1,
           orderNumber: { $toString: '$_id' },
-
+ user: {
+          _id: '$userDetails._id',
+          firstName: '$userDetails.firstName',
+          lastName: '$userDetails.lastName',
+          name: '$userDetails.name',
+          email: '$userDetails.email',
+        },
           // Order summary
           total: 1,
           totalBeforeDiscount: 1,

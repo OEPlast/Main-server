@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Shipment, { IShipment } from '../../models/Shipment';
 import { CustomResponseType } from '@/types';
+import Order from '@/models/Order';
 
 // Define shipment status union based on updated model enum
 type ShipmentStatus = 'In-Warehouse' | 'Shipped' | 'Dispatched' | 'In-Transit' | 'Delivered' | 'Returned' | 'Failed';
@@ -393,6 +394,7 @@ const updateShipmentStatus = async (
     shipment.status = status as IShipment['status'];
     if (shipment.status === 'Delivered' && !shipment.deliveredOn) {
       shipment.deliveredOn = new Date();
+      await Order.findByIdAndUpdate(shipment.orderId, { status: 'Completed' });
     }
     await shipment.save();
     await shipment.populate('orderId');
