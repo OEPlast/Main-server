@@ -3,7 +3,7 @@ import Shipment, { IShipment } from '../../models/Shipment';
 import { CustomResponseType } from '@/types';
 
 // Define shipment status union based on updated model enum
-type ShipmentStatus = 'In-Warehouse' | 'Shipped' | 'Dispatched' | 'Delivered' | 'Returned' | 'Failed';
+type ShipmentStatus = 'In-Warehouse' | 'Shipped' | 'Dispatched' | 'In-Transit' | 'Delivered' | 'Returned' | 'Failed';
 
 type TrackingHistoryEntry = IShipment['trackingHistory'][number];
 
@@ -12,6 +12,19 @@ type ShipmentTrackingDTO = {
   status: ShipmentStatus;
   estimatedDelivery: IShipment['estimatedDelivery'];
   trackingHistory: TrackingHistoryEntry[];
+};
+
+// Helper function to get user-friendly status description
+const getStatusDescription = (status: string): string => {
+  const statusDescriptions: Record<string, string> = {
+    'Shipped': 'Product left warehouse',
+    'Dispatched': 'Product is on its way',
+    'Delivered': 'Product delivered',
+    'Returned': 'Product has been returned',
+    'Failed': 'Something went wrong - shipment is canceled',
+  };
+  
+  return statusDescriptions[status] || `Status updated to ${status}`;
 };
 
 const createShipment = async (shipmentData: Partial<IShipment>): Promise<CustomResponseType<IShipment>> => {
@@ -110,6 +123,36 @@ const getShipmentById = async (shipmentId: string): Promise<CustomResponseType<I
   }
 };
 
+
+const getShipmentByTracking = async (trackingNumber: string): Promise<CustomResponseType<IShipment>> => {
+  try {
+    const shipment = await Shipment.findOne({ trackingNumber }).populate('orderId', 'orderNumber totalAmount customerInfo');
+
+    if (!shipment) {
+      return {
+        message: 'Shipment not found',
+        data: null,
+        code: 404,
+      };
+    }
+
+    return {
+      message: 'Shipment retrieved successfully',
+      data: shipment as unknown as IShipment,
+      code: 200,
+    };
+  } catch (error) {
+    console.error('Error getting shipment:', error);
+    return {
+      message: 'Failed to retrieve shipment',
+      data: null,
+      code: 500,
+    };
+  }
+};
+
+
+
 const updateShipment = async (
   shipmentId: string,
   updates: Partial<IShipment>
@@ -138,14 +181,13 @@ const updateShipment = async (
 
     // If status is being updated, add to tracking history
     if (updates.status && updates.status !== shipment.status) {
+      
       shipment.trackingHistory.push({
         location: 'Updated',
-        description: `Status updated to ${updates.status}`,
+        description: getStatusDescription(updates.status),
         timestamp: new Date(),
       });
-    }
-
-    Object.assign(shipment, updates);
+    }    Object.assign(shipment, updates);
     await shipment.save();
     await shipment.populate('orderId');
 
@@ -301,8 +343,9 @@ const updateShipmentStatus = async (
     // Validate transition (state machine)
     const allowedTransitions: Record<ShipmentStatus, ShipmentStatus[]> = {
       'In-Warehouse': ['Shipped', 'Dispatched', 'Delivered', 'Returned', 'Failed'],
-      Shipped: ['Dispatched', 'Delivered', 'Returned', 'Failed'],
-      Dispatched: ['Delivered', 'Returned', 'Failed'],
+      Shipped: ['Dispatched', 'Delivered', 'Returned', 'Failed', 'In-Transit'],
+      Dispatched: ['Delivered', 'Returned', 'Failed', 'In-Transit'],
+      'In-Transit': ['Delivered', 'Returned', 'Failed'],
       Delivered: [],
       Returned: [],
       Failed: [],
@@ -311,13 +354,42 @@ const updateShipmentStatus = async (
       return { message: `Invalid status transition from ${shipment.status} to ${status}`, data: null, code: 409 };
     }
 
+    if(status === 'In-Transit'){
+      shipment.trackingHistory.push({
+        location: 'On the way',
+        description: `Your order is on it's way`,
+        timestamp: new Date(),
+      });
+    }
+    if(status === 'Delivered'){
+      shipment.trackingHistory.push({
+        location: 'Destination',
+        description: 'Your order has been Delivered',
+        timestamp: new Date(),
+      });
+    }
+    if(status === 'Failed'){
+      shipment.trackingHistory.push({
+        location: 'Updates',
+        description: 'Delivery attempt failed. Please contact support.',
+        timestamp: new Date(),
+      }); 
+    }
+    if(status === 'Shipped'){
+      shipment.trackingHistory.push({
+        location: 'Warehouse',
+        description: 'Shipment has left the warehouse',
+        timestamp: new Date(),
+      });
+    }
+/*
     // Add to tracking history
     shipment.trackingHistory.push({
-      location: 'Updated',
-      description: note || `Status updated to ${status}`,
+      location: 'Updates',
+      description: note || getStatusDescription(status),
       timestamp: new Date(),
     });
-
+*/
     shipment.status = status as IShipment['status'];
     if (shipment.status === 'Delivered' && !shipment.deliveredOn) {
       shipment.deliveredOn = new Date();
@@ -385,7 +457,7 @@ const bulkUpdateStatus = async (
       if (shipment) {
         shipment.trackingHistory.push({
           location: 'Updated',
-          description: note || `Bulk status update to ${status}`,
+          description: note || getStatusDescription(status),
           timestamp: new Date(),
         });
         shipment.status = status as IShipment['status'];
@@ -451,8 +523,10 @@ const listByCourierUser = async (
   status?: ShipmentStatus
 ): Promise<CustomResponseType<{ shipments: IShipment[]; total: number; page: number; limit: number }>> => {
   try {
-    const filter: Record<string, unknown> = { courierUser: userId };
+    const filter: Record<string, unknown> = { courierUser: new mongoose.Types.ObjectId(userId) };
+
     if (status) filter.status = status;
+console.log(filter);
 
     const [shipments, total] = await Promise.all([
       Shipment.find(filter)
@@ -484,8 +558,11 @@ const statsByCourierUser = async (
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ];
     const results = await Shipment.aggregate(pipeline);
+    console.log(results);
+    
     const statMap: Record<ShipmentStatus | 'total', number> = {
       'In-Warehouse': 0,
+      'In-Transit': 0,
       Shipped: 0,
       Dispatched: 0,
       Delivered: 0,
@@ -497,6 +574,7 @@ const statsByCourierUser = async (
       statMap[r._id as ShipmentStatus] = r.count || 0;
       statMap.total += r.count || 0;
     }
+    console.log(statMap);
     return { message: 'Delivery stats retrieved successfully', data: statMap, code: 200 };
   } catch (error) {
     console.error('Error getting delivery stats:', error);
@@ -510,6 +588,7 @@ const statsAll = async (): Promise<CustomResponseType<Record<ShipmentStatus | 't
     const results = await Shipment.aggregate([{ $group: { _id: '$status', count: { $sum: 1 } } }]);
     const statMap: Record<ShipmentStatus | 'total', number> = {
       'In-Warehouse': 0,
+      'In-Transit': 0,
       Shipped: 0,
       Dispatched: 0,
       Delivered: 0,
@@ -564,6 +643,7 @@ const ShipmentService = {
   statsByCourierUser,
   statsAll,
   updateNotes,
+  getShipmentByTracking
 };
 
 export default ShipmentService;

@@ -386,6 +386,27 @@ const getStaff = async ({
           totalSpent: { $sum: '$orders.total' },
         },
       },
+      {
+        $lookup: {
+          from: 'roles',
+          localField: 'roles',
+          foreignField: '_id',
+          as: 'populatedRoles',
+        },
+      },
+      {
+        $addFields: {
+          permissionCount: {
+            $sum: {
+              $map: {
+                input: '$populatedRoles',
+                as: 'role',
+                in: { $size: { $ifNull: ['$$role.permissions', []] } },
+              },
+            },
+          },
+        },
+      },
       { $sort: { firstName: sort, email: sort } },
       {
         $facet: {
@@ -406,6 +427,7 @@ const getStaff = async ({
                 image: 1,
                 role: 1,
                 emailVerified: 1,
+                permissionCount: 1,
               },
             },
           ],

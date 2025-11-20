@@ -9,7 +9,7 @@ const shipmentSchema = new Schema(
     courierUser: { type: Schema.Types.ObjectId, ref: 'User' },
     status: {
       type: String,
-      enum: ['In-Warehouse', 'Shipped', 'Dispatched', 'Delivered', 'Returned', 'Failed'],
+      enum: ['In-Warehouse', 'Shipped', 'Dispatched','In-Transit', 'Delivered', 'Returned', 'Failed'],
       default: 'In-Warehouse',
     },
     estimatedDelivery: { type: Date },

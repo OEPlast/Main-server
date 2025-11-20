@@ -16,6 +16,12 @@ router.get(
   DeliveryValidator.shipmentIdValidator,
   DeliveryController.getById
 );
+router.get(
+  '/t/:tracking',
+  requirePermission('delivery', 'read'),
+  DeliveryValidator.shipmentByTrackingValidator,
+  DeliveryController.getByTracking
+);
 router.patch(
   '/:shipmentId/status',
   requirePermission('delivery', 'update'),

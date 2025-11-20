@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import ShipmentService from '@/services/admin/ShipmentService';
 import { AuthenticatedRequest } from '@/types';
 
-const allowedStatuses = ['In-Warehouse', 'Shipped', 'Dispatched', 'Delivered', 'Returned', 'Failed'] as const;
+const allowedStatuses = ['In-Warehouse', 'Shipped', 'Dispatched','In-Transit', 'Delivered', 'Returned', 'Failed'] as const;
 type ShipmentStatus = (typeof allowedStatuses)[number];
 const isShipmentStatus = (val: unknown): val is ShipmentStatus =>
   typeof val === 'string' && (allowedStatuses as readonly string[]).includes(val);
@@ -48,6 +48,25 @@ const getById = async (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+const getByTracking = async (req: Request, res: Response) => {
+  try {
+    const { tracking } = req.params;
+    const userId = (req as AuthenticatedRequest).userId!;
+    const result = await ShipmentService.getShipmentByTracking(tracking);
+    if (result.code !== 200 || !result.data) {
+      return res.status(result.code).json({ message: result.message, data: result.data });
+    }
+    if (String(result.data.courierUser) !== String(userId)) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+    return res.status(200).json({ message: 'Delivery retrieved successfully', data: result.data });
+  } catch (error) {
+    console.error('Error in getById:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 
 const updateStatus = async (req: Request, res: Response) => {
   try {
@@ -118,4 +137,4 @@ const updateNotes = async (req: Request, res: Response) => {
   }
 };
 
-export default { listMine, statsMine, getById, updateStatus, addTrackingUpdate, updateNotes };
+export default { listMine, statsMine, getById, getByTracking,updateStatus, addTrackingUpdate, updateNotes };

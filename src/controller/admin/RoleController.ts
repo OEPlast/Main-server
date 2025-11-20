@@ -15,7 +15,7 @@ const createRole = async (req: Request, res: Response) => {
 
 const getAllRoles = async (req: Request, res: Response) => {
   try {
-    const { page = 1, limit = 20, isActive } = req.query;
+    const { page = 1, limit = 30, isActive } = req.query;
     const result = await RoleService.getAllRoles(
       Number(page),
       Number(limit),

@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { checkExact, checkSchema, validationResult } from 'express-validator';
 
-const MODEL_STATUSES = ['In-Warehouse', 'Shipped', 'Dispatched', 'Delivered', 'Returned', 'Failed'] as const;
+const MODEL_STATUSES = ['In-Warehouse', 'Shipped', 'Dispatched','In-Transit', 'Delivered', 'Returned', 'Failed'] as const;
 
 export const listMineValidator = async (req: Request, res: Response, next: NextFunction) => {
   await checkExact(
@@ -29,6 +29,16 @@ export const shipmentIdValidator = (req: Request, res: Response, next: NextFunct
   next();
 };
 
+export const shipmentByTrackingValidator = (req: Request, res: Response, next: NextFunction) => {
+  checkSchema({
+    tracking: { in: ['params'],  errorMessage: 'Invalid tracking' },
+  }).run(req);
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });
+  next();
+};
+
+
 export const updateStatusValidator = async (req: Request, res: Response, next: NextFunction) => {
   await checkExact(
     checkSchema({
@@ -39,7 +49,6 @@ export const updateStatusValidator = async (req: Request, res: Response, next: N
         notEmpty: true,
         isIn: { options: [Array.from(MODEL_STATUSES)], errorMessage: 'invalid status' },
       },
-      note: { in: ['body'], optional: true, isString: true },
     })
   ).run(req);
   const errors = validationResult(req);
@@ -79,6 +88,7 @@ const DeliveryValidator = {
   updateStatusValidator,
   addTrackingValidator,
   updateNotesValidator,
+  shipmentByTrackingValidator
 };
 
 export default DeliveryValidator;

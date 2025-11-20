@@ -1,7 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { checkSchema, validationResult } from 'express-validator';
 
-const MODEL_STATUSES = ['In-Warehouse', 'Shipped', 'Dispatched', 'Delivered', 'Returned', 'Failed'] as const;
+const MODEL_STATUSES = ['In-Warehouse', 'Shipped', 'Dispatched','In-Transit', 'Delivered', 'Returned', 'Failed'] as const;
 
 const createShipmentValidator = (req: Request, res: Response, next: NextFunction) => {
   checkSchema({

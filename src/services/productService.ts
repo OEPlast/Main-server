@@ -2239,7 +2239,7 @@ type CampaignProductsData = {
 const getProductsByCampaignSlug = async (
   campaignSlug: string,
   page = 1,
-  limit = 20,
+  limit = 15,
   sortOptions: Array<
     'alphabetical' | 'newest' | 'price_asc' | 'price_desc' | 'popular' | 'stock' | 'order_frequency' | 'rating'
   > = ['alphabetical', 'newest'],
@@ -2878,7 +2878,7 @@ const searchProductsWithFilters = async (params: {
     const {
       query = '',
       page = 1,
-      limit = 12,
+      limit = 15,
       minPrice,
       maxPrice,
       inStock,
@@ -3021,7 +3021,7 @@ const searchProductsWithFilters = async (params: {
       message: 'Failed to retrieve search results',
       data: [],
       code: 500,
-      meta: { total: 0, page: 1, limit: 12, pages: 0 },
+      meta: { total: 0, page: 1, limit: 15, pages: 0 },
     };
   }
 };

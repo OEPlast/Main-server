@@ -516,7 +516,7 @@ const getProductsByCampaignSlug = async (req: Request, res: Response) => {
     const { slug } = req.params as { slug: string };
     const {
       page = '1',
-      limit = '20',
+      limit = '15',
       minPrice,
       maxPrice,
       tags,

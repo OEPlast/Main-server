@@ -137,7 +137,7 @@ const updateSaleValidator = async (req: Request, res: Response, next: NextFuncti
         deleted: { in: ['body'], optional: true, isBoolean: true, toBoolean: true },
         campaign: { in: ['body'], optional: true, isMongoId: true },
         isHot: { in: ['body'], optional: true, isBoolean: true, toBoolean: true },
-        type: { in: ['body'], optional: true, isIn: { options: [['Flash', 'Normal']] } },
+        type: { in: ['body'], optional: true, isIn: { options: [['Flash', 'Normal', 'Limited']] } },
         startDate: {
           in: ['body'],
           optional: true,
