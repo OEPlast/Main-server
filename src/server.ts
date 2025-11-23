@@ -48,7 +48,7 @@ import {
   AdminDeliveryRoute,
 } from './routes/admin';
 import FileUploadRoute from '@/routes/general/fileUpload';
-import EmailProcessor from './services/EmailProcessor';
+import EmailProcessor from './services/processor/EmailProcessor';
 import InternalServiceRoutes from '@/routes/internal/serviceRoutes';
 
 // Helper to capture raw body without using any

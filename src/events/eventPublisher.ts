@@ -1,6 +1,7 @@
 import amqplib, { type Channel } from 'amqplib';
 import { v4 as uuidv4 } from 'uuid';
 import { EventType, type BaseEvent } from './eventTypes';
+import { OrderConfirmationData, OrderDeliveredData, OrderShippedData, VerificationEmailData } from '@/types/email-data';
 
 // Simplified: single topic exchange. Consumers can bind a queue with patterns (e.g. order.*, payment.#, #)
 const EXCHANGE_NAME = 'app.events';
@@ -99,8 +100,8 @@ class EventPublisher {
     }
   }
 
-  async publishUserSignup(data: { userId: string; email: string; firstName: string; otp: number }): Promise<void> {
-    await this.publish(EventType.USER_SIGNUP, data, { userId: data.userId });
+  async publishUserSignup(data: VerificationEmailData & Record<string, unknown>): Promise<void> {
+    await this.publish(EventType.USER_SIGNUP, data);
   }
 
   async publishOrderCreated(orderData: { orderId: string }): Promise<void> {
@@ -179,15 +180,8 @@ class EventPublisher {
     await this.publish(EventType.ORDER_PAID, data, { userId: data.userId });
   }
 
-  async publishOrderSuccessful(data: {
-    orderId: string;
-    userId: string;
-    orderNumber: string;
-    totalAmount: number;
-    customerInfo: { firstName: string; lastName: string; email: string };
-    items: Array<{ productId: string; quantity: number; price: number }>;
-  }): Promise<void> {
-    await this.publish(EventType.ORDER_SUCCESSFUL, data, { userId: data.userId });
+  async publishOrderSuccessful(data: OrderConfirmationData): Promise<void> {
+    await this.publish(EventType.ORDER_SUCCESSFUL, data);
   }
 
   async publishWebsocketOrderUpdate(data: { orderId: string; status: string; message?: string }): Promise<void> {
@@ -223,17 +217,14 @@ class EventPublisher {
     await this.publish(EventType.SHIPMENT_CREATED, data);
   }
 
-  async publishShipmentStatusUpdated(data: {
-    shipmentId: string;
-    orderId: string;
-    trackingNumber: string;
-    oldStatus: string;
-    newStatus: string;
-    location?: string;
-    description?: string;
-  }): Promise<void> {
+  async publishShipmentStatusUpdated(data: OrderShippedData): Promise<void> {
     await this.publish(EventType.SHIPMENT_STATUS_UPDATED, data);
   }
+
+    async publishOrderDelivered(data: OrderDeliveredData ): Promise<void> {
+    await this.publish(EventType.ORDER_DELIVERED, data);
+  }
+
 }
 
 const eventPublisher = new EventPublisher();

@@ -8,7 +8,6 @@ import eventPublisher from '@/events/eventPublisher';
 import TransactionService from '@/services/TransactionService';
 import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
 import mongoose from 'mongoose';
-
 const router = Router();
 
 // Apply internal service authentication to all routes
@@ -128,25 +127,81 @@ router.post('/orders/verify-and-restore-stock', async (req: Request, res: Respon
         // Payment succeeded after timeout - order should already be marked as paid by verifyPayment
         logger.warn(`Payment completed late for order ${orderId} - already marked as paid`);
 
-        // Ensure ORDER_SUCCESSFUL event is emitted
-        const updatedOrder = await Order.findById(orderId).populate('user', 'email firstName lastName');
+        // Ensure ORDER_SUCCESSFUL event is emitted with complete data
+        const updatedOrder = await Order.findById(orderId).populate([
+          {
+            path: 'user',
+            select: 'email firstName lastName',
+          },
+          {
+            path: 'products.product',
+            select: 'name description_images category price',
+          },
+          {
+            path: 'shipmentId',
+            select: 'courier',
+          },
+        ]);
+
         if (updatedOrder) {
-          const populatedUser = updatedOrder.user as unknown as { email?: string };
+          const populatedUser = updatedOrder.user as unknown as {
+            email: string;
+            firstName: string;
+            lastName: string;
+          };
+
+          const populatedProducts = updatedOrder.products as unknown as Array<{
+            product: {
+              name: string;
+              description_images?: string[];
+              category?: string;
+              price?: number;
+            };
+            qty?: number;
+            price?: number;
+          }>;
+
+          // Determine courier and address based on delivery type
+          let courier = 'Standard Shipping';
+          let address = '';
+
+          if (updatedOrder.deliveryType === 'pickup') {
+            courier = 'Pickup';
+            address = process.env.STORE_ADDRESS || 'Store Pickup';
+          } else {
+            // For shipping, try to get courier from shipment if available
+            const populatedShipment = updatedOrder.shipmentId as unknown as { courier?: string } | null;
+            courier = populatedShipment?.courier || 'Standard Shipping';
+            address = `${updatedOrder.shippingAddress?.address1 || ''}, ${updatedOrder.shippingAddress?.city || ''}, ${
+              updatedOrder.shippingAddress?.state || ''
+            }`.trim();
+          }
+
           await eventPublisher.publishOrderSuccessful({
-            orderId: updatedOrder._id.toString(),
-            userId: typeof updatedOrder.user === 'string' ? updatedOrder.user : updatedOrder.user.toString(),
-            orderNumber: updatedOrder._id.toString(),
-            totalAmount: updatedOrder.total,
-            customerInfo: {
-              firstName: updatedOrder.shippingAddress?.firstName || '',
-              lastName: updatedOrder.shippingAddress?.lastName || '',
-              email: populatedUser.email || '',
+            email: populatedUser.email,
+            firstName: populatedUser.firstName,
+            purchaseDate: updatedOrder.createdAt,
+            invoiceNumber: updatedOrder._id.toString(),
+            shipping: {
+              courier,
+              address,
             },
-            items: updatedOrder.products.map((item) => ({
-              productId: item.product?.toString() || '',
+            products: populatedProducts.map((item) => ({
+              name: item.product.name,
+              imagePath: item.product.description_images?.[0] || '',
+              category: item.product.category,
+              price: item.price || item.product.price || 0,
               quantity: item.qty || 0,
-              price: item.price || 0,
+              subtotal: (item.price || item.product.price || 0) * (item.qty || 0),
             })),
+            payment: {
+              totalShopping: updatedOrder.totalBeforeDiscount || updatedOrder.total || 0,
+              shipping: updatedOrder.shippingPrice || 0,
+              tax: updatedOrder.taxPrice || 0,
+              discount: updatedOrder.couponDiscount || 0,
+              subtotal: updatedOrder.total || 0,
+            },
+            orderStatusLink: `${process.env.FRONTEND_URL}/orders/${updatedOrder._id.toString()}`,
           });
         }
 
@@ -215,8 +270,17 @@ async function restoreStock(orderId: string, items: Array<{ productId: string; q
             .map((item) => ({
               product: item.product!,
               qty: item.qty!,
-              sale: (item as any).sale,
-              saleSnapshot: (item as any).saleSnapshot,
+              sale: item.sale || undefined,
+              saleSnapshot: item.saleSnapshot
+                ? {
+                    type: item.saleSnapshot.type!,
+                    variantIndex: item.saleSnapshot.variantIndex!,
+                    maxBuys: item.saleSnapshot.maxBuys!,
+                    boughtCount: item.saleSnapshot.boughtCount!,
+                    attributeName: item.saleSnapshot.attributeName || undefined,
+                    attributeValue: item.saleSnapshot.attributeValue || undefined,
+                  }
+                : undefined,
             })),
           session
         );

@@ -367,7 +367,20 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
           transaction.orderId,
           { isPaid: true, paidAt: new Date() },
           { new: true }
-        ).populate('user', 'email firstName lastName');
+        ).populate([
+          {
+            path: 'user',
+            select: 'email firstName lastName'
+          },
+          {
+            path: 'products.product',
+            select: 'name description_images category price'
+          },
+          {
+            path: 'shipmentId',
+            select: 'courier'
+          }
+        ]);
 
         // Update order status to Processing
         await Order.findByIdAndUpdate(transaction.orderId, { status: 'Processing' });
@@ -394,33 +407,66 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
         }
 
         // Publish payment successful event
-        await eventPublisher.publishPaymentSuccessful({
-          orderId: transaction.orderId.toString(),
-          userId: transaction.userId.toString(),
-          paymentId: (transaction._id as mongoose.Types.ObjectId).toString(),
-          amount: transaction.amount,
-          paymentMethod: 'paystack',
-        });
         logger.info(`Paystack webhook: published payment successful event (orderId=${transaction.orderId.toString()})`);
 
         // Publish ORDER_SUCCESSFUL event to trigger email confirmation and clear timeout
         if (order) {
-          const populatedUser = order.user as unknown as { email?: string };
+          const populatedUser = order.user as unknown as {
+            email: string;
+            firstName: string;
+            lastName: string;
+          };
+          
+          const populatedProducts = order.products as unknown as Array<{
+            product: {
+              name: string;
+              description_images?: string[];
+              category?: string;
+              price?: number;
+            };
+            qty?: number;
+            price?: number;
+          }>;
+          
+          // Determine courier and address based on delivery type
+          let courier = 'Standard Shipping';
+          let address = '';
+          
+          if (order.deliveryType === 'pickup') {
+            courier = 'Pickup';
+            address = process.env.STORE_ADDRESS || 'Store Pickup';
+          } else {
+            // For shipping, try to get courier from shipment if available
+            const populatedShipment = order.shipmentId as unknown as { courier?: string } | null;
+            courier = populatedShipment?.courier || 'Standard Shipping';
+            address = `${order.shippingAddress?.address1 || ''}, ${order.shippingAddress?.city || ''}, ${order.shippingAddress?.state || ''}`.trim();
+          }
+          
           await eventPublisher.publishOrderSuccessful({
-            orderId: order._id.toString(),
-            userId: typeof order.user === 'string' ? order.user : order.user.toString(),
-            orderNumber: order._id.toString(),
-            totalAmount: order.total,
-            customerInfo: {
-              firstName: order.shippingAddress?.firstName || '',
-              lastName: order.shippingAddress?.lastName || '',
-              email: populatedUser.email || '',
+            email: populatedUser.email,
+            firstName: populatedUser.firstName,
+            purchaseDate: order.createdAt,
+            invoiceNumber: order._id.toString(),
+            shipping: {
+              courier,
+              address,
             },
-            items: order.products.map((item) => ({
-              productId: item.product?.toString() || '',
+            products: populatedProducts.map(item => ({
+              name: item.product.name,
+              imagePath: item.product.description_images?.[0] || '',
+              category: item.product.category,
+              price: item.price || item.product.price || 0,
               quantity: item.qty || 0,
-              price: item.price || 0,
+              subtotal: (item.price || item.product.price || 0) * (item.qty || 0),
             })),
+            payment: {
+              totalShopping: order.totalBeforeDiscount || order.total || 0,
+              shipping: order.shippingPrice || 0,
+              tax: order.taxPrice || 0,
+              discount: order.couponDiscount || 0,
+              subtotal: order.total || 0,
+            },
+            orderStatusLink: `${process.env.FRONTEND_URL}/orders/${order._id.toString()}`,
           });
           logger.info(`Paystack webhook: published ORDER_SUCCESSFUL event (orderId=${transaction.orderId.toString()})`);
         }

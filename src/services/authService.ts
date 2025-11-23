@@ -5,7 +5,7 @@ import tokenizer from '@/lib/tokenizer';
 import OTPService from './OTP';
 import mongoose from 'mongoose';
 import { eventPublisher } from '@/events';
-import EmailProcessor from './EmailProcessor';
+import EmailProcessor from './processor/EmailProcessor';
 import Account from '@/models/Account';
 
 type TMiniUser = {
@@ -56,12 +56,12 @@ const signup = async (userData: {
 
     const token = tokenizer.SignData({ userId: newUser._id, role: newUser.role });
 
-    eventPublisher.publishUserSignup({
-      email: userData.email,
-      firstName: userData.firstName,
-      userId: newUser._id.toString(),
-      otp: createOTP.data,
-    });
+      eventPublisher.publishUserSignup({
+        firstName: newUser.firstName!,
+        otpCode: `${createOTP.data}`,
+        email: newUser.email,
+        expiresInMinutes: 10,
+      });
 
     return {
       message: 'User created successfully. Please verify your account using the OTP sent to your email.',
@@ -345,11 +345,10 @@ const requestResetCode = async (email: string): Promise<CustomResponseType<null>
     const createOTP = await OTPService.createOtp({ user: user._id.toString(), type: 'reset password' });
 
     if (createOTP.data) {
-      await EmailProcessor.sendPasswordResetEmail({
+      await EmailProcessor.sendForgotPasswordEmail({
         firstName: user.firstName!,
-        resetCode: createOTP.data.toString(),
-        to: user.email,
-        expiresInMinutes: 10,
+        otpCode: createOTP.data.toString(),
+        email: user.email,
       });
     }
     return {
@@ -487,8 +486,8 @@ const resendAccountOtp = async ({ userId }: { userId: string }): Promise<CustomR
     if (createOTP.data) {
       await EmailProcessor.sendSignupOtpEmail({
         firstName: user.firstName!,
-        otpCode: createOTP.data,
-        to: user.email,
+        otpCode: `${createOTP.data}`,
+        email: user.email,
         expiresInMinutes: 10,
       });
     }

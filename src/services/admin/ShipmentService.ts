@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Shipment, { IShipment } from '../../models/Shipment';
 import { CustomResponseType } from '@/types';
 import Order from '@/models/Order';
+import { eventPublisher } from '@/events';
 
 // Define shipment status union based on updated model enum
 type ShipmentStatus = 'In-Warehouse' | 'Shipped' | 'Dispatched' | 'In-Transit' | 'Delivered' | 'Returned' | 'Failed';
@@ -333,7 +334,20 @@ const updateShipmentStatus = async (
   note?: string
 ): Promise<CustomResponseType<IShipment>> => {
   try {
-    const shipment = await Shipment.findById(shipmentId);
+    const shipment = await Shipment.findById(shipmentId).populate({
+      path: 'orderId',
+      populate: [
+        {
+          path: 'user',
+          select: 'firstName lastName email'
+        },
+        {
+          path: 'products.product',
+          select: 'name description_images category'
+        }
+      ]
+    });
+    
 
     if (!shipment) {
       return {
@@ -343,6 +357,25 @@ const updateShipmentStatus = async (
       };
     }
 
+          // Type-safe check for populated order with user and products
+      const populatedOrder = shipment.orderId as unknown as {
+        _id: mongoose.Types.ObjectId;
+        orderNumber: string;
+        createdAt: Date;
+        user?: {
+          email: string;
+          firstName: string;
+          lastName: string;
+        };
+        products?: Array<{
+          product: {
+            name: string;
+            description_images?: string[];
+            category?: string;
+          };
+          quantity?: number;
+        }>;
+      };
     // Delivered lock
     if (shipment.status === 'Delivered') {
       return { message: 'Delivered shipments cannot be modified', data: null, code: 409 };
@@ -389,6 +422,22 @@ const updateShipmentStatus = async (
         description: 'Shipment has left the warehouse',
         timestamp: new Date(),
       });
+      
+      if (populatedOrder.user) {
+        await eventPublisher.publishShipmentStatusUpdated({
+          email: populatedOrder.user.email,
+          firstName: populatedOrder.user.firstName,
+          purchaseDate: shipment.createdAt,
+          orderNumber: populatedOrder._id.toString(),
+          trackingNumber: shipment.trackingNumber || '',
+          shipping: {
+            address: shipment.shippingAddress?.address1 || '',
+            courier: shipment.courier || '',
+          },
+          manageOrderLink: `https://plasticsnmore.com/orders/${populatedOrder._id.toString()}`,
+          orderStatus: 'Shipped',
+        });
+      }
     }
 /*
     // Add to tracking history
@@ -402,6 +451,24 @@ const updateShipmentStatus = async (
     if (shipment.status === 'Delivered' && !shipment.deliveredOn) {
       shipment.deliveredOn = new Date();
       await Order.findByIdAndUpdate(shipment.orderId, { status: 'Completed' });
+
+      
+      if (populatedOrder.user && populatedOrder.products) {
+        await eventPublisher.publishOrderDelivered({
+          email: populatedOrder.user.email,
+          firstName: populatedOrder.user.firstName,
+          lastName: populatedOrder.user.lastName,
+          purchaseDate: populatedOrder.createdAt,
+          orderNumber: populatedOrder.orderNumber,
+          products: populatedOrder.products.map(item => ({
+            name: item.product.name,
+            imagePath: item.product.description_images?.[0] || '',
+            category: item.product.category,
+          })),
+          trackingNumber: shipment.trackingNumber || undefined,
+          viewOrderLink: `https://plasticsnmore.com/orders/${populatedOrder._id.toString()}`,
+        });
+      }
     }
     await shipment.save();
     await shipment.populate('orderId');
