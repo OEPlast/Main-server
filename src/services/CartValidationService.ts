@@ -1,7 +1,7 @@
 import { Types } from 'mongoose';
 import { CartType } from '@/models/Cart';
 import ProductModel from '@/models/Product';
-import SalesModel from '@/models/Sales';
+import SalesModel, { SalesType } from '@/models/Sales';
 import CouponModel from '@/models/Coupon';
 import { CustomResponseType } from '@/types';
 
@@ -261,18 +261,26 @@ const calculateSalesDiscount = (
   quantity: number,
   selectedAttributes: Array<{ name: string; value: string }> | undefined,
   salesData:
-    | { variants?: SalesVariantType[] | null; isActive?: boolean; startDate?: Date; endDate?: Date }
+    | {
+        variants?: SalesVariantType[] | null;
+        isActive?: boolean;
+        startDate?: Date;
+        endDate?: Date;
+        type: SalesType['type'];
+      }
     | null
     | undefined
 ): number => {
   if (!salesData?.variants || salesData.variants.length === 0 || !salesData.isActive) return 0;
 
-  // Check date range if provided
-  if (salesData.startDate && salesData.endDate) {
-    const now = new Date();
-    const start = new Date(salesData.startDate);
-    const end = new Date(salesData.endDate);
-    if (now < start || now > end) return 0;
+  if (salesData.type === 'Flash') {
+    // Check date range if provided
+    if (salesData.startDate && salesData.endDate) {
+      const now = new Date();
+      const start = new Date(salesData.startDate);
+      const end = new Date(salesData.endDate);
+      if (now < start || now > end) return 0;
+    }
   }
 
   // Helper to check if value is null or 'all'/'All'
@@ -391,6 +399,7 @@ export const validateItemPrice = async (
         isActive?: boolean;
         startDate?: Date;
         endDate?: Date;
+        type: SalesType['type'];
       }>();
       // Apply sale discount to price AFTER tier discount (not base price)
       salesDiscount = calculateSalesDiscount(currentPrice, item.qty, item.selectedAttributes, salesData);
@@ -792,6 +801,7 @@ const detectProductIssues = async (
           isActive?: boolean;
           startDate?: Date;
           endDate?: Date;
+          type: SalesType['type'];
         }>();
 
         let saleExpired = false;
@@ -801,7 +811,7 @@ const detectProductIssues = async (
           if (!salesData.isActive) {
             saleExpired = true;
             expiryReason = 'deactivated';
-          } else if (salesData.endDate && new Date() > new Date(salesData.endDate)) {
+          } else if (salesData.type === 'Flash' && salesData.endDate && new Date() > new Date(salesData.endDate)) {
             saleExpired = true;
             expiryReason = 'endDateReached';
           }

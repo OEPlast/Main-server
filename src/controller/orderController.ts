@@ -152,6 +152,7 @@ export const calculateShipping = async (req: Request, res: Response) => {
         country?: string;
         state?: string;
         city?: string;
+        lga?: string;
       };
       deliveryType?: 'shipping' | 'pickup';
     };
@@ -191,9 +192,9 @@ export const calculateShipping = async (req: Request, res: Response) => {
       // Prepare destination from shipping address (city takes priority over LGA)
       const destination = {
         countryName: shippingAddress.country || 'Nigeria',
-        stateName: shippingAddress.state || 'Lagos',
+        stateName: shippingAddress.state || '',
         cityName: shippingAddress.city, // City has priority in lookup
-        lgaName: undefined, // LGA not used if city is provided
+        lgaName: shippingAddress.lga, // LGA not used if city is provided
       };
 
       // Calculate progressive shipping cost

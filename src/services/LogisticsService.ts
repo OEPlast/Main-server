@@ -500,6 +500,7 @@ export async function calculateProgressiveShipping(items: OrderItem[], destinati
 
   const finalShipping = Math.round(Math.max(0, adjustedShipping) * 100) / 100;
   const finalEta = baseEtaDays + maxAddedDays;
+  console.log(destination);
 
   console.log('Shipping calculation:', {
     destination: {

@@ -1,6 +1,8 @@
 import { Types } from 'mongoose';
+import mongoose from 'mongoose';
 import Cart from '@/models/Cart';
 import User from '@/models/User';
+import Product from '@/models/Product';
 import { ITransaction } from '@/models/Transaction';
 import LogisticsService from '@/services/LogisticsService';
 import OrderService from '@/services/orderService';
@@ -12,8 +14,10 @@ import {
   CorrectedCart,
   CartChangeDetail,
 } from '@/services/CartValidationService';
-import { OrderType } from '@/models/Order';
+import Order, { OrderType } from '@/models/Order';
 import { CustomResponseType } from '@/types';
+import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
+import eventPublisher from '@/events/eventPublisher';
 
 export type CheckoutDeliveryType = 'shipping' | 'pickup';
 
@@ -45,9 +49,67 @@ export type SecureCheckoutPayload = {
   estimatedShipping?: { cost: number; days: number };
   deliveryType?: CheckoutDeliveryType;
   shippingCost?: number;
+  acceptChanges?: boolean; // Auto-apply corrections when true
 };
 
 export type SecureCheckoutCorrection = {
+  needsUpdate: true;
+  errors?: {
+    products?: Array<{
+      productId: string;
+      productName: string;
+      productSlug: string;
+      cartItemId: string;
+      issueType: 'outOfStock' | 'quantityReduced' | 'priceChanged' | 'attributeUnavailable' | 'saleExpired';
+      message: string;
+      severity: 'critical' | 'warning' | 'info';
+      currentQty: number;
+      availableStock: number;
+      currentPrice: number | null;
+      correctedPrice: number | null;
+      unavailableAttributes: Array<{ name: string; value: string }> | null;
+      availableAttributes: Array<Array<{ name: string; value: string }>> | null;
+      suggestedAction: 'remove' | 'reduceQuantity' | 'changeAttribute' | 'acceptPrice';
+      saleInfo?: {
+        previousSaleId: string;
+        previousDiscount: number;
+        expiryReason: 'endDateReached' | 'maxBuysReached' | 'deactivated';
+      };
+    }>;
+    coupons?: Array<{
+      code: string;
+      reason: string;
+      previousDiscount: number;
+      expiryDate?: string;
+    }>;
+    shipping?: {
+      previousCost: number;
+      currentCost: number;
+      reason: string;
+      destination?: {
+        state: string;
+        city?: string;
+      };
+    };
+    total?: {
+      expectedTotal: number;
+      calculatedTotal: number;
+      discrepancy: number;
+      message: string;
+    };
+  };
+  summary: {
+    itemsRemaining: number;
+    newSubtotal: number;
+    newTotal: number;
+    shippingCost: number;
+    deliveryType: CheckoutDeliveryType;
+    couponDiscount: number;
+  };
+};
+
+/** @deprecated Legacy verbose type - use SecureCheckoutCorrection instead */
+export type SecureCheckoutCorrectionLegacy = {
   needsUpdate: true;
   shippingCost: number;
   deliveryType: CheckoutDeliveryType;
@@ -102,6 +164,25 @@ export type SecureCheckoutCorrection = {
 
 export type SecureCheckoutSuccess = {
   orderId: string;
+  payment: {
+    paymentUrl: string;
+    reference: string;
+    transactionId: string;
+    access_code: string;
+  } | null;
+  summary: {
+    total: number;
+    subtotal: number;
+    couponDiscount: number;
+    shippingCost: number;
+    itemCount: number;
+    deliveryType: CheckoutDeliveryType;
+  };
+};
+
+/** @deprecated Legacy verbose type - use SecureCheckoutSuccess instead */
+export type SecureCheckoutSuccessLegacy = {
+  orderId: string;
   order: {
     _id: string;
     total: number;
@@ -133,6 +214,70 @@ export type SecureCheckoutSuccess = {
 };
 
 class CheckoutService {
+  /**
+   * Apply product corrections to cart items based on validation errors
+   * @param items - Original cart items
+   * @param checkoutErrors - Validation errors from CartValidationService
+   * @returns Corrected items array with removed/reduced quantities
+   */
+  private static applyProductCorrections(
+    items: SecureCheckoutItemInput[],
+    checkoutErrors: SecureCheckoutCorrection['errors']
+  ): SecureCheckoutItemInput[] {
+    if (!checkoutErrors?.products || checkoutErrors.products.length === 0) {
+      return items;
+    }
+
+    const correctedItems: SecureCheckoutItemInput[] = [];
+
+    for (const item of items) {
+      const itemId = item._id?.toString() || item.product.toString();
+      const error = checkoutErrors.products.find(
+        (err) => err.cartItemId === itemId || err.productId === item.product.toString()
+      );
+
+      if (!error) {
+        // No error for this item - keep as-is
+        correctedItems.push(item);
+        continue;
+      }
+
+      // Apply correction based on suggestedAction
+      switch (error.suggestedAction) {
+        case 'remove':
+          // Skip this item (don't add to correctedItems)
+          console.log(`[CheckoutService] Removing item ${itemId} (${error.message})`);
+          break;
+
+        case 'reduceQuantity':
+          if (error.availableStock > 0) {
+            correctedItems.push({
+              ...item,
+              qty: error.availableStock,
+            });
+            console.log(`[CheckoutService] Reduced item ${itemId} quantity: ${item.qty} → ${error.availableStock}`);
+          } else {
+            console.log(`[CheckoutService] Removing item ${itemId} (no stock available)`);
+          }
+          break;
+
+        case 'acceptPrice':
+        case 'changeAttribute':
+          // Keep item as-is - price/attribute will be corrected by validation
+          correctedItems.push(item);
+          console.log(`[CheckoutService] Keeping item ${itemId} with ${error.suggestedAction}`);
+          break;
+
+        default:
+          // Unknown action - keep item to be safe
+          correctedItems.push(item);
+          console.warn(`[CheckoutService] Unknown suggestedAction for item ${itemId}: ${error.suggestedAction}`);
+      }
+    }
+
+    return correctedItems;
+  }
+
   public static async secureCheckout(
     userId: string,
     payload: SecureCheckoutPayload
@@ -149,6 +294,7 @@ class CheckoutService {
       estimatedShipping,
       deliveryType = 'shipping',
       shippingCost: frontendShippingCost,
+      acceptChanges = false,
     } = payload;
 
     if (!items || items.length === 0) {
@@ -187,7 +333,7 @@ class CheckoutService {
           countryName: shippingAddress.country || 'Nigeria',
           stateName: shippingAddress.state || '',
           cityName: shippingAddress.city || undefined,
-          lgaName: undefined,
+          lgaName: shippingAddress.lga || undefined,
         }
       );
 
@@ -259,15 +405,7 @@ class CheckoutService {
           message: 'Order total verification failed',
           data: {
             needsUpdate: true,
-            shippingCost,
-            deliveryType,
-            correctedCart: {
-              ...correctedCart,
-              estimatedShipping: correctedCart.estimatedShipping || { cost: shippingCost, days: 0 },
-            },
-            changes: ['Total verification failed'],
-            changeDetails: [],
-            checkoutErrors: {
+            errors: {
               total: {
                 expectedTotal: total,
                 calculatedTotal: expectedTotal,
@@ -275,9 +413,41 @@ class CheckoutService {
                 message: 'Order total verification failed. Please refresh and try again.',
               },
             },
+            summary: {
+              itemsRemaining: correctedCart.items.length,
+              newSubtotal: correctedCart.subtotal,
+              newTotal: correctedCart.subtotal - correctedCart.couponDiscount + shippingCost,
+              shippingCost,
+              deliveryType,
+              couponDiscount: correctedCart.couponDiscount,
+            },
           } as SecureCheckoutCorrection,
           code: 400,
         };
+      }
+
+      // If acceptChanges=true, apply corrections and retry
+      if (acceptChanges && checkoutErrors.products && checkoutErrors.products.length > 0) {
+        const correctedItems = CheckoutService.applyProductCorrections(items, checkoutErrors);
+
+        if (correctedItems.length === 0) {
+          return {
+            message: 'All items removed from cart due to validation errors',
+            data: null,
+            code: 400,
+          };
+        }
+
+        console.log(
+          `[CheckoutService] Retrying checkout with ${correctedItems.length}/${items.length} items after corrections`
+        );
+
+        // Recursively call secureCheckout with corrected items (but don't accept changes again)
+        return CheckoutService.secureCheckout(userId, {
+          ...payload,
+          items: correctedItems,
+          acceptChanges: false, // Don't loop infinitely
+        });
       }
 
       await CheckoutService.syncServerCart(userId, correctedCart, shippingCost, deliveryType);
@@ -286,15 +456,15 @@ class CheckoutService {
         message: 'Cart needs to be updated',
         data: {
           needsUpdate: true,
-          shippingCost,
-          deliveryType,
-          correctedCart: {
-            ...correctedCart,
-            estimatedShipping: correctedCart.estimatedShipping || { cost: shippingCost, days: 0 },
+          errors: Object.keys(checkoutErrors).length > 0 ? checkoutErrors : undefined,
+          summary: {
+            itemsRemaining: correctedCart.items.length,
+            newSubtotal: correctedCart.subtotal,
+            newTotal: correctedCart.subtotal - correctedCart.couponDiscount + shippingCost,
+            shippingCost,
+            deliveryType,
+            couponDiscount: correctedCart.couponDiscount,
           },
-          changes,
-          changeDetails,
-          checkoutErrors: Object.keys(checkoutErrors).length > 0 ? checkoutErrors : undefined,
         },
         code: 400,
       };
@@ -355,7 +525,6 @@ class CheckoutService {
 
     const order = placed.data.order;
     const orderId = (order as unknown as { _id: { toString(): string } })._id.toString();
-    console.log(finalTotal);
 
     const paymentInit = await PaymentService.initializePayment({
       orderId,
@@ -376,6 +545,11 @@ class CheckoutService {
     });
 
     if (paymentInit.code !== 200) {
+      await Order.findByIdAndUpdate(orderId, { status: 'Cancelled' });
+
+      // Restore stock and reverse sale counters when payment initialization fails
+      await CheckoutService.restoreStockOnPaymentFailure(orderId);
+
       return {
         message: paymentInit.message,
         data: null,
@@ -383,6 +557,16 @@ class CheckoutService {
       };
     }
 
+    // Payment initialization successful - publish ORDER_CREATED event
+    try {
+      await eventPublisher.publishOrderCreated({
+        orderId,
+      });
+    } catch (eventError) {
+      console.error('[CheckoutService] Failed to publish ORDER_CREATED event:', eventError);
+      // Don't fail checkout if event publishing fails
+    }
+    /*
     // Use server-corrected pricing for response items
     const responseItems = correctedCart.items.map((correctedItem) => ({
       product: correctedItem.product,
@@ -393,7 +577,7 @@ class CheckoutService {
       saleType: undefined,
       saleDiscount: correctedItem.appliedDiscount ?? 0,
     }));
-
+*/
     const paymentData = paymentInit.data;
     const paymentPayload = paymentData
       ? (() => {
@@ -412,25 +596,94 @@ class CheckoutService {
       message: 'Secure checkout completed successfully',
       data: {
         orderId,
-        order: {
-          _id: orderId,
+        payment: paymentPayload,
+        summary: {
           total: finalTotal,
           subtotal: finalSubtotal,
           couponDiscount: finalCouponDiscount,
-          shippingPrice: shippingCost,
+          shippingCost,
+          itemCount: correctedCart.items.length,
           deliveryType,
-          items: responseItems,
-          status: 'Pending',
-          isPaid: false,
         },
-        validation: {
-          priceValidated: true,
-          totalDiscrepancy: 0,
-        },
-        payment: paymentPayload,
       },
       code: 200,
     };
+  }
+
+  /**
+   * Restore stock and reverse sale counters when payment initialization fails
+   * This is called immediately when payment gateway initialization fails,
+   * before the order timeout mechanism kicks in
+   */
+  private static async restoreStockOnPaymentFailure(orderId: string): Promise<void> {
+    try {
+      // 1. Get the order with all product details
+      const order = await Order.findById(orderId);
+      if (!order || !order.products) {
+        console.error(`[CheckoutService] Order ${orderId} not found for stock restoration`);
+        return;
+      }
+
+      // 2. Extract items for bulk stock update
+      const items = order.products
+        .filter((item) => item.product && item.qty)
+        .map((item) => ({
+          productId: item.product!.toString(),
+          quantity: item.qty!,
+        }));
+
+      if (items.length === 0) {
+        console.warn(`[CheckoutService] No items to restore for order ${orderId}`);
+        return;
+      }
+
+      // 3. Restore stock using bulk write
+      const bulkUpdates = items.map((item) => ({
+        updateOne: {
+          filter: { _id: item.productId },
+          update: { $inc: { stock: item.quantity } },
+        },
+      }));
+
+      await Product.bulkWrite(bulkUpdates);
+      console.log(`[CheckoutService] Stock restored for ${items.length} products in order ${orderId}`);
+
+      // 4. Reverse sale counters if order has sale snapshots
+      const session = await mongoose.startSession();
+      session.startTransaction();
+      try {
+        await reverseSaleCountersOnCancel(
+          order.products
+            .filter((item) => item.product && item.qty)
+            .map((item) => ({
+              product: item.product!,
+              qty: item.qty!,
+              sale: item.sale || undefined,
+              saleSnapshot: item.saleSnapshot
+                ? {
+                    type: item.saleSnapshot.type!,
+                    variantIndex: item.saleSnapshot.variantIndex!,
+                    maxBuys: item.saleSnapshot.maxBuys!,
+                    boughtCount: item.saleSnapshot.boughtCount!,
+                    attributeName: item.saleSnapshot.attributeName || undefined,
+                    attributeValue: item.saleSnapshot.attributeValue || undefined,
+                  }
+                : undefined,
+            })),
+          session
+        );
+        await session.commitTransaction();
+        console.log(`[CheckoutService] Sale counters reversed for order ${orderId}`);
+      } catch (err) {
+        await session.abortTransaction();
+        console.error(`[CheckoutService] Failed to reverse sale counters for order ${orderId}:`, err);
+      } finally {
+        session.endSession();
+      }
+    } catch (error) {
+      console.error(`[CheckoutService] Failed to restore stock for order ${orderId}:`, error);
+      // Don't throw - we already have a payment initialization error to report
+    }
   }
 
   private static async syncServerCart(

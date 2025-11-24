@@ -29,16 +29,11 @@ router.get('/orders/pending-payments', async (req: Request, res: Response) => {
       status: 'Pending',
       createdAt: { $gte: cutoffTime }, // Only orders created within timeframe
     })
-      .select('_id user products createdAt')
+      .select('_id createdAt')
       .lean();
 
     const formattedOrders = pendingOrders.map((order) => ({
-      orderId: order._id.toString(),
-      userId: order.user.toString(),
-      items: order.products.map((item) => ({
-        productId: item.product?.toString() || '',
-        quantity: item.qty || 0,
-      })),
+      _id: order._id.toString(),
       createdAt: order.createdAt,
     }));
 
@@ -46,7 +41,7 @@ router.get('/orders/pending-payments', async (req: Request, res: Response) => {
 
     return res.status(200).json({
       message: 'Pending orders fetched successfully',
-      data: formattedOrders,
+      orders: formattedOrders,
     });
   } catch (error) {
     logger.error('Error fetching pending orders:', error);
@@ -64,16 +59,16 @@ router.get('/orders/pending-payments', async (req: Request, res: Response) => {
  */
 router.post('/orders/verify-and-restore-stock', async (req: Request, res: Response) => {
   try {
-    const { orderId, items } = req.body;
+    const { orderId } = req.body;
 
-    if (!orderId || !items || !Array.isArray(items)) {
+    if (!orderId) {
       return res.status(400).json({
-        message: 'Missing required fields: orderId and items array',
+        message: 'Missing required field: orderId',
         code: 'INVALID_REQUEST',
       });
     }
 
-    // 1. Find the order
+    // 1. Find the order and extract items
     const order = await Order.findById(orderId);
     if (!order) {
       return res.status(404).json({
@@ -81,6 +76,14 @@ router.post('/orders/verify-and-restore-stock', async (req: Request, res: Respon
         code: 'ORDER_NOT_FOUND',
       });
     }
+
+    // Extract items from order for stock restoration
+    const items = order.products
+      .filter((item) => item.product && item.qty)
+      .map((item) => ({
+        productId: item.product!.toString(),
+        quantity: item.qty!,
+      }));
 
     // 2. Check if already paid
     if (order.isPaid) {
@@ -245,6 +248,7 @@ router.post('/orders/verify-and-restore-stock', async (req: Request, res: Respon
 
 /**
  * Helper function to restore stock and reverse sale counters for order items
+ * Items are extracted from the order document
  */
 async function restoreStock(orderId: string, items: Array<{ productId: string; quantity: number }>): Promise<void> {
   try {
