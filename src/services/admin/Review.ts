@@ -2,6 +2,7 @@ import { ObjectId } from 'mongodb';
 import Review, { ReviewType } from '../../models/Review';
 import User from '../../models/User';
 import Product from '../../models/Product';
+import mongoose from 'mongoose';
 
 type ReplyData = { _id: string; replyBy: string; reply: string; createdAt: Date };
 
@@ -62,7 +63,9 @@ type DailyMoodData = {
 /**
  * Gets all reviews with pagination and filtering for admin dashboard
  */
-const getAllReviews = async (filters: ReviewFilters): Promise<CustomResponseTypeWithMeta<ReviewType[], PaginationMeta>> => {
+const getAllReviews = async (
+  filters: ReviewFilters
+): Promise<CustomResponseTypeWithMeta<ReviewType[], PaginationMeta>> => {
   try {
     const {
       page = 1,
@@ -74,17 +77,17 @@ const getAllReviews = async (filters: ReviewFilters): Promise<CustomResponseType
       startDate,
       endDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
     } = filters;
 
     // Build match conditions
     const matchConditions: Record<string, unknown> = {};
-    
+
     if (rating) matchConditions.rating = rating;
     if (typeof isApproved === 'boolean') matchConditions.isApproved = isApproved;
-    if (productId) matchConditions.product = new ObjectId(productId);
-    if (userId) matchConditions.reviewBy = new ObjectId(userId);
-    
+    if (productId) matchConditions.product = new mongoose.Types.ObjectId(productId);
+    if (userId) matchConditions.reviewBy = new mongoose.Types.ObjectId(userId);
+
     if (startDate || endDate) {
       matchConditions.createdAt = {} as { $gte?: Date; $lte?: Date };
       if (startDate) (matchConditions.createdAt as { $gte?: Date; $lte?: Date })['$gte'] = new Date(startDate);
@@ -325,9 +328,7 @@ const getMoodBasedAnalysis = async (filters: MoodAnalysisFilters): Promise<Custo
     }
 
     // If categoryId is provided, we need to join with products to filter by category
-    const aggregationPipeline: any[] = [
-      { $match: matchConditions },
-    ];
+    const aggregationPipeline: any[] = [{ $match: matchConditions }];
 
     if (categoryId) {
       aggregationPipeline.push(
@@ -500,7 +501,7 @@ const getRepliesByReviewId = async (
         },
       },
     ]);
-    
+
     return {
       message: 'Replies retrieved successfully',
       data: replies,
@@ -522,25 +523,21 @@ const getRepliesByReviewId = async (
  * @param replyText - The reply text.
  * @param adminId - The ID of the admin adding the reply.
  */
-const addReply = async (
-  reviewId: string,
-  replyText: string,
-  adminId?: string
-): Promise<CustomResponseType<void>> => {
+const addReply = async (reviewId: string, replyText: string, adminId?: string): Promise<CustomResponseType<void>> => {
   try {
     const replyBy = adminId || new ObjectId(); // Use admin ID if provided, otherwise generate new ObjectId
-    
+
     await Review.findByIdAndUpdate(reviewId, {
-      $push: { 
-        replies: { 
-          reply: replyText, 
+      $push: {
+        replies: {
+          reply: replyText,
           replyBy: new ObjectId(replyBy),
           createdAt: new Date(),
           updatedAt: new Date(),
-        } 
+        },
       },
     });
-    
+
     return {
       message: 'Reply added successfully',
       data: null,
@@ -614,11 +611,11 @@ const updateReply = async ({
   try {
     const result = await Review.findOneAndUpdate(
       { _id: reviewId, 'replies._id': replyId },
-      { 
-        $set: { 
+      {
+        $set: {
           'replies.$.reply': updatedReply,
           'replies.$.updatedAt': new Date(),
-        } 
+        },
       }
     );
 
@@ -652,7 +649,7 @@ const updateReply = async ({
 const deleteReview = async ({ reviewId }: { reviewId: string }): Promise<CustomResponseType<void>> => {
   try {
     const deleteResult = await Review.deleteOne({ _id: reviewId });
-    
+
     if (deleteResult.deletedCount === 0) {
       return {
         message: 'Review not found or not deleted',
@@ -660,7 +657,7 @@ const deleteReview = async ({ reviewId }: { reviewId: string }): Promise<CustomR
         code: 404,
       };
     }
-    
+
     return {
       message: 'Review deleted successfully',
       data: null,
@@ -685,68 +682,59 @@ const getStatistics = async (): Promise<CustomResponseType<any>> => {
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     // Run aggregations in parallel
-    const [
-      total,
-      approved,
-      pending,
-      rejected,
-      withReplies,
-      withImages,
-      ratingStats,
-      recentReviews,
-      helpfulVotesStats,
-    ] = await Promise.all([
-      // Total reviews
-      Review.countDocuments(),
-      
-      // Approved reviews
-      Review.countDocuments({ isApproved: true }),
-      
-      // Pending reviews (not approved and not rejected)
-      Review.countDocuments({ isApproved: { $ne: true }, isRejected: { $ne: true } }),
-      
-      // Rejected reviews
-      Review.countDocuments({ isRejected: true }),
-      
-      // Reviews with replies
-      Review.countDocuments({ 'replies.0': { $exists: true } }),
-      
-      // Reviews with images
-      Review.countDocuments({ images: { $exists: true, $ne: [] } }),
-      
-      // Rating distribution and average
-      Review.aggregate([
-        {
-          $group: {
-            _id: null,
-            averageRating: { $avg: '$rating' },
-            rating1: { $sum: { $cond: [{ $eq: ['$rating', 1] }, 1, 0] } },
-            rating2: { $sum: { $cond: [{ $eq: ['$rating', 2] }, 1, 0] } },
-            rating3: { $sum: { $cond: [{ $eq: ['$rating', 3] }, 1, 0] } },
-            rating4: { $sum: { $cond: [{ $eq: ['$rating', 4] }, 1, 0] } },
-            rating5: { $sum: { $cond: [{ $eq: ['$rating', 5] }, 1, 0] } },
+    const [total, approved, pending, rejected, withReplies, withImages, ratingStats, recentReviews, helpfulVotesStats] =
+      await Promise.all([
+        // Total reviews
+        Review.countDocuments(),
+
+        // Approved reviews
+        Review.countDocuments({ isApproved: true }),
+
+        // Pending reviews (not approved and not rejected)
+        Review.countDocuments({ isApproved: { $ne: true }, isRejected: { $ne: true } }),
+
+        // Rejected reviews
+        Review.countDocuments({ isRejected: true }),
+
+        // Reviews with replies
+        Review.countDocuments({ 'replies.0': { $exists: true } }),
+
+        // Reviews with images
+        Review.countDocuments({ images: { $exists: true, $ne: [] } }),
+
+        // Rating distribution and average
+        Review.aggregate([
+          {
+            $group: {
+              _id: null,
+              averageRating: { $avg: '$rating' },
+              rating1: { $sum: { $cond: [{ $eq: ['$rating', 1] }, 1, 0] } },
+              rating2: { $sum: { $cond: [{ $eq: ['$rating', 2] }, 1, 0] } },
+              rating3: { $sum: { $cond: [{ $eq: ['$rating', 3] }, 1, 0] } },
+              rating4: { $sum: { $cond: [{ $eq: ['$rating', 4] }, 1, 0] } },
+              rating5: { $sum: { $cond: [{ $eq: ['$rating', 5] }, 1, 0] } },
+            },
           },
-        },
-      ]),
-      
-      // Recent reviews (last 7 days)
-      Review.countDocuments({ createdAt: { $gte: sevenDaysAgo } }),
-      
-      // Total helpful votes
-      Review.aggregate([
-        {
-          $project: {
-            helpfulCount: { $size: { $ifNull: ['$helpfulVotes.helpful', []] } },
+        ]),
+
+        // Recent reviews (last 7 days)
+        Review.countDocuments({ createdAt: { $gte: sevenDaysAgo } }),
+
+        // Total helpful votes
+        Review.aggregate([
+          {
+            $project: {
+              helpfulCount: { $size: { $ifNull: ['$helpfulVotes.helpful', []] } },
+            },
           },
-        },
-        {
-          $group: {
-            _id: null,
-            total: { $sum: '$helpfulCount' },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: '$helpfulCount' },
+            },
           },
-        },
-      ]),
-    ]);
+        ]),
+      ]);
 
     const ratingData = ratingStats[0] || {
       averageRating: 0,

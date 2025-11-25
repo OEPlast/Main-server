@@ -455,7 +455,9 @@ const getStaff = async ({
     return { message: 'Internal server error', data: null, code: 500 };
   }
 };
-
+function escapeRegex(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 /**
  * Search users by email or name (lightweight for autocomplete/selectors)
  * @param query - Search query string
@@ -473,16 +475,17 @@ const searchUsers = async (
       };
     }
 
-    const searchRegex = new RegExp(query.trim(), 'i');
+    const searchRegex = new RegExp(escapeRegex(query), 'i');
+    console.log(searchRegex);
 
     const users = await User.find({
-      $or: [{ email: searchRegex }, { name: searchRegex }],
-      role: 'user', // Only search regular users, not staff
+      $or: [{ email: searchRegex }, { firstName: searchRegex }, { lastName: searchRegex }],
+      // role: 'user', // Only search regular users, not staff
     })
-      .select('_id name email')
-      .limit(20)
-      .lean()
-      .exec();
+      .select('_id firstName lastName email name')
+      .limit(20);
+    // .lean()
+    // .exec();
 
     // Get review counts for these users
     const userIds = users.map((u) => u._id);

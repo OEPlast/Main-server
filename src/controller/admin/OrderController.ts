@@ -4,18 +4,29 @@ import OrderService from '../../services/admin/Order';
 // Get all orders
 const getOrders = async (req: Request, res: Response) => {
   try {
-    const { page = 1, limit = 10, status, orderId, customerId, startDate, endDate, transactionStatus } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      orderId,
+      customerId,
+      startDate,
+      endDate,
+      transactionStatus,
+      search,
+    } = req.query;
 
     const filters: Record<string, unknown> = {};
     if (status) filters.status = status;
     if (orderId) filters.orderId = orderId;
     if (customerId) filters.customerId = customerId;
+    if (search) filters.search = search;
     if (transactionStatus) filters.transactionStatus = transactionStatus;
     if (startDate && endDate)
       filters.dateRange = { start: new Date(startDate as string), end: new Date(endDate as string) };
 
-    const { data, message, code } = await OrderService.getOrders(Number(page), Number(limit), filters);
-    return res.status(code).json({ message, data });
+    const { data, message, code, meta } = await OrderService.getOrders(Number(page), Number(limit), filters);
+    return res.status(code).json({ message, data, meta });
   } catch (error) {
     console.error('Error in getOrders:', error);
     return res.status(500).json({ error: 'Internal server error' });

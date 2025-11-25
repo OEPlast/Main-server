@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 import Order, { OrderType } from '../../models/Order';
 import { TransactionStatus } from '../../models/Transaction';
-import { CustomResponseType } from '@/types';
+import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import AnalyticsService from '../MainAnalyticsService';
 
 /**
@@ -105,20 +105,23 @@ export type EnrichedOrder = {
  * @param filters - Filters for searching orders.
  */
 const getOrders = async (
-  page?: number,
-  limit?: number,
+  page: number = 1,
+  limit: number = 15,
   filters?: Partial<{
     status: OrderType['status'];
     orderId: string;
+    search: string;
     customerId: string;
     dateRange: { start: Date; end: Date };
     transactionStatus: TransactionStatus | 'all';
   }>
-): Promise<CustomResponseType<{ orders: OrderType[]; totalOrders: number }>> => {
+): CustomResponseTypeWithMeta<OrderType[], { total: number; page: number; limit: number; pages: number }> => {
   try {
     const pipeline: mongoose.PipelineStage[] = [];
     const matchStage: Record<string, unknown> = {};
 
+    console.log(filters);
+    
     // Apply filters if provided
     if (filters?.status) matchStage.status = filters.status;
     if (filters?.orderId) matchStage._id = filters.orderId;
@@ -126,9 +129,42 @@ const getOrders = async (
     if (filters?.dateRange) {
       matchStage.createdAt = { $gte: filters.dateRange.start, $lte: filters.dateRange.end };
     }
+    // Lookup user details FIRST (needed for search)
+    pipeline.push({
+      $lookup: {
+        from: 'users',
+        localField: 'user',
+        foreignField: '_id',
+        as: 'userDetails',
+      },
+    });
+    pipeline.push({
+      $unwind: { path: '$userDetails', preserveNullAndEmptyArrays: true },
+    });
 
     pipeline.push({ $match: matchStage });
 
+    if (filters?.search) {
+      const searchRegex = new RegExp(filters.search, 'i');
+
+      // Check if search string is a valid ObjectId
+      let objectIdMatch = null;
+      if (mongoose.Types.ObjectId.isValid(filters.search)) {
+        objectIdMatch = new mongoose.Types.ObjectId(filters.search);
+      }
+
+      pipeline.push({
+        $match: {
+          $or: [
+            // Match exact ObjectId if valid
+            ...(objectIdMatch ? [{ _id: objectIdMatch }] : []),
+            { 'userDetails.firstName': { $regex: searchRegex } },
+            { 'userDetails.lastName': { $regex: searchRegex } },
+            { 'userDetails.email': { $regex: searchRegex } },
+          ],
+        },
+      });
+    }
     // Handle transaction status filtering
     if (filters?.transactionStatus && filters.transactionStatus !== 'all') {
       // Filter by specific transaction status
@@ -155,11 +191,6 @@ const getOrders = async (
           as: 'transaction',
         },
       });
-      pipeline.push({
-        $match: {
-          'transaction.status': 'completed',
-        },
-      });
     }
 
     // Calculate total items (sum of all product quantities)
@@ -179,20 +210,6 @@ const getOrders = async (
         foreignField: '_id',
         as: 'transactionDetails',
       },
-    });
-
-    // Lookup user details
-    pipeline.push({
-      $lookup: {
-        from: 'users',
-        localField: 'user',
-        foreignField: '_id',
-        as: 'userDetails',
-      },
-    });
-
-    pipeline.push({
-      $unwind: { path: '$userDetails', preserveNullAndEmptyArrays: true },
     });
 
     // Add paymentStatus field from transaction
@@ -237,7 +254,9 @@ const getOrders = async (
 
     return {
       message: 'Orders retrieved successfully',
-      data: { orders, totalOrders },
+      data: orders,
+      meta: { total: totalOrders, page, limit, pages: Math.ceil(totalOrders / limit) },
+
       code: 200,
     };
   } catch (error) {
@@ -318,13 +337,13 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<Enriche
         $project: {
           _id: 1,
           orderNumber: { $toString: '$_id' },
- user: {
-          _id: '$userDetails._id',
-          firstName: '$userDetails.firstName',
-          lastName: '$userDetails.lastName',
-          name: '$userDetails.name',
-          email: '$userDetails.email',
-        },
+          user: {
+            _id: '$userDetails._id',
+            firstName: '$userDetails.firstName',
+            lastName: '$userDetails.lastName',
+            name: '$userDetails.name',
+            email: '$userDetails.email',
+          },
           // Order summary
           total: 1,
           totalBeforeDiscount: 1,
@@ -460,7 +479,12 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<Enriche
           // Shipment details
           shipment: {
             $cond: {
-              if: { $ne: ['$shipment', null] },
+              if: { 
+                $and: [
+                  {$ne: ['$shipment', null] },
+                  {$ifNull : ['$shipment._id', false]}
+                ]
+              },
               then: {
                 _id: '$shipment._id',
                 trackingNumber: '$shipment.trackingNumber',

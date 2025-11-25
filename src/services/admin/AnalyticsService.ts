@@ -5831,76 +5831,6 @@ const getTopProductsRevenue = async ({
   Array<{ productId: string; productName: string; coverImage: string | null; revenue: number }>
 > => {
   try {
-    // Step 1: Count matching orders
-    const matchingOrders = await Order.countDocuments({
-      createdAt: { $gte: from, $lte: to },
-      status: { $nin: ['Cancelled', 'Failed'] },
-    });
-
-    // Step 2: Check items after unwind
-    const afterUnwind = await Order.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] },
-        },
-      },
-      { $unwind: '$products' },
-      { $count: 'total' },
-    ]);
-
-    // Step 3: Check grouped products
-    const afterGroup = await Order.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] },
-        },
-      },
-      { $unwind: '$products' },
-      {
-        $group: {
-          _id: '$products.product',
-          revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
-        },
-      },
-      { $count: 'total' },
-    ]);
-
-    // Step 4: Check after product lookup
-    const afterLookup = await Order.aggregate([
-      {
-        $match: {
-          createdAt: { $gte: from, $lte: to },
-          status: { $nin: ['Cancelled', 'Failed'] },
-        },
-      },
-      { $unwind: '$products' },
-      {
-        $group: {
-          _id: '$products.product',
-          revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
-        },
-      },
-      { $sort: { revenue: -1 } },
-      { $limit: limit },
-      {
-        $lookup: {
-          from: 'products',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'product',
-        },
-      },
-      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
-      {
-        $facet: {
-          withProduct: [{ $match: { product: { $exists: true, $ne: null } } }, { $count: 'total' }],
-          withoutProduct: [{ $match: { product: null } }, { $count: 'total' }],
-        },
-      },
-    ]);
-
     const result = await Order.aggregate([
       {
         $match: {
@@ -5958,10 +5888,6 @@ const getTopProductsRevenue = async ({
         },
       },
     ]);
-
-    if (result.length > 0) {
-      console.log('📊 Sample data:', result.slice(0, 2));
-    }
 
     return {
       message: 'Top products by revenue fetched successfully',
@@ -6066,6 +5992,7 @@ const getUserDemographics = async ({
       },
       { $sort: { count: -1 } },
     ]);
+    console.log(result);
 
     const chartData = result.map((item: any) => ({
       country: item._id || 'Unknown',
@@ -6295,11 +6222,6 @@ const getSalesByCategory = async ({
       { $limit: limit },
     ]);
 
-    console.log('✅ getSalesByCategory - Result count:', result.length);
-    if (result.length > 0) {
-      console.log('📊 Sample data:', result.slice(0, 2));
-    }
-
     const totalResult = await Order.aggregate([
       {
         $match: {
@@ -6447,6 +6369,8 @@ const getOrdersTable = async ({
     const matchQuery: any = { createdAt: { $gte: from, $lte: to } };
     if (status) {
       matchQuery.status = status;
+    } else {
+      matchQuery.status = { $in: ['Processing', 'Failed'] };
     }
 
     const orders = await Order.find(matchQuery)

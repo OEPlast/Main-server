@@ -7,7 +7,7 @@ const userLogin = async (req: Request, res: Response) => {
   try {
     // Logic for user login
     const { email, password } = req.body;
-    const { data, code, message } = await AuthService.login({ email, password });    
+    const { data, code, message } = await AuthService.login({ email, password });
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in userLogin:', error);
@@ -30,8 +30,8 @@ const userLogout = async (req: Request, res: Response) => {
 const userRegister = async (req: Request, res: Response) => {
   try {
     // Logic for user registration
-    const { email, password, firstName, lastName } = req.body;
-    const { data, message, code } = await AuthService.signup({ email, password, firstName, lastName });
+    const { email, password, firstName, lastName, country } = req.body;
+    const { data, message, code } = await AuthService.signup({ email, password, firstName, lastName, country });
     return res.status(code).json({ data, message });
   } catch (error) {
     console.error('Error in userRegister:', error);

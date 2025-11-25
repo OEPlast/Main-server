@@ -203,11 +203,7 @@ const updateProduct = async (
 
     if (oldPrice !== newPrice) {
       try {
-        await eventPublisher.publishPriceChanged(
-          id,
-          oldPrice,
-          newPrice
-        );
+        await eventPublisher.publishPriceChanged(id, oldPrice, newPrice);
       } catch (e) {
         console.warn('Failed to publish price change event:', e);
       }
@@ -309,24 +305,24 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
     const findNextAvailableName = async (baseName: string): Promise<string> => {
       let counter = 1;
       let productName = `${baseName}-${counter}`;
-      
+
       while (await Product.exists({ name: productName })) {
         counter++;
         productName = `${baseName}-${counter}`;
       }
-      
+
       return productName;
     };
 
     const findNextAvailableSlug = async (baseSlug: string): Promise<string> => {
       let counter = 1;
       let productSlug = `${baseSlug}-${counter}`;
-      
+
       while (await Product.exists({ slug: productSlug })) {
         counter++;
         productSlug = `${baseSlug}-${counter}`;
       }
-      
+
       return productSlug;
     };
 
@@ -336,7 +332,7 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
 
     // Prepare duplicated product data by spreading and overriding
     const productObj: any = product.toObject();
-    
+
     const duplicatedProductData = {
       sku: productObj.sku,
       name: newName,
@@ -367,7 +363,7 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
     };
 
     const duplicatedProduct = await Product.create(duplicatedProductData);
-    
+
     return {
       message: 'Product duplicated successfully',
       data: duplicatedProduct,
@@ -542,18 +538,18 @@ const getAllProducts = async (
     if (params.search) {
       const searchTerm = params.search.trim();
       const rx = new RegExp(escapeRegex(searchTerm), 'i');
-      
+
       // Build $or conditions for name, sku, and _id
       const searchConditions: Record<string, unknown>[] = [
         { name: rx },
         { sku: isNaN(Number(searchTerm)) ? -1 : Number(searchTerm) }, // Exact SKU match if numeric
       ];
-      
+
       // If search term is a valid MongoDB ObjectId, add _id search
       if (mongoose.Types.ObjectId.isValid(searchTerm)) {
         searchConditions.push({ _id: new mongoose.Types.ObjectId(searchTerm) });
       }
-      
+
       and.push({ $or: searchConditions });
     }
     if (params.brand) {
@@ -707,7 +703,9 @@ const getAllProductsEnhanced = async (params: {
   brand?: string;
   specKey?: string;
   specValue?: string;
-}): Promise<CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; pages: number }>> => {
+}): Promise<
+  CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; pages: number }>
+> => {
   try {
     const page = params.page || 1;
     const limit = params.limit || 20;
@@ -718,15 +716,26 @@ const getAllProductsEnhanced = async (params: {
 
     // Category filter
     if (params.category) {
-      const cat = await Category.findOne({ slug: params.category }).select('_id').exec();
-      if (cat) match.category = cat._id;
-      else return { message: 'Category not found', data: null, code: 404 };
+      match.category = new mongoose.Types.ObjectId(params.category);
     }
 
     // Search filter
     if (params.search) {
-      const regex = new RegExp(escapeRegex(params.search), 'i');
-      and.push({ $or: [{ name: regex }, { description: regex }, { tags: regex }] });
+      const searchTerm = params.search.trim();
+      const rx = new RegExp(escapeRegex(searchTerm), 'i');
+
+      // Build $or conditions for name, description, tags, sku, and _id
+      const searchConditions: Record<string, unknown>[] = [
+        { name: rx },
+        { tags: { $in: [rx] } },
+        { sku: isNaN(Number(searchTerm)) ? -1 : Number(searchTerm) }, // Exact SKU match if numeric
+      ];
+
+      // If search term is a valid MongoDB ObjectId, add _id search
+      if (mongoose.Types.ObjectId.isValid(searchTerm)) {
+        searchConditions.push({ _id: new mongoose.Types.ObjectId(searchTerm) });
+      }
+      and.push({ $or: searchConditions });
     }
 
     // Price range
@@ -895,10 +904,12 @@ const getAllProductsEnhanced = async (params: {
 /**
  * Check if SKU exists
  */
-const checkSkuExists = async (sku: number): Promise<CustomResponseType<{ exists: boolean; productId?: string; productName?: string }>> => {
+const checkSkuExists = async (
+  sku: number
+): Promise<CustomResponseType<{ exists: boolean; productId?: string; productName?: string }>> => {
   try {
     const product = await Product.findOne({ sku }).select('_id name').lean().exec();
-    
+
     if (product) {
       return {
         message: 'SKU exists',
@@ -934,14 +945,14 @@ const checkSlugAvailable = async (
 ): Promise<CustomResponseType<{ available: boolean; productId?: string; productName?: string }>> => {
   try {
     const query: any = { slug };
-    
+
     // When editing, exclude the current product from the check
     if (excludeId) {
       query._id = { $ne: excludeId };
     }
-    
+
     const product = await Product.findOne(query).select('_id name').lean().exec();
-    
+
     if (product) {
       return {
         message: 'Slug is already taken',

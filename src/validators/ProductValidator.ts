@@ -137,7 +137,8 @@ const validateSearchQuery = [
       isString: true,
       trim: true,
       isLength: {
-        options: { min: 2 },
+        options: { min: 1 },
+        // options: { min: 2 },
       },
       errorMessage: 'Search query must be at least 2 characters',
     },

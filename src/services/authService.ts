@@ -27,6 +27,7 @@ const signup = async (userData: {
   password: string;
   firstName: string;
   lastName: string;
+  country: string;
 }): CustomResponsePromise<{ newUser: UserType; token: string; otpCode: number }> => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -56,12 +57,12 @@ const signup = async (userData: {
 
     const token = tokenizer.SignData({ userId: newUser._id, role: newUser.role });
 
-      eventPublisher.publishUserSignup({
-        firstName: newUser.firstName!,
-        otpCode: `${createOTP.data}`,
-        email: newUser.email,
-        expiresInMinutes: 10,
-      });
+    eventPublisher.publishUserSignup({
+      firstName: newUser.firstName!,
+      otpCode: `${createOTP.data}`,
+      email: newUser.email,
+      expiresInMinutes: 10,
+    });
 
     return {
       message: 'User created successfully. Please verify your account using the OTP sent to your email.',
