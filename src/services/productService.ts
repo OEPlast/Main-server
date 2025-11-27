@@ -844,7 +844,7 @@ const getTopSoldProducts = async (
       message: 'Top sold products retrieved successfully',
       data: results,
       code: 200,
-      meta: { total, page, limit, pages: Math.min(Math.ceil(total / limit), 9) },
+      meta: { total, page, limit, pages: Math.ceil(total / limit) },
     };
   } catch (error) {
     console.error('Error fetching top sold products:', error);
@@ -2091,9 +2091,7 @@ const getDealsOfTheDay = async (
  * @param identifiers - Array of product IDs or slugs (max 3)
  * @returns Array of ProductType | null in the same order as identifiers
  */
-const getProductsForComparison = async (
-  identifiers: string[]
-): Promise<CustomResponseType<(ProductType | null)[]>> => {
+const getProductsForComparison = async (identifiers: string[]): Promise<CustomResponseType<(ProductType | null)[]>> => {
   try {
     // Validate maximum 3 products
     if (identifiers.length > 3) {
@@ -2130,10 +2128,7 @@ const getProductsForComparison = async (
       // Step 1: Match products by ID or slug
       {
         $match: {
-          $or: [
-            { _id: { $in: validIds } },
-            { slug: { $in: slugs } },
-          ],
+          $or: [{ _id: { $in: validIds } }, { slug: { $in: slugs } }],
           status: 'active',
         },
       },
@@ -2191,9 +2186,7 @@ const getProductsForComparison = async (
 
     // Map results to preserve order - return null for not-found products
     const orderedProducts = identifiers.map((identifier) => {
-      const found = products.find(
-        (p) => String(p._id) === identifier || p.slug === identifier
-      );
+      const found = products.find((p) => String(p._id) === identifier || p.slug === identifier);
       return found || null;
     });
 

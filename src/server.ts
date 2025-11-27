@@ -24,6 +24,7 @@ import UserShipmentsRoute from '@/routes/users/shipments';
 import UserCampaignsRoute from '@/routes/users/campaigns';
 import UserReturnsRoute from '@/routes/users/returns';
 import CouponsRoute from '@/routes/general/coupons';
+import SettingsRoute from '@/routes/general/settings';
 import { eventPublisher } from '@/events';
 
 import {
@@ -102,6 +103,7 @@ app.use('/reviews/user', UserReviewsRoute);
 app.use('/reviews', ReviewRoute);
 app.use('/returns', UserReturnsRoute);
 app.use('/coupons', CouponsRoute);
+app.use('/settings', SettingsRoute);
 
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);

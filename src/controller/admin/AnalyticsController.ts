@@ -1346,12 +1346,13 @@ const getTopCustomers = async (req: Request, res: Response) => {
 
 const getProductPerformance = async (req: Request, res: Response) => {
   try {
-    const { from, to, page, limit, sortBy, sortOrder } = req.query;
+    const { from, to, page, limit, sortBy, sortOrder, search } = req.query;
     const { data, code, message } = await Admin_AnalyticsService.getProductPerformance({
-      from: parseAnalyticsDate(from as string, 'from'),
-      to: parseAnalyticsDate(to as string, 'to'),
+      from: from ? parseAnalyticsDate(from as string, 'from') : undefined,
+      to: to ? parseAnalyticsDate(to as string, 'to') : undefined,
       page: page ? parseInt(page as string, 10) : 1,
       limit: limit ? parseInt(limit as string, 10) : 10,
+      search: search as string,
       sortBy: (sortBy as string) || 'revenue',
       sortOrder: (sortOrder as string) || 'desc',
     });

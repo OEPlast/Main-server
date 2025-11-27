@@ -10,6 +10,8 @@ import CouponRedemption from '@/models/CouponRedemption';
 import Cart from '@/models/Cart';
 import Product from '@/models/Product';
 import Coupon from '@/models/Coupon';
+import mongoose from 'mongoose';
+import { escapeRegex } from '@/helpers/regex';
 
 type AnalyticsResult = {
   _id: Record<string, unknown>;
@@ -5705,12 +5707,12 @@ const getReviewSentiment = async ({
 };
 
 /**
- * Get coupon redemption trend
+ * Get coupon redemption trend (from orders.couponSnapshot, only successful orders)
  */
 const getCouponRedemptionTrend = async ({
   from,
   to,
-  groupBy = 'months',
+  groupBy = 'days',
 }: {
   from: Date;
   to: Date;
@@ -5738,8 +5740,14 @@ const getCouponRedemptionTrend = async ({
       };
     }
 
-    const result = await CouponRedemption.aggregate([
-      { $match: { createdAt: { $gte: from, $lte: to } } },
+    const result = await Order.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: from, $lte: to },
+          couponSnapshot: { $ne: null },
+          $or: [{ status: 'Completed' }, { isPaid: true }],
+        },
+      },
       {
         $group: {
           _id: groupFormat,
@@ -6366,9 +6374,13 @@ const getOrdersTable = async ({
     const skip = (page - 1) * limit;
     const sortDirection = sortOrder === 'desc' ? -1 : 1;
 
-    const matchQuery: any = { createdAt: { $gte: from, $lte: to } };
+    const matchQuery: Record<string, unknown> = { createdAt: { $gte: from, $lte: to } };
+
     if (status) {
-      matchQuery.status = status;
+      if (status !== 'all') {
+        // do nothing
+        matchQuery.status = status;
+      }
     } else {
       matchQuery.status = { $in: ['Processing', 'Failed'] };
     }
@@ -6499,7 +6511,7 @@ const getTopCustomers = async ({
       },
       {
         $group: {
-          _id: '$userId',
+          _id: '$user',
           totalSpent: { $sum: '$total' },
           orderCount: { $sum: 1 },
         },
@@ -6565,13 +6577,15 @@ const getProductPerformance = async ({
   limit = 10,
   sortBy = 'revenue',
   sortOrder = 'desc',
+  search,
 }: {
-  from: Date;
-  to: Date;
+  from?: Date;
+  to?: Date;
   page?: number;
   limit?: number;
   sortBy?: string;
   sortOrder?: string;
+  search?: string;
 }): CustomResponsePromise<{
   data: Array<{
     productId: string;
@@ -6588,25 +6602,56 @@ const getProductPerformance = async ({
     const skip = (page - 1) * limit;
     const sortDirection = sortOrder === 'desc' ? -1 : 1;
 
-    const result = await Order.aggregate([
-      { $match: { createdAt: { $gte: from, $lte: to } } },
-      { $unwind: '$products' },
-      {
-        $group: {
-          _id: '$products.product',
-          revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
-          unitsSold: { $sum: '$products.qty' },
-        },
-      },
+    // Build product search match
+    const productMatch: Record<string, unknown> = {};
+    const and: Record<string, unknown>[] = [];
+
+    if (search) {
+      const searchTerm = search.trim();
+      const rx = new RegExp(escapeRegex(searchTerm), 'i');
+      const searchConditions: Record<string, unknown>[] = [
+        { name: rx },
+        { sku: isNaN(Number(searchTerm)) ? -1 : Number(searchTerm) },
+      ];
+      if (mongoose.Types.ObjectId.isValid(searchTerm)) {
+        searchConditions.push({ _id: new mongoose.Types.ObjectId(searchTerm) });
+      }
+      and.push({ $or: searchConditions });
+    }
+    if (and.length) productMatch.$and = and;
+
+    // Build order match stage for date filtering
+    const orderMatch: Record<string, unknown> = {};
+    if (from && to) {
+      orderMatch.createdAt = { $gte: from, $lte: to };
+    } else if (from) {
+      orderMatch.createdAt = { $gte: from };
+    } else if (to) {
+      orderMatch.createdAt = { $lte: to };
+    }
+
+    // Main aggregation: always include $match, even if empty
+    const result = await Product.aggregate([
+      { $match: productMatch },
       {
         $lookup: {
-          from: 'products',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'product',
+          from: 'orders',
+          let: { productId: '$_id' },
+          pipeline: [
+            { $match: { ...orderMatch } },
+            { $unwind: '$products' },
+            { $match: { $expr: { $eq: ['$products.product', '$$productId'] } } },
+            {
+              $group: {
+                _id: null,
+                revenue: { $sum: { $multiply: ['$products.price', '$products.qty'] } },
+                unitsSold: { $sum: '$products.qty' },
+              },
+            },
+          ],
+          as: 'orderStats',
         },
       },
-      { $unwind: { path: '$product', preserveNullAndEmptyArrays: true } },
       {
         $lookup: {
           from: 'reviews',
@@ -6616,9 +6661,11 @@ const getProductPerformance = async ({
         },
       },
       {
-        $project: {
-          productId: '$_id',
-          productName: '$product.name',
+        $addFields: {
+          revenue: { $ifNull: [{ $arrayElemAt: ['$orderStats.revenue', 0] }, 0] },
+          unitsSold: { $ifNull: [{ $arrayElemAt: ['$orderStats.unitsSold', 0] }, 0] },
+          averageRating: { $ifNull: [{ $avg: '$reviews.rating' }, 0] },
+          reviewCount: { $size: '$reviews' },
           coverImage: {
             $let: {
               vars: {
@@ -6626,7 +6673,7 @@ const getProductPerformance = async ({
                   $arrayElemAt: [
                     {
                       $filter: {
-                        input: '$product.description_images',
+                        input: '$description_images',
                         cond: { $eq: ['$$this.cover_image', true] },
                       },
                     },
@@ -6637,10 +6684,17 @@ const getProductPerformance = async ({
               in: { $ifNull: ['$$coverImg.url', null] },
             },
           },
-          revenue: { $ifNull: ['$revenue', 0] },
-          unitsSold: { $ifNull: ['$unitsSold', 0] },
-          averageRating: { $ifNull: [{ $avg: '$reviews.rating' }, 0] },
-          reviewCount: { $ifNull: [{ $size: '$reviews' }, 0] },
+        },
+      },
+      {
+        $project: {
+          productId: '$_id',
+          productName: '$name',
+          coverImage: 1,
+          revenue: 1,
+          unitsSold: 1,
+          averageRating: 1,
+          reviewCount: 1,
         },
       },
       { $sort: { [sortBy]: sortDirection } },
@@ -6648,14 +6702,8 @@ const getProductPerformance = async ({
       { $limit: limit },
     ]);
 
-    const totalResult = await Order.aggregate([
-      { $match: { createdAt: { $gte: from, $lte: to } } },
-      { $unwind: '$products' },
-      { $group: { _id: '$products.product' } },
-      { $count: 'total' },
-    ]);
-
-    const totalRecords = totalResult[0]?.total || 0;
+    // Get total count of products for pagination (with search)
+    const totalRecords = await Product.countDocuments(productMatch);
     const totalPages = Math.ceil(totalRecords / limit);
 
     return {
@@ -6739,7 +6787,7 @@ const getReviewsTable = async ({
 };
 
 /**
- * Get top coupons by redemption count
+ * Get top coupons by redemption count (from orders.couponSnapshot, only successful orders)
  */
 const getTopCoupons = async ({
   from,
@@ -6752,45 +6800,69 @@ const getTopCoupons = async ({
   page?: number;
   limit?: number;
 }): CustomResponsePromise<{
-  data: Array<{ couponCode: string; redemptionCount: number; totalDiscount: number }>;
-  pagination: { currentPage: number; totalPages: number; totalRecords: number };
+  data: Array<{
+    code: string;
+    type: string;
+    discount: number;
+    redemptions: number;
+    totalDiscount: number;
+    status: string;
+  }>;
+  pagination: { currentPage: number; totalPages: number; totalRecords: number; limit: number };
 }> => {
   try {
     const skip = (page - 1) * limit;
 
-    const result = await CouponRedemption.aggregate([
-      { $match: { createdAt: { $gte: from, $lte: to } } },
+    const matchStage = {
+      createdAt: { $gte: from, $lte: to },
+      couponCode: { $ne: null },
+      couponSnapshot: { $ne: null },
+      isPaid: true,
+      status: { $nin: ['Cancelled', 'Failed'] },
+    };
+
+    const result = await Order.aggregate([
+      { $match: matchStage },
       {
         $group: {
-          _id: '$coupon',
-          redemptionCount: { $sum: 1 },
-          totalDiscount: { $sum: '$amountDiscounted' },
+          _id: '$couponCode',
+          redemptions: { $sum: 1 },
+          totalDiscount: { $sum: '$couponDiscount' },
         },
       },
-      { $sort: { redemptionCount: -1 } },
+      { $sort: { redemptions: -1 } },
       { $skip: skip },
       { $limit: limit },
       {
         $lookup: {
           from: 'coupons',
           localField: '_id',
-          foreignField: '_id',
+          foreignField: 'coupon',
           as: 'couponData',
         },
       },
       { $unwind: { path: '$couponData', preserveNullAndEmptyArrays: true } },
       {
         $project: {
-          couponCode: '$couponData.coupon',
-          redemptionCount: 1,
+          code: '$_id',
+          type: '$couponData.couponType',
+          discount: '$couponData.discount',
+          redemptions: 1,
           totalDiscount: 1,
+          status: {
+            $cond: [
+              { $and: [{ $eq: ['$couponData.active', true] }, { $eq: ['$couponData.deleted', false] }] },
+              'Active',
+              'Inactive',
+            ],
+          },
         },
       },
     ]);
 
-    const totalResult = await CouponRedemption.aggregate([
-      { $match: { createdAt: { $gte: from, $lte: to } } },
-      { $group: { _id: '$coupon' } },
+    const totalResult = await Order.aggregate([
+      { $match: matchStage },
+      { $group: { _id: '$couponCode' } },
       { $count: 'total' },
     ]);
 
@@ -6801,7 +6873,7 @@ const getTopCoupons = async ({
       message: 'Top coupons fetched successfully',
       data: {
         data: result,
-        pagination: { currentPage: page, totalPages, totalRecords },
+        pagination: { currentPage: page, totalPages, totalRecords, limit },
       },
       code: 200,
     };

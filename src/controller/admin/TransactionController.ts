@@ -9,7 +9,6 @@ const getTransactions = async (req: Request, res: Response) => {
       limit = 10,
       status,
       paymentMethod,
-      paymentGateway,
       transactionType,
       userId,
       orderId,
@@ -17,28 +16,25 @@ const getTransactions = async (req: Request, res: Response) => {
       endDate,
       minAmount,
       maxAmount,
-      reference,
-      transactionId, // This is now gateway transaction ID from query
+      search,
     } = req.query;
 
     const filters: Record<string, unknown> = {};
-    
+
     if (status) filters.status = status;
     if (paymentMethod) filters.paymentMethod = paymentMethod;
-    if (paymentGateway) filters.paymentGateway = paymentGateway;
     if (transactionType) filters.transactionType = transactionType;
     if (userId) filters.userId = userId;
     if (orderId) filters.orderId = orderId;
-    if (reference) filters.reference = reference;
-    if (transactionId) filters.gatewayTransactionId = transactionId; // Map to gatewayTransactionId
-    
+    if (search) filters.search = search;
+
     if (startDate && endDate) {
-      filters.dateRange = { 
-        start: new Date(startDate as string), 
-        end: new Date(endDate as string) 
+      filters.dateRange = {
+        start: new Date(startDate as string),
+        end: new Date(endDate as string),
       };
     }
-    
+
     if (minAmount || maxAmount) {
       const amountRange: { min?: number; max?: number } = {};
       if (minAmount) amountRange.min = Number(minAmount);
@@ -46,19 +42,15 @@ const getTransactions = async (req: Request, res: Response) => {
       filters.amountRange = amountRange;
     }
 
-    const response = await TransactionService.getTransactions(
-      Number(page),
-      Number(limit),
-      filters
-    );
+    const response = await TransactionService.getTransactions(Number(page), Number(limit), filters);
 
     return res.status(response.code).json(response);
   } catch (error) {
     console.error('Error in getTransactions:', error);
-    return res.status(500).json({ 
-      message: 'Internal server error', 
-      data: null, 
-      code: 500 
+    return res.status(500).json({
+      message: 'Internal server error',
+      data: null,
+      code: 500,
     });
   }
 };
@@ -71,14 +63,13 @@ const getTransactionById = async (req: Request, res: Response) => {
     return res.status(response.code).json(response);
   } catch (error) {
     console.error('Error in getTransactionById:', error);
-    return res.status(500).json({ 
-      message: 'Internal server error', 
-      data: null, 
-      code: 500 
+    return res.status(500).json({
+      message: 'Internal server error',
+      data: null,
+      code: 500,
     });
   }
 };
-
 
 // Update transaction (placeholder - not implemented as requested)
 const updateTransaction = async (req: Request, res: Response) => {
@@ -94,10 +85,10 @@ const updateTransaction = async (req: Request, res: Response) => {
     });
   } catch (error) {
     console.error('Error in updateTransaction:', error);
-    return res.status(500).json({ 
-      message: 'Internal server error', 
-      data: null, 
-      code: 500 
+    return res.status(500).json({
+      message: 'Internal server error',
+      data: null,
+      code: 500,
     });
   }
 };
@@ -109,10 +100,10 @@ const getStatistics = async (req: Request, res: Response) => {
     return res.status(response.code).json(response);
   } catch (error) {
     console.error('Error in getStatistics:', error);
-    return res.status(500).json({ 
-      message: 'Internal server error', 
-      data: null, 
-      code: 500 
+    return res.status(500).json({
+      message: 'Internal server error',
+      data: null,
+      code: 500,
     });
   }
 };
@@ -132,19 +123,14 @@ const processRefund = async (req: Request, res: Response) => {
       });
     }
 
-    const response = await TransactionService.processRefund(
-      transactionId,
-      Number(amount),
-      reason,
-      adminId
-    );
+    const response = await TransactionService.processRefund(transactionId, Number(amount), reason, adminId);
     return res.status(response.code).json(response);
   } catch (error) {
     console.error('Error in processRefund:', error);
-    return res.status(500).json({ 
-      message: 'Internal server error', 
-      data: null, 
-      code: 500 
+    return res.status(500).json({
+      message: 'Internal server error',
+      data: null,
+      code: 500,
     });
   }
 };

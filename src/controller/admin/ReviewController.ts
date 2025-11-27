@@ -1,7 +1,6 @@
 import { Request, Response } from 'express';
-import { AuthenticatedRequest, isAuthenticatedRequest } from '@/types';
+import { isAuthenticatedRequest } from '@/types';
 import Admin_ReviewService from '@/services/admin/Review';
-import ReviewService from '@/services/reviewService';
 
 // Get all reviews with pagination and filtering
 const getAllReviews = async (req: Request, res: Response) => {
@@ -16,7 +15,7 @@ const getAllReviews = async (req: Request, res: Response) => {
       startDate,
       endDate,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
     } = req.query;
 
     const filters = {
@@ -56,14 +55,7 @@ const getReviewById = async (req: Request, res: Response) => {
 const getProductReviews = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const {
-      page = 1,
-      limit = 10,
-      rating,
-      isApproved,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
+    const { page = 1, limit = 10, rating, isApproved, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
     const filters = {
       page: parseInt(page as string),
@@ -86,14 +78,7 @@ const getProductReviews = async (req: Request, res: Response) => {
 const getUserReviews = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
-    const {
-      page = 1,
-      limit = 10,
-      rating,
-      isApproved,
-      sortBy = 'createdAt',
-      sortOrder = 'desc'
-    } = req.query;
+    const { page = 1, limit = 10, rating, isApproved, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
 
     const filters = {
       page: parseInt(page as string),
@@ -175,9 +160,9 @@ const getMoodAnalytics = async (req: Request, res: Response) => {
     const { startDate, endDate, productId, categoryId } = req.query;
 
     if (!startDate || !endDate) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'Start date and end date are required',
-        message: 'Please provide both startDate and endDate parameters'
+        message: 'Please provide both startDate and endDate parameters',
       });
     }
 
@@ -220,11 +205,11 @@ const updateReply = async (req: Request, res: Response) => {
   try {
     const { reviewId, replyId } = req.params;
     const { reply } = req.body;
-    
-    const result = await Admin_ReviewService.updateReply({ 
-      reviewId, 
-      replyId, 
-      updatedReply: reply 
+
+    const result = await Admin_ReviewService.updateReply({
+      reviewId,
+      replyId,
+      updatedReply: reply,
     });
     return res.status(result.code).json(result);
   } catch (error) {

@@ -23,6 +23,7 @@ const settingsSchema = new Schema(
     supportPhone: { type: String, default: '' },
     address: { type: addressSchema, default: {} },
     taxId: { type: String, default: '' },
+    taxRate: { type: Number, default: 0, min: 0, max: 100 },
     currency: { type: String, default: 'USD' },
   },
   { timestamps: true }

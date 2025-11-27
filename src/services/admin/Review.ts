@@ -1,7 +1,7 @@
 import { ObjectId } from 'mongodb';
 import Review, { ReviewType } from '../../models/Review';
-import User from '../../models/User';
-import Product from '../../models/Product';
+// import User from '../../models/User';
+// import Product from '../../models/Product';
 import mongoose from 'mongoose';
 
 type ReplyData = { _id: string; replyBy: string; reply: string; createdAt: Date };
@@ -58,6 +58,25 @@ type DailyMoodData = {
   averageRating: number;
   totalReviews: number;
   moodScore: number; // Calculated mood based on rating distribution
+};
+
+type ReviewStatistics = {
+  total: number;
+  approved: number;
+  pending: number;
+  rejected: number;
+  withReplies: number;
+  withImages: number;
+  averageRating: number;
+  ratingDistribution: {
+    1: number;
+    2: number;
+    3: number;
+    4: number;
+    5: number;
+  };
+  recentReviews: number;
+  totalHelpfulVotes: number;
 };
 
 /**
@@ -140,8 +159,8 @@ const getAllReviews = async (
 const getReviewById = async (reviewId: string): Promise<CustomResponseType<ReviewType>> => {
   try {
     const review = await Review.findById(reviewId)
-      .populate('reviewBy', 'firstName lastName email phoneNumber')
-      .populate('product', 'name slug images price')
+      .populate('reviewBy', 'firstName lastName email image')
+      .populate('product', 'name slug description_images price')
       .populate('transactionId', 'reference status amount paidAt')
       .populate('orderId', 'orderNumber status deliveryStatus deliveredAt')
       .populate('moderatedBy', 'firstName lastName email')
@@ -328,7 +347,7 @@ const getMoodBasedAnalysis = async (filters: MoodAnalysisFilters): Promise<Custo
     }
 
     // If categoryId is provided, we need to join with products to filter by category
-    const aggregationPipeline: any[] = [{ $match: matchConditions }];
+    const aggregationPipeline: mongoose.PipelineStage[] = [{ $match: matchConditions }];
 
     if (categoryId) {
       aggregationPipeline.push(
@@ -676,7 +695,7 @@ const deleteReview = async ({ reviewId }: { reviewId: string }): Promise<CustomR
 /**
  * Get review statistics
  */
-const getStatistics = async (): Promise<CustomResponseType<any>> => {
+const getStatistics = async (): Promise<CustomResponseType<ReviewStatistics>> => {
   try {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);

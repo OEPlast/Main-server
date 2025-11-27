@@ -7,14 +7,14 @@ const getAllUsers = async (req: Request, res: Response) => {
   try {
     const { role, page, limit, search, sort } = req.query;
     const sortDir = sort === '1' ? 1 : -1; // default -1 (desc)
-    const { data, code, message } = await Admin_UserService.getAllUsersWithPaginationAndSearch({
+    const { data, code, message,meta } = await Admin_UserService.getAllUsersWithPaginationAndSearch({
       page: Number(page) || 1,
       role: role as unknown as UserType['role'] | undefined,
       search: search ? search.toString() : undefined,
       sort: sortDir,
       ...(limit && { limit: ~~limit }),
     });
-    return res.status(code).json({ message, data });
+    return res.status(code).json({ message, data ,meta});
   } catch (error) {
     console.error('Error in getAllUsers:', error);
     return res.status(500).json({ error: 'Something went wrong' });

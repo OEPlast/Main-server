@@ -1,6 +1,6 @@
 import mongoose, { PipelineStage } from 'mongoose';
 import User, { UserType } from '@/models/User';
-import { CustomResponsePromise } from '@/types';
+import { CustomResponsePromise, CustomResponseTypeWithMeta } from '@/types';
 import Order, { OrderType } from '@/models/Order';
 import Review, { ReviewType } from '@/models/Review';
 import Wishlist from '@/models/wishlist';
@@ -111,7 +111,10 @@ const getAllUsersWithPaginationAndSearch = async ({
   search?: string;
   sort?: 1 | -1;
   role?: UserType['role'];
-}): CustomResponsePromise<UserType[]> => {
+}): CustomResponseTypeWithMeta<
+  UserType[],
+  { total: number; page: number; limit: number; pages: number }
+> => {
   try {
     const match: Record<string, unknown> = {};
 
@@ -159,26 +162,43 @@ const getAllUsersWithPaginationAndSearch = async ({
         },
       },
       { $sort: { firstName: sort, email: sort } },
-      { $skip: (page - 1) * limit },
-      { $limit: limit },
       {
-        $project: {
-          _id: 1,
-          firstName: 1,
-          lastName: 1,
-          email: 1,
-          joinedAt: '$createdAt', // Rename `createdAt` to `joinedAt`
-          orderCount: 1,
-          totalSpent: 1,
-          suspended: 1,
-          image: 1,
-          role: 1,
+        $facet: {
+          metadata: [{ $count: 'total' }],
+          users: [
+            { $skip: (page - 1) * limit },
+            { $limit: limit },
+            {
+              $project: {
+                _id: 1,
+                firstName: 1,
+                lastName: 1,
+                email: 1,
+                joinedAt: '$createdAt', // Rename `createdAt` to `joinedAt`
+                orderCount: 1,
+                totalSpent: 1,
+                suspended: 1,
+                image: 1,
+                role: 1,
+                emailVerified: 1,
+              },
+            },
+          ],
         },
       }
     );
 
-    const users = await User.aggregate(pipeline);
-    return { message: 'Users fetched successfully', data: users, code: 200 };
+    const result = await User.aggregate(pipeline);
+    const total = result[0]?.metadata[0]?.total || 0;
+    const users = result[0]?.users || [];
+    const pages = Math.ceil(total / limit);
+
+    return {
+      message: 'Users fetched successfully',
+      data: users,
+      code: 200,
+      meta: { total, page, limit, pages },
+    };
   } catch (error) {
     console.error('Error fetching users:', error);
     return { message: 'Internal server error', data: null, code: 500 };

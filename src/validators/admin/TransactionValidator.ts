@@ -65,14 +65,6 @@ const validateTransactionQueryParams = async (req: Request, res: Response, next:
           errorMessage: 'Payment method must be one of: stripe, paystack, flutterwave, bank_transfer, cash_on_delivery',
         },
       },
-      paymentGateway: {
-        in: ['query'],
-        optional: true,
-        isIn: {
-          options: [['paystack', 'stripe', 'flutterwave', 'manual']],
-          errorMessage: 'Payment gateway must be one of: paystack, stripe, flutterwave, manual',
-        },
-      },
       userId: {
         in: ['query'],
         optional: true,

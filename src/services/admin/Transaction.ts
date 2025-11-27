@@ -1,5 +1,10 @@
 import mongoose from 'mongoose';
-import Transaction, { ITransaction, TransactionStatus, PaymentMethod, TransactionGateway } from '../../models/Transaction';
+import Transaction, {
+  ITransaction,
+  TransactionStatus,
+  PaymentMethod,
+  TransactionGateway,
+} from '../../models/Transaction';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 
 interface TransactionFilters {
@@ -11,8 +16,7 @@ interface TransactionFilters {
   transactionType?: 'order_payment' | 'return_refund';
   dateRange?: { start: Date; end: Date };
   amountRange?: { min: number; max: number };
-  reference?: string;
-  transactionId?: string;
+  search?: string;
 }
 
 interface PaginationMeta {
@@ -46,16 +50,23 @@ const getTransactions = async (
     if (filters.transactionType) matchStage.transactionType = filters.transactionType;
     if (filters.userId) matchStage.userId = new mongoose.Types.ObjectId(filters.userId);
     if (filters.orderId) matchStage.orderId = new mongoose.Types.ObjectId(filters.orderId);
-    if (filters.reference) matchStage.reference = { $regex: filters.reference, $options: 'i' };
-    if (filters.transactionId) matchStage._id = { $regex: filters.transactionId, $options: 'i' };
-    
+
+    if (filters.search) {
+      const searchTerm = filters.search.trim();
+      const rx = new RegExp(searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      const or: Record<string, unknown>[] = [{ reference: { $regex: rx, $options: 'i' } }];
+      if (mongoose.Types.ObjectId.isValid(searchTerm)) {
+        or.push({ _id: new mongoose.Types.ObjectId(searchTerm) });
+      }
+      matchStage.$or = or;
+    }
     if (filters.dateRange) {
-      matchStage.paymentDate = { 
-        $gte: filters.dateRange.start, 
-        $lte: filters.dateRange.end 
+      matchStage.paymentDate = {
+        $gte: filters.dateRange.start,
+        $lte: filters.dateRange.end,
       };
     }
-    
+
     if (filters.amountRange) {
       matchStage.amount = {
         ...(filters.amountRange.min && { $gte: filters.amountRange.min }),
@@ -77,7 +88,7 @@ const getTransactions = async (
             $project: {
               firstName: 1,
               lastName: 1,
-              _id: 1
+              _id: 1,
             },
           },
         ],
@@ -112,7 +123,7 @@ const getTransactions = async (
     pipeline.push({ $sort: { paymentDate: -1 } });
 
     // Count total documents before pagination
-    const countPipeline = [...pipeline, { $count: 'total' }];
+    const countPipeline = [{ $match: matchStage }, { $count: 'total' }];
     const totalResult = await Transaction.aggregate(countPipeline);
     const total = totalResult[0]?.total || 0;
 
@@ -250,7 +261,6 @@ const getTransactionById = async (transactionId: string): Promise<CustomResponse
   }
 };
 
-
 /**
  * Updates a transaction by its ID
  * @param transactionId - The ID of the transaction to update
@@ -366,31 +376,31 @@ const getStatistics = async (): Promise<CustomResponseType<any>> => {
     ] = await Promise.all([
       // Total transactions
       Transaction.countDocuments(),
-      
+
       // Completed transactions
       Transaction.countDocuments({ status: 'completed' }),
-      
+
       // Pending transactions
       Transaction.countDocuments({ status: 'pending' }),
-      
+
       // Failed transactions
       Transaction.countDocuments({ status: 'failed' }),
-      
+
       // Cancelled transactions
       Transaction.countDocuments({ status: 'cancelled' }),
-      
+
       // Refunded transactions
       Transaction.countDocuments({ status: 'refunded' }),
-      
+
       // Partially refunded transactions
       Transaction.countDocuments({ status: 'partially_refunded' }),
-      
+
       // Total revenue (completed order_payment transactions only)
       Transaction.aggregate([
         { $match: { status: 'completed', transactionType: 'order_payment' } },
         { $group: { _id: null, total: { $sum: '$amount' }, count: { $sum: 1 } } },
       ]),
-      
+
       // Total refunded amount
       Transaction.aggregate([
         { $match: { status: { $in: ['refunded', 'partially_refunded'] } } },
@@ -398,26 +408,22 @@ const getStatistics = async (): Promise<CustomResponseType<any>> => {
         { $match: { 'refunds.status': 'completed' } },
         { $group: { _id: null, total: { $sum: '$refunds.amount' } } },
       ]),
-      
+
       // Transactions by gateway
-      Transaction.aggregate([
-        { $group: { _id: '$paymentGateway', count: { $sum: 1 } } },
-      ]),
-      
+      Transaction.aggregate([{ $group: { _id: '$paymentGateway', count: { $sum: 1 } } }]),
+
       // Transactions by payment method
-      Transaction.aggregate([
-        { $group: { _id: '$paymentMethod', count: { $sum: 1 } } },
-      ]),
-      
+      Transaction.aggregate([{ $group: { _id: '$paymentMethod', count: { $sum: 1 } } }]),
+
       // Recent transactions (last 7 days)
       Transaction.countDocuments({ createdAt: { $gte: sevenDaysAgo } }),
-      
+
       // Today's revenue (order_payment only)
       Transaction.aggregate([
         { $match: { status: 'completed', transactionType: 'order_payment', paidAt: { $gte: todayStart } } },
         { $group: { _id: null, total: { $sum: '$amount' } } },
       ]),
-      
+
       // Monthly revenue (order_payment only)
       Transaction.aggregate([
         { $match: { status: 'completed', transactionType: 'order_payment', paidAt: { $gte: monthStart } } },
@@ -559,7 +565,7 @@ const processRefund = async (
 
     // Update transaction
     transaction.refunds.push(newRefund);
-    
+
     // Update status
     const newTotalRefunded = totalRefunded + amount;
     if (newTotalRefunded >= transaction.amount) {
