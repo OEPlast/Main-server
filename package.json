@@ -30,12 +30,12 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^20.10.4",
     "@types/paystack__inline-js": "^1.0.2",
-    "nodemon": "^3.0.2",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "nodemon": "^3.0.2",
     "@aws-sdk/client-s3": "^3.864.0",
     "@aws-sdk/s3-request-presigner": "^3.864.0",
     "@bunny.net/storage-sdk": "^0.3.0",
