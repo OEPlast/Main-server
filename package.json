@@ -22,7 +22,6 @@
   "devDependencies": {
     "@types/bcrypt": "^5.0.2",
     "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
     "@types/express-fileupload": "^1.5.1",
     "@types/helmet": "^4.0.0",
     "@types/jsonwebtoken": "^9.0.9",
@@ -35,6 +34,7 @@
     "typescript": "^5.3.3"
   },
   "dependencies": {
+    "@types/express": "^4.17.21",
     "nodemon": "^3.0.2",
     "@aws-sdk/client-s3": "^3.864.0",
     "@aws-sdk/s3-request-presigner": "^3.864.0",
