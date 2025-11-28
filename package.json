@@ -7,7 +7,7 @@
     "dev": "nodemon src/server.ts",
     "qa": "NODE_ENV=qa npm run build:start",
     "prod": "NODE_ENV=production npm run build:start",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc",
     "build:start": "node dist/server.js",
     "publish:sample-events": "ts-node -r tsconfig-paths/register src/events/sampleEventsPublisher.ts",
     "start": "nodemon dist/server.js",
@@ -66,7 +66,6 @@
     "prettier": "^3.1.1",
     "short-uuid": "^5.2.0",
     "slugify": "^1.6.6",
-    "typescript-node-setup": "file:",
     "winston": "^3.17.0"
   }
 }
