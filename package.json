@@ -10,7 +10,7 @@
     "build": "rm -rf dist/ && tsc -p tsconfig.json",
     "build:start": "node dist/server.js",
     "publish:sample-events": "ts-node -r tsconfig-paths/register src/events/sampleEventsPublisher.ts",
-    "start": "NODE_ENV=production nodemon dist/server.js",
+    "start": "nodemon dist/server.js",
     "lint:no-fix": "eslint src/**/*.ts",
     "lint": "eslint src/**/*.ts --fix",
     "prettier": "prettier --write .",
