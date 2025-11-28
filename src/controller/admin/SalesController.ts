@@ -19,8 +19,8 @@ const SalesController = {
     try {
       const page = req.query.page ? parseInt(String(req.query.page), 10) : undefined;
       const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
-      const { code, data, message } = await SalesService.getAllSales(page, limit);
-      return res.status(code).json({ message, data });
+      const { code, data, message, meta } = await SalesService.getAllSales(page, limit);
+      return res.status(code).json({ message, data, meta });
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Unknown error occurred';
       return res.status(500).json({ error });
