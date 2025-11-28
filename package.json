@@ -7,7 +7,7 @@
     "dev": "nodemon src/server.ts",
     "qa": "NODE_ENV=qa npm run build:start",
     "prod": "NODE_ENV=production npm run build:start",
-    "build": "rm -rf dist/ && tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
     "build:start": "node dist/server.js",
     "publish:sample-events": "ts-node -r tsconfig-paths/register src/events/sampleEventsPublisher.ts",
     "start": "nodemon dist/server.js",
