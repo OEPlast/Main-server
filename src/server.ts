@@ -60,8 +60,31 @@ const rawBodySaver = (req: Request & { rawBody?: Buffer }, _res: Response, buf: 
 const app: Application = express();
 // Express Middlewares
 envConfig();
+
+// CORS configuration from environment variable
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim())
+  : ['http://localhost:3009', 'http://localhost:4999']; // Default fallback
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl requests)
+      if (!origin) return callback(null, true);
+      
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  })
+);
+
 app.use(helmet());
-app.use(cors());
 app.use(express.urlencoded({ limit: '25mb', extended: true }));
 // capture raw body for HMAC verification (e.g., Paystack)
 app.use(
