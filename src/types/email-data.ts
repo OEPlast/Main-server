@@ -98,6 +98,12 @@ export interface OrderDeliveredData extends EmailUser {
   orderNumber: string;
   products: EmailProduct[];
   viewOrderLink: string;
+
+  orderId: string;
+  shipmentId: string;
+  courierName: string;
+  deliveredAt: string;
+  deliveryAddress: string;
 }
 
 /**

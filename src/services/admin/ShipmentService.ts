@@ -450,11 +450,16 @@ const updateShipmentStatus = async (
     shipment.status = status as IShipment['status'];
     if (shipment.status === 'Delivered' && !shipment.deliveredOn) {
       shipment.deliveredOn = new Date();
-      await Order.findByIdAndUpdate(shipment.orderId, { status: 'Completed' });
+      await Order.findByIdAndUpdate(shipment.orderId._id, { status: 'Completed' });
 
       
       if (populatedOrder.user && populatedOrder.products) {
         await eventPublisher.publishOrderDelivered({
+          orderId: populatedOrder._id.toString(),
+          shipmentId: shipment._id.toString(),
+          courierName: shipment.courier || '',
+          deliveredAt: shipment.deliveredOn.toISOString(),
+          deliveryAddress: shipment.shippingAddress?.address1 || '',
           email: populatedOrder.user.email,
           firstName: populatedOrder.user.firstName,
           lastName: populatedOrder.user.lastName,
