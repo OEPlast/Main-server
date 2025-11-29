@@ -10,7 +10,7 @@ export interface EmailUser extends Record<string, unknown> {
   firstName?: string;
   lastName?: string;
   email: string;
-} 
+}
 
 /**
  * Product information for emails
@@ -23,7 +23,8 @@ export interface EmailProduct {
   category?: string;
   quantity?: number;
   subtotal?: number;
-  reviewLink?: string;}
+  reviewLink?: string;
+}
 
 /**
  * Shipping information
@@ -80,7 +81,7 @@ export interface ForgotPasswordData extends EmailUser {
  */
 export interface OrderConfirmationData extends EmailUser {
   purchaseDate: Date;
-  invoiceNumber: string;
+  orderId: string;
   shipping: ShippingInfo;
   products: EmailProduct[];
   payment: PaymentDetails;

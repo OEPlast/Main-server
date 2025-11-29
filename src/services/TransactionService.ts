@@ -381,7 +381,7 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
           },
           {
             path: 'shipmentId',
-            select: 'courier',
+            select: 'courier _id',
           },
         ]);
 
@@ -643,12 +643,14 @@ const publishOrderSuccessfulEvent = async (orderId: string): Promise<void> => {
       }`.trim();
     }
 
+    console.log({ shipmentId: order.shipmentId });
+
     await eventPublisher.publishOrderSuccessful({
       email: populatedUser.email,
       firstName: populatedUser.firstName,
       lastName: populatedUser.lastName,
       purchaseDate: order.createdAt,
-      invoiceNumber: order._id.toString(),
+      orderId: order._id.toString(),
       shipping: {
         courier,
         address,
@@ -693,7 +695,7 @@ const TransactionService = {
   getPaymentById,
   getUserPayments,
   getPaymentByReference,
-  refundPayment
+  refundPayment,
 };
 
 export default TransactionService;

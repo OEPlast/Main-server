@@ -181,6 +181,10 @@ class EventPublisher {
   }
 
   async publishOrderSuccessful(data: OrderConfirmationData): Promise<void> {
+    console.log('Publishing order successful event...');
+    console.log(data);
+    console.log('Publishing order successful event...');
+    
     await this.publish(EventType.ORDER_SUCCESSFUL, data);
   }
 

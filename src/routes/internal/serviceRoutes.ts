@@ -185,7 +185,7 @@ router.post('/orders/verify-and-restore-stock', async (req: Request, res: Respon
             firstName: populatedUser.firstName,
             lastName: populatedUser.lastName,
             purchaseDate: updatedOrder.createdAt,
-            invoiceNumber: updatedOrder._id.toString(),
+            orderId: updatedOrder._id.toString(),
             shipping: {
               courier,
               address,
