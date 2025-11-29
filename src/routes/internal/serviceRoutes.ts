@@ -142,7 +142,7 @@ router.post('/orders/verify-and-restore-stock', async (req: Request, res: Respon
           },
           {
             path: 'shipmentId',
-            select: 'courier',
+            select: 'courier _id',
           },
         ]);
 
@@ -183,12 +183,15 @@ router.post('/orders/verify-and-restore-stock', async (req: Request, res: Respon
           await eventPublisher.publishOrderSuccessful({
             email: populatedUser.email,
             firstName: populatedUser.firstName,
+            lastName: populatedUser.lastName,
             purchaseDate: updatedOrder.createdAt,
             invoiceNumber: updatedOrder._id.toString(),
             shipping: {
               courier,
               address,
+              _id: updatedOrder.shipmentId._id.toString(),
             },
+            deliveryType: updatedOrder.deliveryType,
             products: populatedProducts.map((item) => ({
               name: item.product.name,
               imagePath: item.product.description_images?.[0] || '',

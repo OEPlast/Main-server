@@ -31,6 +31,7 @@ export interface EmailProduct {
 export interface ShippingInfo {
   courier: string;
   address: string;
+  _id?: string;
 }
 
 /**
@@ -84,6 +85,7 @@ export interface OrderConfirmationData extends EmailUser {
   products: EmailProduct[];
   payment: PaymentDetails;
   orderStatusLink: string;
+  deliveryType: string;
 }
 
 /**

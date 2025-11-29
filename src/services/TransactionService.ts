@@ -601,7 +601,7 @@ const publishOrderSuccessfulEvent = async (orderId: string): Promise<void> => {
       },
       {
         path: 'shipmentId',
-        select: 'courier',
+        select: 'courier _id',
       },
     ]);
 
@@ -646,12 +646,15 @@ const publishOrderSuccessfulEvent = async (orderId: string): Promise<void> => {
     await eventPublisher.publishOrderSuccessful({
       email: populatedUser.email,
       firstName: populatedUser.firstName,
+      lastName: populatedUser.lastName,
       purchaseDate: order.createdAt,
       invoiceNumber: order._id.toString(),
       shipping: {
         courier,
         address,
+        _id: order.shipmentId?._id.toString() || '',
       },
+      deliveryType: order.deliveryType,
       products: populatedProducts.map((item) => {
         // Find cover image or fallback to first image
         const coverImage = item.product.description_images?.find((img) => img.cover_image === true);
