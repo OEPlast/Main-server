@@ -296,7 +296,6 @@ class CheckoutService {
       deliveryType = 'shipping',
       shippingCost: frontendShippingCost,
       acceptChanges = false,
-      notes
     } = payload;
 
     if (!items || items.length === 0) {
