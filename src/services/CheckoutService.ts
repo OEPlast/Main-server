@@ -50,6 +50,7 @@ export type SecureCheckoutPayload = {
   deliveryType?: CheckoutDeliveryType;
   shippingCost?: number;
   acceptChanges?: boolean; // Auto-apply corrections when true
+  notes?: string;
 };
 
 export type SecureCheckoutCorrection = {
@@ -295,6 +296,7 @@ class CheckoutService {
       deliveryType = 'shipping',
       shippingCost: frontendShippingCost,
       acceptChanges = false,
+      notes
     } = payload;
 
     if (!items || items.length === 0) {
@@ -503,6 +505,7 @@ class CheckoutService {
       taxPrice,
       isPaid: false,
       status: 'Pending' as OrderType['status'],
+      notes: payload.notes
     } as unknown as Parameters<typeof OrderService.placeOrderWithStockValidation>[0];
 
     const userDoc = await User.findById(userId).select('email');

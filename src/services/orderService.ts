@@ -638,7 +638,9 @@ const placeOrderWithStockValidation = async (
       .session(session)
       .select('name stock lowStockThreshold');
     for (const p of updatedProducts) {
-      if (p.stock <= p.lowStockThreshold) {
+      if (p.stock === 0) {
+        await eventPublisher.publishInventoryOutOfStock(p._id.toString(), p.name, 0);
+      } else if (p.stock <= p.lowStockThreshold) {
         await eventPublisher.publishInventoryLow(p._id.toString(), p.stock, p.lowStockThreshold, p.name);
       }
     }
@@ -654,9 +656,6 @@ const placeOrderWithStockValidation = async (
         (product as any).saleSnapshot = snapshot;
       }
     }
-
-    console.log('--------fdffdfdfdfdfd----------');
-    console.log({ orderData });
     // Calculate shipping cost using LogisticsService
     let calculatedShipping = 0;
     try {
@@ -694,8 +693,6 @@ const placeOrderWithStockValidation = async (
     const tax = Math.round(Number(orderData.taxPrice || 0) * 100) / 100;
     const subtotalAfterCoupon = Math.round(Math.max(0, itemsSubtotal - finalCouponDiscount) * 100) / 100;
     const finalTotal = Math.round((subtotalAfterCoupon + shipping + tax) * 100) / 100;
-    console.log('--------orderData-------');
-    console.log({ orderData });
 
     // Create the order with recomputed totals
     const order = new Order({

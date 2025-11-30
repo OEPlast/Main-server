@@ -164,6 +164,14 @@ const validateSecureCheckout = (req: Request, res: Response, next: NextFunction)
         errorMessage: 'Payment method must be one of: paystack, flutterwave, card, bank_transfer, cash_on_delivery.',
       },
     },
+    notes: {
+      in: ['body'],
+      optional: true,
+      isLength: {
+        options: { max: 1000 },
+        errorMessage: 'Order notes cannot exceed 1000 characters.',
+      },
+    }
   });
 
   const errors = validationResult(req);

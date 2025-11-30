@@ -47,6 +47,38 @@ function addSaleLookupStages(): any[] {
     },
   ];
 }
+function addReviewLookupStages(): any[] {
+  return [
+    {
+      $lookup: {
+        from: 'reviews',
+        localField: '_id',
+        foreignField: 'product',
+        pipeline: [
+          {
+            $group: {
+              _id: null,
+              averageRating: {$avg: '$rating'},
+              totalReviews: {$sum: 1}
+            },
+          },
+        ],
+        as: 'reviewStats',
+      },
+    },
+    {
+      $addFields: {
+       reviewStats: {
+        $cond: {
+          if: {$gt: [{$size: '$reviewStats'}, 0]},
+          then: {$arrayElemAt: ['$reviewStats', 0]},
+          else: {averageRating: 0, totalReviews: 0}
+        }
+       }
+      },
+    },
+  ];
+}
 
 /**
  * Fetches all products with filters via aggregation pipeline.
@@ -255,8 +287,10 @@ const getProductById = async (
           as: 'category',
         },
       },
+
       { $unwind: { path: '$category', preserveNullAndEmptyArrays: true } },
       ...addSaleLookupStages(),
+      ...addReviewLookupStages(),
     ];
 
     const products = await Product.aggregate(pipeline).exec();
@@ -297,7 +331,7 @@ const getProductById = async (
  */
 const getProductStock = async (productId: string): Promise<CustomResponseType<number>> => {
   try {
-    const product = await Product.findById(productId);
+    const product = await Product.findById(productId).select('stock');
     if (!product) {
       return {
         message: 'Product not found',

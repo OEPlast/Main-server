@@ -40,7 +40,9 @@ const adjustStock = async (productId: string, delta: number): Promise<CustomResp
       return { message: 'Product not found', data: null, code: 404 };
     }
 
-    if (product.stock <= product.lowStockThreshold) {
+    if (product.stock === 0) {
+      await eventPublisher.publishInventoryOutOfStock(productId, product.name, 0);
+    } else if (product.stock <= product.lowStockThreshold) {
       await eventPublisher.publishInventoryLow(productId, product.stock, product.lowStockThreshold, product.name);
     }
 

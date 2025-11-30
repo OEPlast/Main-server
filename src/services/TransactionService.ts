@@ -183,7 +183,20 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<ITra
           transaction.orderId,
           { isPaid: true, paidAt: new Date() },
           { new: true }
-        );
+        ).populate([
+          {
+            path: 'user',
+            select: 'email firstName lastName',
+          },
+          {
+            path: 'products.product',
+            select: 'name description_images category price',
+          },
+          {
+            path: 'shipmentId',
+            select: 'courier _id',
+          },
+        ]);
 
         // Update order status to Processing
         await Order.findByIdAndUpdate(transaction.orderId, { status: 'Processing' });
@@ -411,6 +424,15 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
 
         // Publish ORDER_SUCCESSFUL event to trigger email confirmation
         await publishOrderSuccessfulEvent(transaction.orderId.toString());
+
+        // Publish PAYMENT_SUCCESSFUL event (match verifyPayment behavior)
+        await eventPublisher.publishPaymentSuccessful({
+          orderId: transaction.orderId.toString(),
+          userId: transaction.userId.toString(),
+          paymentId: (transaction._id as mongoose.Types.ObjectId).toString(),
+          amount: transaction.amount,
+          paymentMethod: 'paystack',
+        });
 
         await eventPublisher.publishWebsocketOrderUpdate({ orderId: transaction.orderId.toString(), status: 'paid' });
         logger.debug(
