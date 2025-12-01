@@ -188,6 +188,7 @@ export const CategoryService = {
             image: 1,
             slug: 1,
             sub_categories: 1,
+            description: 1,
           },
         },
       ];

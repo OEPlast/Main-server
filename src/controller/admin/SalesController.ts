@@ -17,9 +17,19 @@ const SalesController = {
   },
   async getAllSales(req: Request, res: Response) {
     try {
-      const page = req.query.page ? parseInt(String(req.query.page), 10) : undefined;
-      const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : undefined;
-      const { code, data, message, meta } = await SalesService.getAllSales(page, limit);
+      const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
+      const limit = req.query.limit ? parseInt(String(req.query.limit), 10) : 10;
+      const type = req.query.type ? `${req.query.type}` : undefined;
+      const search = req.query.search ? `${req.query.search}` : undefined;
+      let isActive: boolean | undefined;
+      if (typeof req.query.isActive === 'string') {
+        if (req.query.isActive === 'true') isActive = true;
+        else if (req.query.isActive === 'false') isActive = false;
+        else isActive = undefined;
+      } else {
+        isActive = undefined;
+      }
+      const { code, data, message, meta } = await SalesService.getAllSales({ page, limit, type, search, isActive });
       return res.status(code).json({ message, data, meta });
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Unknown error occurred';

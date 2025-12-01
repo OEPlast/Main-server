@@ -53,10 +53,30 @@ export const createSale = async (data: Partial<SalesType>, userId: string): Cust
 /**
  * Gets all sales with product and creator info (paginated).
  */
-export const getAllSales = async (page = 1, limit = 20, search?: string): SalesWithPagination => {
+
+type GetAllSalesFilter = {
+  page: number;
+  limit: number;
+  search?: string;
+  type?: string;
+  isActive?: boolean;
+};
+export const getAllSales = async (filter: GetAllSalesFilter): SalesWithPagination => {
   try {
+    const limit = filter.limit;
+    const page = filter.page;
+    const saleType = filter.type;
     // Build match stage for search filter
-    const matchStage = search ? { title: { $regex: search, $options: 'i' } } : {};
+    const matchStage: Record<string, any> = {};
+    if (filter.search) {
+      matchStage.title = { $regex: filter.search, $options: 'i' };
+    }
+    if (saleType !== undefined) {
+      matchStage.type = saleType;
+    }
+    if (filter.isActive !== undefined) {
+      matchStage.isActive = filter.isActive;
+    }
 
     const total = await Sales.countDocuments(matchStage);
     const sales = (await Sales.aggregate([
