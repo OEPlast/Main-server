@@ -9,6 +9,7 @@ import ProductsRoute from '@/routes/general/products';
 import ReviewRoute from './routes/general/review';
 import CategoriesRoute from '@/routes/general/categories';
 import TransactionRoute from '@/routes/general/transaction';
+import SitemapRoute from '@/routes/general/sitemap';
 import AuthRoute from '@/routes/auth/user';
 import OrderRoute from '@/routes/users/orders';
 import CartRoute from '@/routes/users/cart';
@@ -68,10 +69,10 @@ const allowedOrigins = process.env.CORS_ORIGINS
 
 app.use(
   cors({
-     origin: allowedOrigins,
+    origin: allowedOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization','x-request-id',],
+    allowedHeaders: ['Content-Type', 'Authorization', 'x-request-id'],
   })
 );
 
@@ -118,6 +119,7 @@ app.use('/reviews', ReviewRoute);
 app.use('/returns', UserReturnsRoute);
 app.use('/coupons', CouponsRoute);
 app.use('/settings', SettingsRoute);
+app.use('/sitemap', SitemapRoute);
 
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);

@@ -4,3 +4,4 @@ export { default as GeneralFileUploadRoute } from './fileUpload';
 export { default as GeneralTransactionRoute } from './transaction';
 export { default as GeneralProductRoute } from './products';
 export { default as GeneralReviewRoute } from './review';
+export { default as GeneralSitemapRoute } from './sitemap';
