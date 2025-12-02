@@ -15,7 +15,6 @@ class SitemapService {
       {
         $match: {
           status: 'active',
-          deleted: false,
         },
       },
       {
@@ -40,9 +39,7 @@ class SitemapService {
   async getCategorySlugs() {
     const categories = await Category.aggregate([
       {
-        $match: {
-          deleted: false,
-        },
+        $match: {},
       },
       {
         $project: {
