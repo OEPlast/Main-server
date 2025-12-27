@@ -10,7 +10,7 @@
     "build": "tsc --outDir dist && tsc-alias && gulp copy:mails",
     "build:start": "node dist/server.js",
     "publish:sample-events": "ts-node -r tsconfig-paths/register src/events/sampleEventsPublisher.ts",
-    "start": "nodemon dist/src/server.js",
+    "start": "node dist/src/server.js",
     "lint:no-fix": "eslint src/**/*.ts",
     "lint": "eslint src/**/*.ts --fix",
     "prettier": "prettier --write .",
