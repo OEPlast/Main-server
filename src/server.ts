@@ -65,7 +65,7 @@ envConfig();
 // CORS configuration from environment variable
 const allowedOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(',').map((origin) => origin.trim())
-  : ['http://localhost:3009', 'http://localhost:4999']; // Default fallback
+  : ['http://localhost:3009', 'http://localhost:4999']; //  fallback
 
 app.use(
   cors({
