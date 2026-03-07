@@ -7,6 +7,7 @@ const fileUploadSchema = new Schema(
     mimetype: { type: String, required: true },
     size: { type: Number, required: true },
     url: { type: String, required: true },
+    miniUrl: { type: String, required: false }, // Minified version URL (optional for backward compatibility)
     s3Key: { type: String }, // S3 object key for easy deletion
     category: {
       type: String,
@@ -20,6 +21,11 @@ const fileUploadSchema = new Schema(
       format: { type: String },
       s3Bucket: { type: String },
       s3Region: { type: String },
+      // Video metadata (for video files)
+      duration: { type: Number }, // Video duration in seconds
+      codec: { type: String }, // Video codec
+      bitrate: { type: Number }, // Video bitrate
+      thumbnailTimestamp: { type: Number }, // Timestamp where thumbnail was extracted
     },
   },
   { timestamps: true }

@@ -140,6 +140,7 @@ const productSchema = new mongoose.Schema(
     description_images: [
       {
         url: { type: String, required: true, default: '' },
+        miniUrl: { type: String, required: false }, // Minified version URL (optional for backward compatibility)
         cover_image: {
           type: Boolean,
           default: false, //but at least one must be true

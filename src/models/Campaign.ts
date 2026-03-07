@@ -11,6 +11,7 @@ const campaignSchema = new Schema(
       match: [/^[a-z0-9-_]+$/, 'slug may only contain lowercase letters, numbers, underscores, and hyphens'],
     },
     image: { type: String, required: true },
+    miniImage: { type: String, required: false }, // Minified version (optional for backward compatibility)
     title: { type: String, required: true },
     description: { type: String },
     startDate: { type: Date },

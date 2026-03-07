@@ -10,6 +10,10 @@ const childAttributeSchema = new mongoose.Schema(
     image: {
       type: String,
     },
+    miniImage: {
+      type: String,
+      required: false, // Minified version (optional for backward compatibility)
+    },
   },
   { _id: false }
 );

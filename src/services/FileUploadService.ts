@@ -2,6 +2,13 @@ import { CustomResponseType } from '@/types';
 import * as BunnyStorageSDK from '@bunny.net/storage-sdk';
 import { randomUUID } from 'crypto';
 import { ReadableStream } from 'stream/web';
+import {
+  processImageFile,
+  processVideoFile,
+  isImageType,
+  isVideoType,
+  getMiniFilename,
+} from '@/utils/ImageProcessor';
 
 // NOTE: This service has been refactored to use Bunny Storage directly.
 // We no longer persist upload metadata in Mongo (FileUpload model removed from logic)
@@ -47,10 +54,13 @@ const bufferToWebStream = (buffer: Buffer): ReadableStream<Uint8Array> => {
 
 type UploadedPathInfo = {
   path: string; // stored path inside storage zone (leading slash omitted)
+  miniPath: string; // minified version path
   url?: string; // optional public URL if BUNNY_BASE_URL is configured
+  miniUrl?: string; // optional public URL for minified version
   size: number;
   mimetype: string;
   originalName: string;
+  warning?: string; // warning message if optimization failed
 };
 
 const uploadFile = async (
@@ -64,21 +74,71 @@ const uploadFile = async (
     }
 
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    const fileExtension = file.originalname.includes('.') ? file.originalname.split('.').pop() : undefined;
-    const safeExt = fileExtension ? `.${fileExtension}` : '';
-    const filename = `${randomUUID()}-${uniqueSuffix}${safeExt}`;
-    // we store without leading slash for internal path, Bunny API expects a leading slash when operating
-    const internalPath = `${category}/${filename}`;
+    const originalExt = file.originalname.includes('.') ? file.originalname.split('.').pop() : undefined;
+    const baseFilename = `${randomUUID()}-${uniqueSuffix}`;
+    
+    let baseBuffer = file.buffer;
+    let miniBuffer = file.buffer;
+    let finalBaseFilename = `${baseFilename}.${originalExt || 'bin'}`;
+    let finalMiniFilename = getMiniFilename(finalBaseFilename);
+    let warning: string | undefined;
+    let finalMimetype = file.mimetype;
 
+    // Process based on file type
+    const isImage = isImageType(file.mimetype);
+    const isVideo = isVideoType(file.mimetype);
+
+    if (isImage || isVideo) {
+      try {
+        let processed;
+        if (isImage) {
+          // Process image: convert to WebP (base + mini)
+          processed = await processImageFile(file.buffer);
+        } else {
+          // Process video: extract frame at 1 second, convert to WebP (base + mini)
+          processed = await processVideoFile(file.buffer, 1.0);
+        }
+
+        baseBuffer = processed.baseBuffer;
+        miniBuffer = processed.miniBuffer;
+        finalBaseFilename = `${baseFilename}.webp`;
+        finalMiniFilename = getMiniFilename(finalBaseFilename);
+        finalMimetype = 'image/webp';
+      } catch (error) {
+        // Optimization failed - use original file for both versions
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error('Image/video processing failed:', errorMessage);
+        warning = `Image uploaded but optimization failed - original format kept`;
+        // Keep original buffers and filenames
+        miniBuffer = baseBuffer; // Use same buffer for mini if processing failed
+      }
+    }
+
+    // Upload base version
+    const internalPath = `${category}/${finalBaseFilename}`;
     const zone = getZone();
-    const webStream = bufferToWebStream(file.buffer);
-    // Bunny upload path MUST start with '/'
-    const success = await BunnyStorageSDK.file.upload(zone, `/${internalPath}`, webStream, {
-      contentType: file.mimetype,
+    const baseStream = bufferToWebStream(baseBuffer);
+    
+    const baseSuccess = await BunnyStorageSDK.file.upload(zone, `/${internalPath}`, baseStream, {
+      contentType: finalMimetype,
     });
 
-    if (!success) {
-      return { message: 'Failed to upload to Bunny storage', data: null, code: 500 };
+    if (!baseSuccess) {
+      return { message: 'Failed to upload base file to Bunny storage', data: null, code: 500 };
+    }
+
+    // Upload mini version
+    const miniInternalPath = `${category}/${finalMiniFilename}`;
+    const miniStream = bufferToWebStream(miniBuffer);
+    
+    const miniSuccess = await BunnyStorageSDK.file.upload(zone, `/${miniInternalPath}`, miniStream, {
+      contentType: finalMimetype,
+    });
+
+    if (!miniSuccess) {
+      console.error('Failed to upload mini version, but base uploaded successfully');
+      // If mini fails, still return success with base info but add warning
+      warning = (warning ? warning + '; ' : '') + 'Minified version upload failed';
     }
 
     // touch unused param to satisfy linter (future: include in audit logs)
@@ -86,10 +146,15 @@ const uploadFile = async (
 
     const result: UploadedPathInfo = {
       path: internalPath,
+      miniPath: miniSuccess ? miniInternalPath : internalPath, // Fallback to base if mini failed
       url: BUNNY_BASE_URL ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}` : undefined,
+      miniUrl: BUNNY_BASE_URL && miniSuccess 
+        ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${miniInternalPath}` 
+        : BUNNY_BASE_URL ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}` : undefined,
       size: file.size,
-      mimetype: file.mimetype,
+      mimetype: finalMimetype,
       originalName: file.originalname,
+      warning,
     };
 
     return { message: 'File uploaded successfully', data: result, code: 201 };
@@ -156,9 +221,12 @@ const getFilesByCategory = async (
     const slice = fileEntries.slice(start, start + limit);
     const files: UploadedPathInfo[] = slice.map((f) => {
       const internalPath = f.path.replace(/^\//, '');
+      const miniPath = getMiniFilename(internalPath);
       return {
         path: internalPath,
+        miniPath,
         url: BUNNY_BASE_URL ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}` : undefined,
+        miniUrl: BUNNY_BASE_URL ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${miniPath}` : undefined,
         size: f.length,
         mimetype: f.contentType,
         originalName: f.objectName,

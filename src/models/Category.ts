@@ -12,6 +12,10 @@ const categorySchema = new mongoose.Schema(
       type: String,
       default: 'https://isomorphic-furyroad.s3.amazonaws.com/public/categories/bags.webp',
     },
+    miniImage: {
+      type: String,
+      required: false, // Minified version (optional for backward compatibility)
+    },
     banner: {
       type: String,
       default: '',

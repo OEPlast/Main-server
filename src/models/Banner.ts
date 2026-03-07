@@ -11,6 +11,10 @@ const bannerSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    miniImageUrl: {
+      type: String,
+      required: false, // Minified version (optional for backward compatibility)
+    },
     pageLink: {
       type: String,
       required: true,

@@ -94,6 +94,10 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: 'https://res.cloudinary.com/dmhcnhtng/image/upload/v1664642478/992490_b0iqzq.png',
     },
+    miniImage: {
+      type: String,
+      required: false, // Minified version of user image (optional for backward compatibility)
+    },
     emailVerified: {
       type: Date,
       default: null,

@@ -8,15 +8,20 @@ const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: 50 * 1024 * 1024, // 50MB limit (max for videos)
   },
   fileFilter: (req, file, cb) => {
-    // Allow images only
-    if (file.mimetype.startsWith('image/')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed'));
+    const isImage = file.mimetype.startsWith('image/');
+    const isVideo = file.mimetype.startsWith('video/');
+    
+    if (!isImage && !isVideo) {
+      cb(new Error('Only image and video files are allowed'));
+      return;
     }
+    
+    // Note: Actual size check happens after upload since we need the buffer
+    // We'll validate image size limit (10MB) in the controller
+    cb(null, true);
   },
 });
 
@@ -24,6 +29,20 @@ const uploadSingle = async (req: Request, res: Response) => {
   try {
     if (!req.file) {
       return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    // Validate file size based on type
+    const isImage = req.file.mimetype.startsWith('image/');
+    const isVideo = req.file.mimetype.startsWith('video/');
+    const IMAGE_SIZE_LIMIT = 10 * 1024 * 1024; // 10MB
+    const VIDEO_SIZE_LIMIT = 50 * 1024 * 1024; // 50MB
+
+    if (isImage && req.file.size > IMAGE_SIZE_LIMIT) {
+      return res.status(400).json({ message: 'Image file size must not exceed 10MB' });
+    }
+
+    if (isVideo && req.file.size > VIDEO_SIZE_LIMIT) {
+      return res.status(400).json({ message: 'Video file size must not exceed 50MB' });
     }
 
     // Type guard ensures req.userId exists after authentication middleware
@@ -51,6 +70,27 @@ const uploadMultiple = async (req: Request, res: Response) => {
   try {
     if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
       return res.status(400).json({ message: 'No files uploaded' });
+    }
+
+    // Validate file sizes based on type
+    const IMAGE_SIZE_LIMIT = 10 * 1024 * 1024; // 10MB
+    const VIDEO_SIZE_LIMIT = 50 * 1024 * 1024; // 50MB
+
+    for (const file of req.files) {
+      const isImage = file.mimetype.startsWith('image/');
+      const isVideo = file.mimetype.startsWith('video/');
+
+      if (isImage && file.size > IMAGE_SIZE_LIMIT) {
+        return res.status(400).json({ 
+          message: `Image file "${file.originalname}" exceeds 10MB limit` 
+        });
+      }
+
+      if (isVideo && file.size > VIDEO_SIZE_LIMIT) {
+        return res.status(400).json({ 
+          message: `Video file "${file.originalname}" exceeds 50MB limit` 
+        });
+      }
     }
 
     type BodyWithCategory = { category?: string };
