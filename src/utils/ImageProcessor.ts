@@ -104,22 +104,41 @@ export async function extractVideoFrame(
 }
 
 /**
- * Process image file: convert to WebP and generate mini version
+ * Convert image buffer to PNG format
  * @param buffer - Original image buffer
- * @returns Object with base and mini WebP buffers
+ * @returns PNG image buffer
+ * @throws Error if conversion fails
+ */
+export async function convertToPng(buffer: Buffer): Promise<Buffer> {
+  try {
+    const pngBuffer = await sharp(buffer).png({ compressionLevel: 6 }).toBuffer();
+
+    return pngBuffer;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    throw new Error(`PNG conversion failed: ${errorMessage}`);
+  }
+}
+
+/**
+ * Process image file: convert to WebP (base + mini) and PNG for OG images
+ * @param buffer - Original image buffer
+ * @returns Object with base WebP, mini WebP, and PNG buffers
  */
 export async function processImageFile(buffer: Buffer): Promise<{
   baseBuffer: Buffer;
   miniBuffer: Buffer;
+  pngBuffer: Buffer;
 }> {
   try {
-    // Generate both versions in parallel for efficiency
-    const [baseBuffer, miniBuffer] = await Promise.all([
+    // Generate all three versions in parallel for efficiency
+    const [baseBuffer, miniBuffer, pngBuffer] = await Promise.all([
       convertToWebP(buffer, CONFIG.BASE_QUALITY),
       generateMiniVersion(buffer),
+      convertToPng(buffer),
     ]);
 
-    return { baseBuffer, miniBuffer };
+    return { baseBuffer, miniBuffer, pngBuffer };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     throw new Error(`Image processing failed: ${errorMessage}`);
@@ -127,10 +146,10 @@ export async function processImageFile(buffer: Buffer): Promise<{
 }
 
 /**
- * Process video/GIF file: extract frame, convert to WebP, and generate mini version
+ * Process video/GIF file: extract frame, convert to WebP (base + mini) and PNG for OG images
  * @param buffer - Video or GIF buffer
  * @param timestamp - Time in seconds to extract frame (default: 1.0s)
- * @returns Object with base and mini WebP buffers
+ * @returns Object with base WebP, mini WebP, and PNG buffers
  */
 export async function processVideoFile(
   buffer: Buffer,
@@ -138,18 +157,20 @@ export async function processVideoFile(
 ): Promise<{
   baseBuffer: Buffer;
   miniBuffer: Buffer;
+  pngBuffer: Buffer;
 }> {
   try {
     // Extract frame from video
     const frameBuffer = await extractVideoFrame(buffer, timestamp);
 
-    // Convert frame to WebP and generate mini version
-    const [baseBuffer, miniBuffer] = await Promise.all([
+    // Convert frame to WebP, generate mini version, and create PNG
+    const [baseBuffer, miniBuffer, pngBuffer] = await Promise.all([
       convertToWebP(frameBuffer, CONFIG.BASE_QUALITY),
       generateMiniVersion(frameBuffer),
+      convertToPng(frameBuffer),
     ]);
 
-    return { baseBuffer, miniBuffer };
+    return { baseBuffer, miniBuffer, pngBuffer };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     throw new Error(`Video processing failed: ${errorMessage}`);
@@ -193,4 +214,14 @@ export function getMiniFilename(filename: string): string {
   const ext = filename.split('.').pop();
   const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
   return `${nameWithoutExt}-mini.${ext}`;
+}
+
+/**
+ * Get PNG version filename from a base filename
+ * @param filename - Base filename (e.g., "uuid-timestamp.webp")
+ * @returns Filename with .png extension (e.g., "uuid-timestamp.png")
+ */
+export function getPngFilename(filename: string): string {
+  const nameWithoutExt = filename.replace(/\.[^/.]+$/, '');
+  return `${nameWithoutExt}.png`;
 }

@@ -8,6 +8,7 @@ import {
   isImageType,
   isVideoType,
   getMiniFilename,
+  getPngFilename,
 } from '@/utils/ImageProcessor';
 
 // NOTE: This service has been refactored to use Bunny Storage directly.
@@ -55,8 +56,10 @@ const bufferToWebStream = (buffer: Buffer): ReadableStream<Uint8Array> => {
 type UploadedPathInfo = {
   path: string; // stored path inside storage zone (leading slash omitted)
   miniPath: string; // minified version path
+  pngPath: string; // PNG version path (for OG images)
   url?: string; // optional public URL if BUNNY_BASE_URL is configured
   miniUrl?: string; // optional public URL for minified version
+  pngUrl?: string; // optional public URL for PNG version
   size: number;
   mimetype: string;
   originalName: string;
@@ -76,11 +79,13 @@ const uploadFile = async (
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
     const originalExt = file.originalname.includes('.') ? file.originalname.split('.').pop() : undefined;
     const baseFilename = `${randomUUID()}-${uniqueSuffix}`;
-    
+
     let baseBuffer = file.buffer;
     let miniBuffer = file.buffer;
+    let pngBuffer: Buffer | null = null;
     let finalBaseFilename = `${baseFilename}.${originalExt || 'bin'}`;
     let finalMiniFilename = getMiniFilename(finalBaseFilename);
+    let finalPngFilename = getPngFilename(finalBaseFilename);
     let warning: string | undefined;
     let finalMimetype = file.mimetype;
 
@@ -101,8 +106,10 @@ const uploadFile = async (
 
         baseBuffer = processed.baseBuffer;
         miniBuffer = processed.miniBuffer;
+        pngBuffer = processed.pngBuffer;
         finalBaseFilename = `${baseFilename}.webp`;
         finalMiniFilename = getMiniFilename(finalBaseFilename);
+        finalPngFilename = getPngFilename(finalBaseFilename);
         finalMimetype = 'image/webp';
       } catch (error) {
         // Optimization failed - use original file for both versions
@@ -111,6 +118,7 @@ const uploadFile = async (
         warning = `Image uploaded but optimization failed - original format kept`;
         // Keep original buffers and filenames
         miniBuffer = baseBuffer; // Use same buffer for mini if processing failed
+        pngBuffer = null; // No PNG version on failure
       }
     }
 
@@ -118,7 +126,7 @@ const uploadFile = async (
     const internalPath = `${category}/${finalBaseFilename}`;
     const zone = getZone();
     const baseStream = bufferToWebStream(baseBuffer);
-    
+
     const baseSuccess = await BunnyStorageSDK.file.upload(zone, `/${internalPath}`, baseStream, {
       contentType: finalMimetype,
     });
@@ -130,7 +138,7 @@ const uploadFile = async (
     // Upload mini version
     const miniInternalPath = `${category}/${finalMiniFilename}`;
     const miniStream = bufferToWebStream(miniBuffer);
-    
+
     const miniSuccess = await BunnyStorageSDK.file.upload(zone, `/${miniInternalPath}`, miniStream, {
       contentType: finalMimetype,
     });
@@ -141,16 +149,41 @@ const uploadFile = async (
       warning = (warning ? warning + '; ' : '') + 'Minified version upload failed';
     }
 
+    // Upload PNG version (for OG images)
+    let pngSuccess = false;
+    const pngInternalPath = `${category}/${finalPngFilename}`;
+    if (pngBuffer) {
+      const pngStream = bufferToWebStream(pngBuffer);
+      pngSuccess = await BunnyStorageSDK.file.upload(zone, `/${pngInternalPath}`, pngStream, {
+        contentType: 'image/png',
+      });
+
+      if (!pngSuccess) {
+        console.error('Failed to upload PNG version, but base uploaded successfully');
+        warning = (warning ? warning + '; ' : '') + 'PNG version upload failed';
+      }
+    }
+
     // touch unused param to satisfy linter (future: include in audit logs)
     void _uploadedBy;
 
     const result: UploadedPathInfo = {
       path: internalPath,
       miniPath: miniSuccess ? miniInternalPath : internalPath, // Fallback to base if mini failed
+      pngPath: pngSuccess ? pngInternalPath : internalPath, // Fallback to base if PNG failed
       url: BUNNY_BASE_URL ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}` : undefined,
-      miniUrl: BUNNY_BASE_URL && miniSuccess 
-        ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${miniInternalPath}` 
-        : BUNNY_BASE_URL ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}` : undefined,
+      miniUrl:
+        BUNNY_BASE_URL && miniSuccess
+          ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${miniInternalPath}`
+          : BUNNY_BASE_URL
+            ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}`
+            : undefined,
+      pngUrl:
+        BUNNY_BASE_URL && pngSuccess
+          ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${pngInternalPath}`
+          : BUNNY_BASE_URL
+            ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}`
+            : undefined,
       size: file.size,
       mimetype: finalMimetype,
       originalName: file.originalname,
@@ -222,11 +255,14 @@ const getFilesByCategory = async (
     const files: UploadedPathInfo[] = slice.map((f) => {
       const internalPath = f.path.replace(/^\//, '');
       const miniPath = getMiniFilename(internalPath);
+      const pngPath = getPngFilename(internalPath);
       return {
         path: internalPath,
         miniPath,
+        pngPath,
         url: BUNNY_BASE_URL ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}` : undefined,
         miniUrl: BUNNY_BASE_URL ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${miniPath}` : undefined,
+        pngUrl: BUNNY_BASE_URL ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${pngPath}` : undefined,
         size: f.length,
         mimetype: f.contentType,
         originalName: f.objectName,

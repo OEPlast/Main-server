@@ -18,6 +18,7 @@
     "test:returns:quick": "node test-returns-quick.js",
     "migrate:images": "ts-node -r tsconfig-paths/register scripts/migrate-images-to-webp.ts",
     "migrate:images:recovery": "ts-node -r tsconfig-paths/register scripts/migrate-images-recovery.ts",
+    "generate:png": "ts-node -r tsconfig-paths/register scripts/generate-png-versions.ts",
     "fix:urls": "ts-node -r tsconfig-paths/register scripts/fix-malformed-urls.ts"
   },
   "author": "chocoscoding(https://github.com/chocoscoding)",
