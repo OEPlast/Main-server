@@ -19,6 +19,8 @@ import LogisticsService from '@/services/LogisticsService';
 import ShipmentService from '@/services/ShipmentService';
 import Return, { ReturnType } from '../models/Return';
 import { EnrichedOrder } from './admin/Order';
+import type { CouponDoc, PricedItem, OrderDataInput, PlaceOrderResponse } from '@/types/order';
+import { validateCouponCodes, computeCouponDiscount } from '@/helpers/couponUtils';
 
 function calculateUnitPrice({
   product,
@@ -54,175 +56,6 @@ function calculateUnitPrice({
   return { unitPrice: unit, base, discountAppliedPct: salePct };
 }
 
-type CouponDoc = CouponSchemaType & { _id: mongoose.Types.ObjectId };
-
-type PricedItem = {
-  product: mongoose.Types.ObjectId | string;
-  qty: number;
-  price: number;
-};
-
-async function validateCouponCodes({
-  couponCodes,
-  items,
-  itemsSubtotal,
-  userId,
-  session,
-}: {
-  couponCodes: string[];
-  items: PricedItem[];
-  itemsSubtotal: number;
-  userId: mongoose.Types.ObjectId;
-  session: mongoose.ClientSession;
-}): Promise<{
-  validCoupons: Array<{ code: string; couponDoc: CouponDoc; discount: number }>;
-  invalidCoupons: Array<{ code: string; reason: string }>;
-  totalDiscount: number;
-}> {
-  const validCoupons: Array<{ code: string; couponDoc: CouponDoc; discount: number }> = [];
-  const invalidCoupons: Array<{ code: string; reason: string }> = [];
-  let totalDiscount = 0;
-
-  const now = new Date();
-  const userIdStr = userId.toString();
-
-  // Process each coupon code
-  for (const code of couponCodes) {
-    try {
-      // Find coupon by code
-      const couponDoc = (await Coupon.findOne({
-        coupon: code.toUpperCase(),
-        deleted: { $ne: true },
-      }).session(session)) as CouponDoc | null;
-
-      if (!couponDoc) {
-        invalidCoupons.push({ code, reason: 'Coupon not found' });
-        continue;
-      }
-
-      // Check if coupon is active
-      if (!couponDoc.active) {
-        invalidCoupons.push({ code, reason: 'Coupon is inactive' });
-        continue;
-      }
-
-      // Check date validity
-      if (now < couponDoc.startDate || now > couponDoc.endDate) {
-        invalidCoupons.push({ code, reason: 'Coupon has expired or not yet active' });
-        continue;
-      }
-
-      // Check coupon type constraints
-      if (couponDoc.couponType === 'one-off-user') {
-        const alreadyUsed = await CouponRedemption.countDocuments({
-          coupon: couponDoc._id,
-          user: userId,
-        }).session(session);
-        if (alreadyUsed > 0) {
-          invalidCoupons.push({ code, reason: 'Coupon already used by this user' });
-          continue;
-        }
-      }
-
-      if (couponDoc.couponType === 'one-off-for-one-person') {
-        if (!couponDoc.allowedUser || couponDoc.allowedUser.toString() !== userIdStr) {
-          invalidCoupons.push({ code, reason: 'Coupon not allowed for this user' });
-          continue;
-        }
-        const totalRedemptions = await CouponRedemption.countDocuments({
-          coupon: couponDoc._id,
-        }).session(session);
-        if (totalRedemptions >= 1) {
-          invalidCoupons.push({ code, reason: 'Coupon already used' });
-          continue;
-        }
-      }
-
-      if (typeof couponDoc.maxUsagePerUser === 'number' && couponDoc.maxUsagePerUser > 0) {
-        const userUsageCount = await CouponRedemption.countDocuments({
-          coupon: couponDoc._id,
-          user: userId,
-        }).session(session);
-        if (userUsageCount >= couponDoc.maxUsagePerUser) {
-          invalidCoupons.push({ code, reason: 'User usage limit reached' });
-          continue;
-        }
-      }
-      // Check minimum order value
-      if (typeof couponDoc.minOrderValue === 'number' && itemsSubtotal < couponDoc.minOrderValue) {
-        invalidCoupons.push({
-          code,
-          reason: `Minimum order value of ₦${couponDoc.minOrderValue.toLocaleString()} required`,
-        });
-        continue;
-      }
-
-      // Calculate discount for this coupon
-      const { discount } = computeCouponDiscount({
-        coupon: couponDoc,
-        items,
-        itemsSubtotal: Math.max(0, itemsSubtotal - totalDiscount), // Apply on remaining amount
-      });
-
-      if (discount > 0) {
-        const roundedDiscount = Math.round(discount * 100) / 100;
-        validCoupons.push({ code, couponDoc, discount: roundedDiscount });
-        totalDiscount += roundedDiscount;
-      } else {
-        invalidCoupons.push({ code, reason: 'No discount applicable' });
-      }
-    } catch (error) {
-      console.error(`Error validating coupon ${code}:`, error);
-      invalidCoupons.push({ code, reason: 'Error validating coupon' });
-    }
-  }
-
-  return { validCoupons, invalidCoupons, totalDiscount: Math.round(totalDiscount * 100) / 100 };
-}
-
-function computeCouponDiscount({
-  coupon,
-  items,
-  itemsSubtotal,
-}: {
-  coupon: CouponDoc;
-  items: PricedItem[];
-  itemsSubtotal: number;
-}): { discount: number } {
-  const type = (coupon.discountType || 'percentage') as 'percentage' | 'fixed';
-  const appliesTo = coupon.appliesTo || { scope: 'order' };
-
-  if (type === 'fixed') {
-    // Fixed amount on eligible scope
-    if (appliesTo.scope === 'order') {
-      return { discount: Math.round(Math.min(coupon.discount || 0, itemsSubtotal) * 100) / 100 };
-    }
-    let eligibleSum = 0;
-    if (appliesTo.scope === 'product' && Array.isArray(appliesTo.productIds)) {
-      const set = new Set(appliesTo.productIds.map((id) => id.toString()));
-      for (const it of items) if (set.has(it.product.toString())) eligibleSum += it.price * it.qty;
-    }
-    if (appliesTo.scope === 'category' && Array.isArray(appliesTo.categoryIds)) {
-      // Requires item categories; fallback to whole order for now
-      eligibleSum = itemsSubtotal;
-    }
-    return { discount: Math.round(Math.min(coupon.discount || 0, eligibleSum) * 100) / 100 };
-  } else {
-    // percentage
-    let base = itemsSubtotal;
-    if (appliesTo.scope === 'product' && Array.isArray(appliesTo.productIds)) {
-      base = 0;
-      const set = new Set(appliesTo.productIds.map((id) => id.toString()));
-      for (const it of items) if (set.has(it.product.toString())) base += it.price * it.qty;
-    }
-    if (appliesTo.scope === 'category' && Array.isArray(appliesTo.categoryIds)) {
-      base = itemsSubtotal; // fallback
-    }
-    const pct = (coupon.discount || 0) / 100;
-    return { discount: Math.round(Math.max(0, Math.min(itemsSubtotal, base * pct)) * 100) / 100 };
-  }
-}
-
 /**
  * Fetches paginated orders for user with optional filters.
  * Enhanced to populate first 2 products with full details (name, image, slug, etc.)
@@ -246,8 +79,6 @@ const getOrderHistory = async (
     // Base match stage for user
 
     const matchStage: Record<string, unknown> = { user: new mongoose.Types.ObjectId(filters.userId) };
-
-    console.log({ aa: filters.status, bb: filters?.status?.toLowerCase() });
 
     // Add order status filter
     if (filters.status && filters.status.toLowerCase() !== 'all') {
@@ -431,22 +262,6 @@ const getOrderHistory = async (
  * @param orderData - The data for the new order.
  */
 
-// Accept user as string (will be cast by Mongoose) or ObjectId
-// Make array fields optional for input ergonomics
-type OrderDataInput = Omit<OrderType, 'createdAt' | 'updatedAt' | 'user' | 'flashSaleApplied'> & {
-  user: string | mongoose.Types.ObjectId;
-  flashSaleApplied?: OrderType['flashSaleApplied'];
-  couponCodes?: string[]; // Add support for coupon codes array
-};
-
-// Enhanced order response type that includes additional order creation details
-type PlaceOrderResponse = {
-  order: OrderType;
-  couponResults: Array<{ code: string; applied: boolean; reason?: string; discount?: number }>;
-  appliedCoupons: number;
-  totalCouponDiscount: number;
-};
-
 const placeOrderWithStockValidation = async (
   orderData: OrderDataInput
 ): Promise<CustomResponseType<PlaceOrderResponse>> => {
@@ -476,7 +291,6 @@ const placeOrderWithStockValidation = async (
         const productSku = productDoc?.sku || item.product.toString();
 
         const sale = (await findActiveSaleForProduct(item.product.toString())) as unknown as SalesType | null;
-        console.log(sale);
 
         if (!sale) {
           throw new Error(`Sale no longer available for product: ${productName} (SKU: ${productSku})`);
@@ -653,7 +467,7 @@ const placeOrderWithStockValidation = async (
       const productId = product.product!.toString();
       const snapshot = saleSnapshots.get(productId);
       if (snapshot) {
-        (product as any).saleSnapshot = snapshot;
+        product.saleSnapshot = snapshot;
       }
     }
     // Calculate shipping cost using LogisticsService
@@ -681,7 +495,6 @@ const placeOrderWithStockValidation = async (
       } else {
         console.warn('[OrderService] No shipping address provided, using fallback shipping cost');
         calculatedShipping = Number(orderData.shippingPrice || 0);
-        console.log(calculatedShipping);
       }
     } catch (shippingError) {
       console.error('[OrderService] Shipping calculation failed, using provided/fallback value:', shippingError);
@@ -816,12 +629,6 @@ const placeOrderWithStockValidation = async (
     );
     */
 
-    console.log({
-      order,
-      couponResults, // Include coupon application results in response
-      appliedCoupons: appliedCouponDocs.length,
-      totalCouponDiscount: finalCouponDiscount,
-    });
     return {
       message: 'Order placed successfully',
       data: {
@@ -921,7 +728,16 @@ const cancelOrder = async (orderId: string, userId: string): Promise<CustomRespo
           product: item.product!,
           qty: item.qty!,
           sale: item.sale || undefined,
-          saleSnapshot: (item as any).saleSnapshot,
+          saleSnapshot: item.saleSnapshot
+            ? {
+                type: item.saleSnapshot.type!,
+                variantIndex: item.saleSnapshot.variantIndex!,
+                maxBuys: item.saleSnapshot.maxBuys!,
+                boughtCount: item.saleSnapshot.boughtCount!,
+                attributeName: item.saleSnapshot.attributeName || undefined,
+                attributeValue: item.saleSnapshot.attributeValue || undefined,
+              }
+            : undefined,
         })),
       session
     );

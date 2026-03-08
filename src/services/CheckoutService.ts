@@ -7,212 +7,28 @@ import { ITransaction } from '@/models/Transaction';
 import LogisticsService from '@/services/LogisticsService';
 import OrderService from '@/services/orderService';
 import PaymentService from '@/services/TransactionService';
-import {
-  FrontendCartData,
-  validateAndCorrectCart,
-  FrontendCartItemInput,
-  CorrectedCart,
-  CartChangeDetail,
-} from '@/services/CartValidationService';
+import { FrontendCartData, validateAndCorrectCart, CorrectedCart } from '@/services/CartValidationService';
 import Order, { OrderType } from '@/models/Order';
 import { CustomResponseType } from '@/types';
 import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
 import eventPublisher from '@/events/eventPublisher';
+import type {
+  CheckoutDeliveryType,
+  SecureCheckoutItemInput,
+  SecureCheckoutPayload,
+  SecureCheckoutCorrection,
+  SecureCheckoutSuccess,
+  OrderDataInput,
+} from '@/types/order';
 
-export type CheckoutDeliveryType = 'shipping' | 'pickup';
-
-export type SecureCheckoutItemInput = FrontendCartItemInput & {
-  productSnapshot?: {
-    name: string;
-    price: number;
-    sku: string | number;
-  };
-  saleVariantIndex?: number;
-  pricingTier?: {
-    minQty: number;
-    maxQty?: number;
-    strategy: string;
-    value: number;
-    appliedPrice?: number;
-  };
-};
-
-export type SecureCheckoutPayload = {
-  items: SecureCheckoutItemInput[];
-  shippingAddress?: OrderType['shippingAddress'];
-  paymentMethod?: string;
-  couponCodes?: string[];
-  taxPrice?: number;
-  subtotal: number;
-  total: number;
-  totalDiscount: number;
-  estimatedShipping?: { cost: number; days: number };
-  deliveryType?: CheckoutDeliveryType;
-  shippingCost?: number;
-  acceptChanges?: boolean; // Auto-apply corrections when true
-  notes?: string;
-};
-
-export type SecureCheckoutCorrection = {
-  needsUpdate: true;
-  errors?: {
-    products?: Array<{
-      productId: string;
-      productName: string;
-      productSlug: string;
-      cartItemId: string;
-      issueType: 'outOfStock' | 'quantityReduced' | 'priceChanged' | 'attributeUnavailable' | 'saleExpired';
-      message: string;
-      severity: 'critical' | 'warning' | 'info';
-      currentQty: number;
-      availableStock: number;
-      currentPrice: number | null;
-      correctedPrice: number | null;
-      unavailableAttributes: Array<{ name: string; value: string }> | null;
-      availableAttributes: Array<Array<{ name: string; value: string }>> | null;
-      suggestedAction: 'remove' | 'reduceQuantity' | 'changeAttribute' | 'acceptPrice';
-      saleInfo?: {
-        previousSaleId: string;
-        previousDiscount: number;
-        expiryReason: 'endDateReached' | 'maxBuysReached' | 'deactivated';
-      };
-    }>;
-    coupons?: Array<{
-      code: string;
-      reason: string;
-      previousDiscount: number;
-      expiryDate?: string;
-    }>;
-    shipping?: {
-      previousCost: number;
-      currentCost: number;
-      reason: string;
-      destination?: {
-        state: string;
-        city?: string;
-      };
-    };
-    total?: {
-      expectedTotal: number;
-      calculatedTotal: number;
-      discrepancy: number;
-      message: string;
-    };
-  };
-  summary: {
-    itemsRemaining: number;
-    newSubtotal: number;
-    newTotal: number;
-    shippingCost: number;
-    deliveryType: CheckoutDeliveryType;
-    couponDiscount: number;
-  };
-};
-
-/** @deprecated Legacy verbose type - use SecureCheckoutCorrection instead */
-export type SecureCheckoutCorrectionLegacy = {
-  needsUpdate: true;
-  shippingCost: number;
-  deliveryType: CheckoutDeliveryType;
-  correctedCart: CorrectedCart;
-  changes: string[];
-  changeDetails: CartChangeDetail[];
-  checkoutErrors?: {
-    products?: Array<{
-      productId: string;
-      productName: string;
-      productSlug: string;
-      cartItemId: string;
-      issueType: 'outOfStock' | 'quantityReduced' | 'priceChanged' | 'attributeUnavailable' | 'saleExpired';
-      message: string;
-      severity: 'critical' | 'warning' | 'info';
-      currentQty: number;
-      availableStock: number;
-      currentPrice: number | null;
-      correctedPrice: number | null;
-      unavailableAttributes: Array<{ name: string; value: string }> | null;
-      availableAttributes: Array<Array<{ name: string; value: string }>> | null;
-      suggestedAction: 'remove' | 'reduceQuantity' | 'changeAttribute' | 'acceptPrice';
-      saleInfo?: {
-        previousSaleId: string;
-        previousDiscount: number;
-        expiryReason: 'endDateReached' | 'maxBuysReached' | 'deactivated';
-      };
-    }>;
-    coupons?: Array<{
-      code: string;
-      reason: string;
-      previousDiscount: number;
-      expiryDate?: string;
-    }>;
-    shipping?: {
-      previousCost: number;
-      currentCost: number;
-      reason: string;
-      destination?: {
-        state: string;
-        city?: string;
-      };
-    };
-    total?: {
-      expectedTotal: number;
-      calculatedTotal: number;
-      discrepancy: number;
-      message: string;
-    };
-  };
-};
-
-export type SecureCheckoutSuccess = {
-  orderId: string;
-  payment: {
-    paymentUrl: string;
-    reference: string;
-    transactionId: string;
-    access_code: string;
-  } | null;
-  summary: {
-    total: number;
-    subtotal: number;
-    couponDiscount: number;
-    shippingCost: number;
-    itemCount: number;
-    deliveryType: CheckoutDeliveryType;
-  };
-};
-
-/** @deprecated Legacy verbose type - use SecureCheckoutSuccess instead */
-export type SecureCheckoutSuccessLegacy = {
-  orderId: string;
-  order: {
-    _id: string;
-    total: number;
-    subtotal: number;
-    couponDiscount: number;
-    shippingPrice: number;
-    deliveryType: CheckoutDeliveryType;
-    items: Array<{
-      product: string;
-      qty: number;
-      price: number;
-      attributes: Array<{ name: string; value: string }>;
-      sale?: string;
-      saleType?: string;
-      saleDiscount?: number;
-    }>;
-    status: OrderType['status'];
-    isPaid: boolean;
-  };
-  validation: {
-    priceValidated: boolean;
-    totalDiscrepancy: number;
-  };
-  payment: {
-    paymentUrl: string;
-    reference: string;
-    transactionId: string;
-  } | null;
-};
+// Re-export types for backward compatibility with existing imports
+export type {
+  CheckoutDeliveryType,
+  SecureCheckoutItemInput,
+  SecureCheckoutPayload,
+  SecureCheckoutCorrection,
+  SecureCheckoutSuccess,
+} from '@/types/order';
 
 class CheckoutService {
   /**
@@ -316,15 +132,7 @@ class CheckoutService {
 
     // Step 1: Calculate shipping cost up front
     let shippingCost = 0;
-    if (deliveryType === 'shipping') {
-      if (!shippingAddress) {
-        return {
-          message: 'Shipping address is required for shipping delivery',
-          data: null,
-          code: 400,
-        };
-      }
-
+    if (deliveryType === 'shipping' && shippingAddress) {
       const rawShippingCost = await LogisticsService.calculateProgressiveShipping(
         items.map((item) => ({
           productId: item.product.toString(),
@@ -360,27 +168,12 @@ class CheckoutService {
     }
 
     const correctedCart = validationResult.data.correctedCart;
-    const changeDetails = [...validationResult.data.changeDetails];
-    const changes = [...validationResult.data.changes];
 
     // Get checkoutErrors from validation result (includes products and coupons)
     const checkoutErrors = validationResult.data.checkoutErrors || {};
 
     // Compare shipping cost with frontend provided value (if any)
     if (frontendShippingCost !== undefined && Math.abs((frontendShippingCost ?? 0) - shippingCost) > 0.01) {
-      const message = `Shipping cost updated: ₦${(
-        frontendShippingCost || 0
-      ).toLocaleString()} → ₦${shippingCost.toLocaleString()}`;
-      changes.push(message);
-      changeDetails.push({
-        field: 'shippingCost',
-        previous: frontendShippingCost ?? 0,
-        current: shippingCost,
-        message,
-        context: 'shipping',
-      });
-
-      // Add shipping error to checkoutErrors
       checkoutErrors.shipping = {
         previousCost: frontendShippingCost ?? 0,
         currentCost: shippingCost,
@@ -504,8 +297,8 @@ class CheckoutService {
       taxPrice,
       isPaid: false,
       status: 'Pending' as OrderType['status'],
-      notes: payload.notes
-    } as unknown as Parameters<typeof OrderService.placeOrderWithStockValidation>[0];
+      notes: payload.notes,
+    } as unknown as OrderDataInput;
 
     const userDoc = await User.findById(userId).select('email');
     if (!userDoc?.email) {
@@ -568,30 +361,15 @@ class CheckoutService {
       console.error('[CheckoutService] Failed to publish ORDER_CREATED event:', eventError);
       // Don't fail checkout if event publishing fails
     }
-    /*
-    // Use server-corrected pricing for response items
-    const responseItems = correctedCart.items.map((correctedItem) => ({
-      product: correctedItem.product,
-      qty: correctedItem.qty,
-      price: correctedItem.unitPrice, // Server-calculated unit price
-      attributes: correctedItem.selectedAttributes || [],
-      sale: correctedItem.sale,
-      saleType: undefined,
-      saleDiscount: correctedItem.appliedDiscount ?? 0,
-    }));
-*/
     const paymentData = paymentInit.data;
+    const transaction = paymentData?.transaction as ITransaction | undefined;
     const paymentPayload = paymentData
-      ? (() => {
-          const transaction = paymentData.transaction as ITransaction | undefined;
-          const transactionId = transaction && transaction._id ? transaction._id.toString() : '';
-          return {
-            access_code: paymentData.access_code,
-            paymentUrl: paymentData.paymentUrl,
-            reference: paymentData.reference,
-            transactionId,
-          };
-        })()
+      ? {
+          access_code: paymentData.access_code,
+          paymentUrl: paymentData.paymentUrl,
+          reference: paymentData.reference,
+          transactionId: transaction?._id?.toString() ?? '',
+        }
       : null;
 
     return {
