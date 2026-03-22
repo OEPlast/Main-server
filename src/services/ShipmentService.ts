@@ -18,7 +18,7 @@ const createShipmentForOrder = async (
       throw new Error('Order not found');
     }
 
-    if (order.deliveryType !== 'shipping') {
+    if (order.deliveryType !== 'shipping' && order.deliveryType !== 'gig') {
       return null; // No shipment needed for pickup orders
     }
 
@@ -28,7 +28,7 @@ const createShipmentForOrder = async (
     // Create shipment with order data
     const shipmentData = {
       orderId: order._id,
-      courier: 'Default Courier', // Default courier - can be updated by admin later
+      courier: order.deliveryType === 'gig' ? 'GIG Logistics' : 'Default Courier',
       status: 'In-Warehouse' as IShipment['status'],
       shippingAddress: {
         firstName: order.shippingAddress.firstName || '',

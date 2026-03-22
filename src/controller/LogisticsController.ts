@@ -1,5 +1,6 @@
 import ShipmentService from '@/services/admin/ShipmentService';
 import LogisticsService from '@/services/LogisticsService';
+import GIGService from '@/services/GIGService';
 import { Request, Response } from 'express';
 const trackOrder = async (req: Request, res: Response) => {
   try {
@@ -81,12 +82,40 @@ const getLocationsByCountry = async (req: Request, res: Response) => {
 
 const flatCartShipping = async (req: Request, res: Response) => {
   try {
-    const { items, destination } = req.body as {
+    const isShippingEnabled = await GIGService.isDeliveryMethodEnabled('shipping');
+    if (!isShippingEnabled) {
+      return res.status(400).json({ message: 'Shipping delivery is currently unavailable', data: null, code: 400 });
+    }
+
+    const { items, destination, itemsSubtotal } = req.body as {
       items: Array<{ productId: string; quantity: number }>;
       destination: { countryName: string; stateName: string; lgaName: string };
+      itemsSubtotal?: number;
     };
-    const amount = await LogisticsService.calculateProgressiveShipping(items, destination);
-    return res.status(200).json({ message: 'Flat cart shipping calculated', data: { amount }, code: 200 });
+    const rawAmount = await LogisticsService.calculateProgressiveShipping(items, destination);
+    const checkoutConfig = await GIGService.getPublicCheckoutConfig();
+    const discountedShipping = GIGService.applyDeliveryDiscount(
+      rawAmount,
+      checkoutConfig.data.shippingDiscountAmountOff
+    );
+    const freeShippingThreshold = checkoutConfig.data.freeShippingThreshold;
+    const qualifiesForFreeShipping =
+      Number.isFinite(freeShippingThreshold) &&
+      freeShippingThreshold !== null &&
+      Number.isFinite(itemsSubtotal) &&
+      Number(itemsSubtotal) >= freeShippingThreshold;
+    const finalShippingAmount = qualifiesForFreeShipping ? 0 : discountedShipping.finalAmount;
+
+    return res.status(200).json({
+      message: 'Flat cart shipping calculated',
+      data: {
+        amount: finalShippingAmount,
+        deliveryDiscountApplied: discountedShipping.appliedDiscount,
+        freeShippingThreshold,
+        freeShippingApplied: qualifiesForFreeShipping,
+      },
+      code: 200,
+    });
   } catch (error) {
     console.error('Error calculating flat cart shipping:', error);
     return res.status(500).json({ message: 'Internal server error', data: null, code: 500 });

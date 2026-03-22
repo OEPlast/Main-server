@@ -19,13 +19,13 @@ type ShipmentTrackingDTO = {
 // Helper function to get user-friendly status description
 const getStatusDescription = (status: string): string => {
   const statusDescriptions: Record<string, string> = {
-    'Shipped': 'Product left warehouse',
-    'Dispatched': 'Product is on its way',
-    'Delivered': 'Product delivered',
-    'Returned': 'Product has been returned',
-    'Failed': 'Something went wrong - shipment is canceled',
+    Shipped: 'Product left warehouse',
+    Dispatched: 'Product is on its way',
+    Delivered: 'Product delivered',
+    Returned: 'Product has been returned',
+    Failed: 'Something went wrong - shipment is canceled',
   };
-  
+
   return statusDescriptions[status] || `Status updated to ${status}`;
 };
 
@@ -105,8 +105,8 @@ const getShipmentById = async (shipmentId: string): Promise<CustomResponseType<I
       select: 'orderNumber products',
       populate: {
         path: 'products.product',
-        select: 'name slug description_images'
-      }
+        select: 'name slug description_images',
+      },
     });
 
     if (!shipment) {
@@ -132,10 +132,12 @@ const getShipmentById = async (shipmentId: string): Promise<CustomResponseType<I
   }
 };
 
-
 const getShipmentByTracking = async (trackingNumber: string): Promise<CustomResponseType<IShipment>> => {
   try {
-    const shipment = await Shipment.findOne({ trackingNumber }).populate('orderId', 'orderNumber totalAmount customerInfo');
+    const shipment = await Shipment.findOne({ trackingNumber }).populate(
+      'orderId',
+      'orderNumber totalAmount customerInfo'
+    );
 
     if (!shipment) {
       return {
@@ -159,8 +161,6 @@ const getShipmentByTracking = async (trackingNumber: string): Promise<CustomResp
     };
   }
 };
-
-
 
 const updateShipment = async (
   shipmentId: string,
@@ -190,13 +190,13 @@ const updateShipment = async (
 
     // If status is being updated, add to tracking history
     if (updates.status && updates.status !== shipment.status) {
-      
       shipment.trackingHistory.push({
         location: 'Updated',
         description: getStatusDescription(updates.status),
         timestamp: new Date(),
       });
-    }    Object.assign(shipment, updates);
+    }
+    Object.assign(shipment, updates);
     await shipment.save();
     await shipment.populate('orderId');
 
@@ -339,15 +339,14 @@ const updateShipmentStatus = async (
       populate: [
         {
           path: 'user',
-          select: 'firstName lastName email'
+          select: 'firstName lastName email',
         },
         {
           path: 'products.product',
-          select: 'name description_images category'
-        }
-      ]
+          select: 'name description_images category',
+        },
+      ],
     });
-    
 
     if (!shipment) {
       return {
@@ -357,25 +356,26 @@ const updateShipmentStatus = async (
       };
     }
 
-          // Type-safe check for populated order with user and products
-      const populatedOrder = shipment.orderId as unknown as {
-        _id: mongoose.Types.ObjectId;
-        orderNumber: string;
-        createdAt: Date;
-        user?: {
-          email: string;
-          firstName: string;
-          lastName: string;
-        };
-        products?: Array<{
-          product: {
-            name: string;
-            description_images?: string[];
-            category?: string;
-          };
-          quantity?: number;
-        }>;
+    // Type-safe check for populated order with user and products
+    const populatedOrder = shipment.orderId as unknown as {
+      _id: mongoose.Types.ObjectId;
+      orderNumber: string;
+      createdAt: Date;
+      gigWaybill?: string;
+      user?: {
+        email: string;
+        firstName: string;
+        lastName: string;
       };
+      products?: Array<{
+        product: {
+          name: string;
+          description_images?: string[];
+          category?: string;
+        };
+        quantity?: number;
+      }>;
+    };
     // Delivered lock
     if (shipment.status === 'Delivered') {
       return { message: 'Delivered shipments cannot be modified', data: null, code: 409 };
@@ -395,34 +395,34 @@ const updateShipmentStatus = async (
       return { message: `Invalid status transition from ${shipment.status} to ${status}`, data: null, code: 409 };
     }
 
-    if(status === 'In-Transit'){
+    if (status === 'In-Transit') {
       shipment.trackingHistory.push({
         location: 'On the way',
         description: `Your order is on it's way`,
         timestamp: new Date(),
       });
     }
-    if(status === 'Delivered'){
+    if (status === 'Delivered') {
       shipment.trackingHistory.push({
         location: 'Destination',
         description: 'Your order has been Delivered',
         timestamp: new Date(),
       });
     }
-    if(status === 'Failed'){
+    if (status === 'Failed') {
       shipment.trackingHistory.push({
         location: 'Updates',
         description: 'Delivery attempt failed. Please contact support.',
         timestamp: new Date(),
-      }); 
+      });
     }
-    if(status === 'Shipped'){
+    if (status === 'Shipped') {
       shipment.trackingHistory.push({
         location: 'Warehouse',
         description: 'Shipment has left the warehouse',
         timestamp: new Date(),
       });
-      
+
       if (populatedOrder.user) {
         await eventPublisher.publishShipmentStatusUpdated({
           email: populatedOrder.user.email,
@@ -436,10 +436,11 @@ const updateShipmentStatus = async (
           },
           manageOrderLink: `https://plasticsnmore.com/orders/${populatedOrder._id.toString()}`,
           orderStatus: 'Shipped',
+          gigWaybill: populatedOrder.gigWaybill || undefined,
         });
       }
     }
-/*
+    /*
     // Add to tracking history
     shipment.trackingHistory.push({
       location: 'Updates',
@@ -452,7 +453,6 @@ const updateShipmentStatus = async (
       shipment.deliveredOn = new Date();
       await Order.findByIdAndUpdate(shipment.orderId._id, { status: 'Completed' });
 
-      
       if (populatedOrder.user && populatedOrder.products) {
         await eventPublisher.publishOrderDelivered({
           orderId: populatedOrder._id.toString(),
@@ -465,7 +465,7 @@ const updateShipmentStatus = async (
           lastName: populatedOrder.user.lastName,
           purchaseDate: populatedOrder.createdAt,
           orderNumber: populatedOrder.orderNumber,
-          products: populatedOrder.products.map(item => ({
+          products: populatedOrder.products.map((item) => ({
             name: item.product.name,
             imagePath: item.product.description_images?.[0] || '',
             category: item.product.category,
@@ -607,7 +607,7 @@ const listByCourierUser = async (
     const filter: Record<string, unknown> = { courierUser: new mongoose.Types.ObjectId(userId) };
 
     if (status) filter.status = status;
-console.log(filter);
+    console.log(filter);
 
     const [shipments, total] = await Promise.all([
       Shipment.find(filter)
@@ -640,7 +640,7 @@ const statsByCourierUser = async (
     ];
     const results = await Shipment.aggregate(pipeline);
     console.log(results);
-    
+
     const statMap: Record<ShipmentStatus | 'total', number> = {
       'In-Warehouse': 0,
       'In-Transit': 0,
@@ -724,7 +724,7 @@ const ShipmentService = {
   statsByCourierUser,
   statsAll,
   updateNotes,
-  getShipmentByTracking
+  getShipmentByTracking,
 };
 
 export default ShipmentService;

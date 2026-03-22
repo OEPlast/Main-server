@@ -3,7 +3,7 @@ import { CouponType as CouponSchemaType } from '@/models/Coupon';
 import { FrontendCartItemInput } from '@/services/CartValidationService';
 import { OrderType } from '@/models/Order';
 
-export type CheckoutDeliveryType = 'shipping' | 'pickup';
+export type CheckoutDeliveryType = 'shipping' | 'pickup' | 'gig';
 
 export type SecureCheckoutItemInput = FrontendCartItemInput & {
   productSnapshot?: {

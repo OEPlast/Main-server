@@ -33,6 +33,10 @@ export interface ShippingInfo {
   courier: string;
   address: string;
   _id?: string;
+  deliveryEstimateLabel?: string;
+  pickupContactName?: string;
+  pickupContactPhone?: string;
+  pickupAddress?: string;
 }
 
 /**

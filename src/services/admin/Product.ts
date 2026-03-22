@@ -35,6 +35,12 @@ type CreateProductData = {
   specifications?: { key: string; value: string }[];
   dimension?: { key: 'length' | 'breadth' | 'height' | 'volume' | 'width' | 'weight'; value: string }[];
   shipping?: { addedCost?: number; increaseCostBy?: number; addedDays?: number };
+  // GIG shipping fields
+  weight?: number;
+  height?: number;
+  width?: number;
+  length?: number;
+  isVolumetric?: boolean;
   attributes?: {
     name: string;
     children: {

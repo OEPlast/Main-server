@@ -5,6 +5,7 @@ import User from '@/models/User';
 import Product from '@/models/Product';
 import { ITransaction } from '@/models/Transaction';
 import LogisticsService from '@/services/LogisticsService';
+import GIGService from '@/services/GIGService';
 import OrderService from '@/services/orderService';
 import PaymentService from '@/services/TransactionService';
 import { FrontendCartData, validateAndCorrectCart, CorrectedCart } from '@/services/CartValidationService';
@@ -122,9 +123,20 @@ class CheckoutService {
       };
     }
 
-    if (deliveryType === 'shipping' && !shippingAddress) {
+    const checkoutConfigResult = await GIGService.getPublicCheckoutConfig();
+    const { enabledDeliveryMethods, shippingDiscountAmountOff } = checkoutConfigResult.data;
+
+    if (!enabledDeliveryMethods.includes(deliveryType)) {
       return {
-        message: 'Shipping address is required for shipping delivery',
+        message: `${deliveryType} delivery is currently unavailable`,
+        data: null,
+        code: 400,
+      };
+    }
+
+    if ((deliveryType === 'shipping' || deliveryType === 'gig') && !shippingAddress) {
+      return {
+        message: 'Shipping address is required for delivery',
         data: null,
         code: 400,
       };
@@ -146,7 +158,54 @@ class CheckoutService {
         }
       );
 
-      shippingCost = Math.round(rawShippingCost * 100) / 100;
+      const discountedShipping = GIGService.applyDeliveryDiscount(rawShippingCost, shippingDiscountAmountOff);
+      shippingCost = Math.round(discountedShipping.finalAmount * 100) / 100;
+    } else if (deliveryType === 'gig' && shippingAddress) {
+      // GIG shipping: calculate via GIG API
+      const products = await Product.find({
+        _id: { $in: items.map((i) => i.product) },
+      })
+        .select('name weight height width length isVolumetric description_images')
+        .lean();
+
+      const productMap = new Map(products.map((p) => [p._id.toString(), p]));
+
+      const gigItems = items.map((item) => {
+        const prod = productMap.get(item.product.toString());
+        return {
+          name: prod?.name || 'Product',
+          quantity: item.qty,
+          weight: prod?.weight ?? 1,
+          height: prod?.height ?? 10,
+          width: prod?.width ?? 10,
+          length: prod?.length ?? 10,
+          isVolumetric: prod?.isVolumetric ?? false,
+          value: item.unitPrice || 0,
+          imageUrl: prod?.description_images?.find((img: { cover_image?: boolean }) => img.cover_image)?.url || '',
+        };
+      });
+
+      const gigResult = await GIGService.calculateShipping({
+        items: gigItems,
+        receiverAddress: shippingAddress.address1 || '',
+        receiverState: shippingAddress.state || '',
+        receiverCity: shippingAddress.city || undefined,
+        receiverLatitude: (shippingAddress as Record<string, unknown>).latitude as number | undefined,
+        receiverLongitude: (shippingAddress as Record<string, unknown>).longitude as number | undefined,
+        receiverName: `${shippingAddress.firstName || ''} ${shippingAddress.lastName || ''}`.trim(),
+        receiverPhoneNumber: shippingAddress.phoneNumber || '',
+      });
+
+      if (!gigResult.data) {
+        return {
+          message:
+            gigResult.message || 'GIG shipping is temporarily unavailable. Please select another shipping method.',
+          data: null,
+          code: 503,
+        };
+      }
+
+      shippingCost = Math.round(gigResult.data.shippingCost * 100) / 100;
     }
 
     const frontendCartData: FrontendCartData = {
@@ -361,6 +420,59 @@ class CheckoutService {
       console.error('[CheckoutService] Failed to publish ORDER_CREATED event:', eventError);
       // Don't fail checkout if event publishing fails
     }
+
+    // For GIG orders: attempt preshipment creation (non-blocking)
+    if (deliveryType === 'gig' && shippingAddress) {
+      try {
+        const products = await Product.find({
+          _id: { $in: items.map((i) => i.product) },
+        })
+          .select('name weight height width length isVolumetric description_images')
+          .lean();
+
+        const productMap = new Map(products.map((p) => [p._id.toString(), p]));
+
+        const gigItems = items.map((item) => {
+          const prod = productMap.get(item.product.toString());
+          return {
+            name: prod?.name || 'Product',
+            quantity: item.qty,
+            weight: prod?.weight ?? 1,
+            height: prod?.height ?? 10,
+            width: prod?.width ?? 10,
+            length: prod?.length ?? 10,
+            isVolumetric: prod?.isVolumetric ?? false,
+            value: item.unitPrice || 0,
+            imageUrl: prod?.description_images?.find((img: { cover_image?: boolean }) => img.cover_image)?.url || '',
+          };
+        });
+
+        const gigShipment = await GIGService.createShipmentForOrder({
+          items: gigItems,
+          receiverAddress: shippingAddress.address1 || '',
+          receiverState: shippingAddress.state || '',
+          receiverCity: shippingAddress.city || undefined,
+          receiverLatitude: (shippingAddress as Record<string, unknown>).latitude as number | undefined,
+          receiverLongitude: (shippingAddress as Record<string, unknown>).longitude as number | undefined,
+          receiverName: `${shippingAddress.firstName || ''} ${shippingAddress.lastName || ''}`.trim(),
+          receiverPhoneNumber: shippingAddress.phoneNumber || '',
+          receiverEmail: userDoc.email,
+        });
+
+        if (gigShipment.data?.waybillNumber) {
+          await Order.findByIdAndUpdate(orderId, { gigWaybill: gigShipment.data.waybillNumber });
+          console.log(
+            `[CheckoutService] GIG preshipment created: ${gigShipment.data.waybillNumber} for order ${orderId}`
+          );
+        } else {
+          console.warn(`[CheckoutService] GIG preshipment failed for order ${orderId}: ${gigShipment.message}`);
+        }
+      } catch (gigError) {
+        // Don't fail checkout if GIG preshipment fails - admin can retry manually
+        console.error('[CheckoutService] GIG preshipment creation failed (non-blocking):', gigError);
+      }
+    }
+
     const paymentData = paymentInit.data;
     const transaction = paymentData?.transaction as ITransaction | undefined;
     const paymentPayload = paymentData

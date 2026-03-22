@@ -19,7 +19,8 @@ export type EnrichedOrder = {
   taxPrice: number;
   status: OrderType['status'];
   isPaid: boolean;
-  deliveryType: 'shipping' | 'pickup';
+  deliveryType: 'shipping' | 'pickup' | 'gig';
+  gigWaybill?: string | null;
   deliveryStatus?: string;
   createdAt: Date;
   updatedAt: Date;
@@ -121,7 +122,7 @@ const getOrders = async (
     const matchStage: Record<string, unknown> = {};
 
     console.log(filters);
-    
+
     // Apply filters if provided
     if (filters?.status) matchStage.status = filters.status;
     if (filters?.orderId) matchStage._id = filters.orderId;
@@ -479,11 +480,8 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<Enriche
           // Shipment details
           shipment: {
             $cond: {
-              if: { 
-                $and: [
-                  {$ne: ['$shipment', null] },
-                  {$ifNull : ['$shipment._id', false]}
-                ]
+              if: {
+                $and: [{ $ne: ['$shipment', null] }, { $ifNull: ['$shipment._id', false] }],
               },
               then: {
                 _id: '$shipment._id',

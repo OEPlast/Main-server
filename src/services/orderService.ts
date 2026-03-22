@@ -16,6 +16,7 @@ import {
 import Coupon, { CouponType as CouponSchemaType } from '@/models/Coupon';
 import CouponRedemption from '@/models/CouponRedemption';
 import LogisticsService from '@/services/LogisticsService';
+import GIGService from '@/services/GIGService';
 import ShipmentService from '@/services/ShipmentService';
 import Return, { ReturnType } from '../models/Return';
 import { EnrichedOrder } from './admin/Order';
@@ -470,10 +471,21 @@ const placeOrderWithStockValidation = async (
         product.saleSnapshot = snapshot;
       }
     }
+    const checkoutConfig = await GIGService.getPublicCheckoutConfig();
+    const freeShippingThreshold = checkoutConfig.data.freeShippingThreshold;
+    const qualifiesForFreeShipping =
+      Number.isFinite(freeShippingThreshold) &&
+      freeShippingThreshold !== null &&
+      itemsSubtotal >= freeShippingThreshold;
+
     // Calculate shipping cost using LogisticsService
     let calculatedShipping = 0;
     try {
-      if (orderData.shippingAddress) {
+      if (orderData.deliveryType === 'pickup') {
+        calculatedShipping = 0;
+      } else if (orderData.deliveryType === 'gig') {
+        calculatedShipping = Number(orderData.shippingPrice || 0);
+      } else if (orderData.shippingAddress) {
         // Prepare cart items for logistics calculation
         const cartItems = products.map((item) => ({
           productId: item.product!.toString(),
@@ -490,6 +502,14 @@ const placeOrderWithStockValidation = async (
 
         // Calculate progressive shipping cost
         calculatedShipping = await LogisticsService.calculateProgressiveShipping(cartItems, destination);
+        calculatedShipping = GIGService.applyDeliveryDiscount(
+          calculatedShipping,
+          checkoutConfig.data.shippingDiscountAmountOff
+        ).finalAmount;
+
+        if (qualifiesForFreeShipping) {
+          calculatedShipping = 0;
+        }
 
         console.log(`[OrderService] Calculated shipping: ₦${calculatedShipping} for destination:`, destination);
       } else {
@@ -880,10 +900,10 @@ const getOneOrder = async ({
             email: '$userDetails.email',
           },
 
-          // Shipping address (only if delivery type is shipping)
+          // Shipping address (for shipping and gig delivery types)
           shippingAddress: {
             $cond: {
-              if: { $eq: ['$deliveryType', 'shipping'] },
+              if: { $in: ['$deliveryType', ['shipping', 'gig']] },
               then: '$shippingAddress',
               else: null,
             },
@@ -892,11 +912,14 @@ const getOneOrder = async ({
           // Billing address (same as shipping for now)
           billingAddress: {
             $cond: {
-              if: { $eq: ['$deliveryType', 'shipping'] },
+              if: { $in: ['$deliveryType', ['shipping', 'gig']] },
               then: '$shippingAddress',
               else: null,
             },
           },
+
+          // GIG waybill number
+          gigWaybill: 1,
 
           // Products with enriched details
           products: {

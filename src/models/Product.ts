@@ -161,6 +161,36 @@ const productSchema = new mongoose.Schema(
         },
       },
     ],
+    // GIG Logistics shipping fields (mandatory for all products)
+    weight: {
+      type: Number,
+      required: true,
+      default: 1,
+      min: 0,
+    },
+    height: {
+      type: Number,
+      required: true,
+      default: 10,
+      min: 0,
+    },
+    width: {
+      type: Number,
+      required: true,
+      default: 10,
+      min: 0,
+    },
+    length: {
+      type: Number,
+      required: true,
+      default: 10,
+      min: 0,
+    },
+    isVolumetric: {
+      type: Boolean,
+      required: true,
+      default: false,
+    },
     shipping: {
       addedCost: {
         type: Number,

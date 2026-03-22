@@ -4,6 +4,7 @@ import OrderService from '../services/orderService';
 import { OrderType } from '@/models/Order';
 // import { CartType } from '@/models/Cart';
 import LogisticsService from '@/services/LogisticsService';
+import GIGService from '@/services/GIGService';
 // import CartService from '@/services/cartService';
 // import Cart from '@/models/Cart';
 import CheckoutService, { SecureCheckoutPayload } from '@/services/CheckoutService';
@@ -161,8 +162,23 @@ export const calculateShipping = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Cart items are required', code: 400 });
     }
 
+    const itemsSubtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    const checkoutConfig = await GIGService.getPublicCheckoutConfig();
+    const freeShippingThreshold = checkoutConfig.data.freeShippingThreshold;
+    const qualifiesForFreeShipping =
+      Number.isFinite(freeShippingThreshold) &&
+      freeShippingThreshold !== null &&
+      itemsSubtotal >= freeShippingThreshold;
+
+    const isPickupEnabled = await GIGService.isDeliveryMethodEnabled('pickup');
+    const isShippingEnabled = await GIGService.isDeliveryMethodEnabled('shipping');
+
     // If delivery type is pickup, return zero shipping cost
     if (deliveryType === 'pickup') {
+      if (!isPickupEnabled) {
+        return res.status(400).json({ message: 'Pickup delivery is currently unavailable', code: 400 });
+      }
+
       return res.status(200).json({
         message: 'Shipping cost calculated successfully - Pickup selected',
         data: {
@@ -170,11 +186,17 @@ export const calculateShipping = async (req: Request, res: Response) => {
           deliveryType: 'pickup',
           destination: null,
           currency: 'NGN',
-          itemsSubtotal: items.reduce((sum, item) => sum + item.totalPrice, 0),
-          estimatedTotal: items.reduce((sum, item) => sum + item.totalPrice, 0),
+          itemsSubtotal,
+          estimatedTotal: itemsSubtotal,
+          freeShippingThreshold,
+          freeShippingApplied: false,
         },
         code: 200,
       });
+    }
+
+    if (!isShippingEnabled) {
+      return res.status(400).json({ message: 'Shipping delivery is currently unavailable', code: 400 });
     }
 
     // For shipping delivery, validate shipping address
@@ -199,18 +221,25 @@ export const calculateShipping = async (req: Request, res: Response) => {
 
       // Calculate progressive shipping cost
       const rawShippingCost = await LogisticsService.calculateProgressiveShipping(cartItems, destination);
-      const shippingCost = Math.round(rawShippingCost * 100) / 100;
+      const discountedShipping = GIGService.applyDeliveryDiscount(
+        rawShippingCost,
+        checkoutConfig.data.shippingDiscountAmountOff
+      );
+      const discountedShippingCost = Math.round(discountedShipping.finalAmount * 100) / 100;
+      const shippingCost = qualifiesForFreeShipping ? 0 : discountedShippingCost;
 
       return res.status(200).json({
         message: 'Shipping cost calculated successfully',
         data: {
           shippingCost,
+          deliveryDiscountApplied: discountedShipping.appliedDiscount,
           deliveryType: 'shipping',
           destination,
           currency: 'NGN',
-          itemsSubtotal: items.reduce((sum, item) => sum + item.totalPrice, 0),
-          estimatedTotal:
-            Math.round((items.reduce((sum, item) => sum + item.totalPrice, 0) + shippingCost) * 100) / 100,
+          itemsSubtotal,
+          estimatedTotal: Math.round((itemsSubtotal + shippingCost) * 100) / 100,
+          freeShippingThreshold,
+          freeShippingApplied: qualifiesForFreeShipping,
         },
         code: 200,
       });

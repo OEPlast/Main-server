@@ -132,9 +132,13 @@ const orderSchema = new mongoose.Schema(
     // Delivery options
     deliveryType: {
       type: String,
-      enum: ['shipping', 'pickup'],
+      enum: ['shipping', 'pickup', 'gig'],
       default: 'shipping',
       required: true,
+    },
+    gigWaybill: {
+      type: String,
+      default: null,
     },
     shippingPrice: {
       type: Number,

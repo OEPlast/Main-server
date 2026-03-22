@@ -132,6 +132,8 @@ const validateAddAddress = async (req: Request, res: Response, next: NextFunctio
       lga: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'lga is required' },
       country: { in: ['body'], isString: true, notEmpty: true, errorMessage: 'country is required' },
       active: { in: ['body'], optional: true, isBoolean: true, errorMessage: 'active must be boolean' },
+      latitude: { in: ['body'], optional: true, isFloat: true, errorMessage: 'latitude must be a number' },
+      longitude: { in: ['body'], optional: true, isFloat: true, errorMessage: 'longitude must be a number' },
     })
   ).run(req);
   const errors = validationResult(req);
@@ -155,6 +157,8 @@ const validateUpdateAddress = async (req: Request, res: Response, next: NextFunc
       lga: { in: ['body'], optional: true, isString: true },
       country: { in: ['body'], optional: true, isString: true },
       active: { in: ['body'], optional: true, isBoolean: true },
+      latitude: { in: ['body'], optional: true, isFloat: true, errorMessage: 'latitude must be a number' },
+      longitude: { in: ['body'], optional: true, isFloat: true, errorMessage: 'longitude must be a number' },
     })
   ).run(req);
   // Require at least one field
@@ -170,6 +174,8 @@ const validateUpdateAddress = async (req: Request, res: Response, next: NextFunc
     checkSchema({ lga: { in: ['body'], exists: true } }),
     checkSchema({ country: { in: ['body'], exists: true } }),
     checkSchema({ active: { in: ['body'], exists: true } }),
+    checkSchema({ latitude: { in: ['body'], exists: true } }),
+    checkSchema({ longitude: { in: ['body'], exists: true } }),
   ]).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ errors: errors.array() });

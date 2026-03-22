@@ -26,4 +26,5 @@ export const flatCartShippingValidator = [
   body('destination.countryName').isString().trim().notEmpty(),
   body('destination.stateCode').isString().trim().notEmpty(),
   body('destination.lgaName').isString().trim().notEmpty(),
+  body('itemsSubtotal').optional().isFloat({ min: 0 }),
 ];

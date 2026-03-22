@@ -26,6 +26,7 @@ import UserCampaignsRoute from '@/routes/users/campaigns';
 import UserReturnsRoute from '@/routes/users/returns';
 import CouponsRoute from '@/routes/general/coupons';
 import SettingsRoute from '@/routes/general/settings';
+import GIGPublicRoute from '@/routes/general/gig';
 import { eventPublisher } from '@/events';
 
 import {
@@ -48,6 +49,7 @@ import {
   AdminReturnRoute,
   AdminReviewRoute,
   AdminDeliveryRoute,
+  AdminGIGRoute,
 } from './routes/admin';
 import FileUploadRoute from '@/routes/general/fileUpload';
 import EmailProcessor from './services/processor/EmailProcessor';
@@ -119,6 +121,7 @@ app.use('/reviews', ReviewRoute);
 app.use('/returns', UserReturnsRoute);
 app.use('/coupons', CouponsRoute);
 app.use('/settings', SettingsRoute);
+app.use('/gig', GIGPublicRoute);
 app.use('/sitemap', SitemapRoute);
 
 app.use('/users', UserShipmentsRoute);
@@ -145,6 +148,7 @@ app.use('/admin/returns', AdminReturnRoute);
 
 app.use('/admin/shipment', AdminShipmentRoute);
 app.use('/admin/delivery', AdminDeliveryRoute);
+app.use('/admin/gig', AdminGIGRoute);
 
 app.use('/admin/analytics', AdminAnalyticsRoute);
 

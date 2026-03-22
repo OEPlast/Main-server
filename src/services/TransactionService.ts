@@ -1,6 +1,7 @@
 import Transaction, { ITransaction } from '../models/Transaction';
 import Order from '../models/Order';
 import Product from '../models/Product';
+import GIGConfig from '@/models/GIGConfig';
 import mongoose from 'mongoose';
 import eventPublisher from '@/events/eventPublisher';
 import { EventType } from '@/events/eventTypes';
@@ -649,13 +650,24 @@ const publishOrderSuccessfulEvent = async (orderId: string): Promise<void> => {
       price?: number;
     }>;
 
+    const gigConfig = await GIGConfig.findOne().lean();
+    const shippingMinDays =
+      typeof gigConfig?.shippingMinDeliveryDays === 'number' ? Math.max(0, gigConfig.shippingMinDeliveryDays) : 2;
+    const shippingMaxDaysBase =
+      typeof gigConfig?.shippingMaxDeliveryDays === 'number' ? Math.max(0, gigConfig.shippingMaxDeliveryDays) : 5;
+    const shippingMaxDays = Math.max(shippingMinDays, shippingMaxDaysBase);
+    const deliveryEstimateLabel = `${shippingMinDays} - ${shippingMaxDays} days`;
+    const pickupContactName = gigConfig?.senderName || process.env.STORE_NAME || 'Store Pickup';
+    const pickupContactPhone = gigConfig?.senderPhoneNumber || process.env.STORE_PHONE || '';
+    const pickupAddress = gigConfig?.senderAddress || process.env.STORE_ADDRESS || 'Store Pickup';
+
     // Determine courier and address based on delivery type
     let courier = 'Standard Shipping';
     let address = '';
 
     if (order.deliveryType === 'pickup') {
       courier = 'Pickup';
-      address = process.env.STORE_ADDRESS || 'Store Pickup';
+      address = pickupAddress;
     } else {
       // For shipping, try to get courier from shipment if available
       const populatedShipment = order.shipmentId as unknown as { courier?: string } | null;
@@ -677,8 +689,13 @@ const publishOrderSuccessfulEvent = async (orderId: string): Promise<void> => {
         courier,
         address,
         _id: order.shipmentId?._id.toString() || '',
+        deliveryEstimateLabel: order.deliveryType === 'pickup' ? undefined : deliveryEstimateLabel,
+        pickupContactName: order.deliveryType === 'pickup' ? pickupContactName : undefined,
+        pickupContactPhone: order.deliveryType === 'pickup' ? pickupContactPhone : undefined,
+        pickupAddress: order.deliveryType === 'pickup' ? pickupAddress : undefined,
       },
       deliveryType: order.deliveryType,
+      gigWaybill: order.gigWaybill || undefined,
       products: populatedProducts.map((item) => {
         // Find cover image or fallback to first image
         const coverImage = item.product.description_images?.find((img) => img.cover_image === true);
