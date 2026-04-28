@@ -146,6 +146,15 @@ class EventPublisher {
     await this.publish(EventType.INVENTORY_OUT_OF_STOCK, { productId, productName, lastQuantity });
   }
 
+  async publishProductUpdated(
+    productId: string,
+    name: string,
+    price: number,
+    stock: number
+  ): Promise<void> {
+    await this.publish(EventType.PRODUCT_UPDATED, { productId, name, price, stock });
+  }
+
   async publishOrderShipped(shipmentData: {
     orderId: string;
     userId: string;

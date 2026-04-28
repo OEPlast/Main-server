@@ -87,7 +87,7 @@ const setStock = async (
     const { stock, variants } = payload;
 
     const product = await Product.findById(productId).select(
-      'name stock lowStockThreshold attributes.name attributes.children.name attributes.children.stock'
+      'name price stock lowStockThreshold attributes.name attributes.children.name attributes.children.stock'
     );
     if (!product) return { message: 'Product not found', data: null, code: 404 };
 
@@ -135,6 +135,7 @@ const setStock = async (
         await eventPublisher.publishInventoryLow(productId, product.stock, product.lowStockThreshold, product.name);
       }
 
+      await eventPublisher.publishProductUpdated(productId, product.name, (product as any).price ?? 0, product.stock);
       return { message: 'Stock updated', data: { stock: product.stock }, code: 200 };
     }
 
@@ -166,6 +167,7 @@ const setStock = async (
       await eventPublisher.publishInventoryLow(productId, product.stock, product.lowStockThreshold, product.name);
     }
 
+    await eventPublisher.publishProductUpdated(productId, product.name, (product as any).price ?? 0, product.stock);
     return { message: 'Stock updated', data: { stock: product.stock }, code: 200 };
   } catch (error) {
     return { message: 'Failed to update stock', data: null, code: 500 };

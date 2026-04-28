@@ -34,7 +34,7 @@ const adjustStock = async (productId: string, delta: number): Promise<CustomResp
       { _id: productId },
       { $inc: { stock: delta } },
       { new: true }
-    ).select('name stock lowStockThreshold');
+    ).select('name price stock lowStockThreshold');
 
     if (!product) {
       return { message: 'Product not found', data: null, code: 404 };
@@ -45,6 +45,8 @@ const adjustStock = async (productId: string, delta: number): Promise<CustomResp
     } else if (product.stock <= product.lowStockThreshold) {
       await eventPublisher.publishInventoryLow(productId, product.stock, product.lowStockThreshold, product.name);
     }
+
+    await eventPublisher.publishProductUpdated(productId, product.name, (product as any).price ?? 0, product.stock);
 
     return { message: 'Stock updated', data: { stock: product.stock }, code: 200 };
   } catch (error) {
