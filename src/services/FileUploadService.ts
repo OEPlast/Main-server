@@ -60,6 +60,10 @@ type UploadedPathInfo = {
   url?: string; // optional public URL if BUNNY_BASE_URL is configured
   miniUrl?: string; // optional public URL for minified version
   pngUrl?: string; // optional public URL for PNG version
+  // video-only fields — only present when mediaType === 'video'
+  thumbnailPath?: string; // WebP thumbnail extracted from video
+  thumbnailUrl?: string; // CDN URL for the video thumbnail
+  mediaType: 'image' | 'video';
   size: number;
   mimetype: string;
   originalName: string;
@@ -93,17 +97,13 @@ const uploadFile = async (
     const isImage = isImageType(file.mimetype);
     const isVideo = isVideoType(file.mimetype);
 
-    if (isImage || isVideo) {
-      try {
-        let processed;
-        if (isImage) {
-          // Process image: convert to WebP (base + mini)
-          processed = await processImageFile(file.buffer);
-        } else {
-          // Process video: extract frame at 1 second, convert to WebP (base + mini)
-          processed = await processVideoFile(file.buffer, 1.0);
-        }
+    // Video-specific paths (set below when isVideo)
+    let videoInternalPath: string | undefined;
+    let videoSuccess = false;
 
+    if (isImage) {
+      try {
+        const processed = await processImageFile(file.buffer);
         baseBuffer = processed.baseBuffer;
         miniBuffer = processed.miniBuffer;
         pngBuffer = processed.pngBuffer;
@@ -112,17 +112,45 @@ const uploadFile = async (
         finalPngFilename = getPngFilename(finalBaseFilename);
         finalMimetype = 'image/webp';
       } catch (error) {
-        // Optimization failed - use original file for both versions
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-        console.error('Image/video processing failed:', errorMessage);
+        console.error('Image processing failed:', errorMessage);
         warning = `Image uploaded but optimization failed - original format kept`;
-        // Keep original buffers and filenames
-        miniBuffer = baseBuffer; // Use same buffer for mini if processing failed
-        pngBuffer = null; // No PNG version on failure
+        miniBuffer = baseBuffer;
+        pngBuffer = null;
+      }
+    } else if (isVideo) {
+      // For videos: upload the original video file, and generate a WebP thumbnail from frame
+      const videoExt = originalExt || 'mp4';
+      const rawVideoFilename = `${baseFilename}.${videoExt}`;
+      videoInternalPath = `${category}/${rawVideoFilename}`;
+      const zone = getZone();
+      const videoStream = bufferToWebStream(file.buffer);
+      videoSuccess = await BunnyStorageSDK.file.upload(zone, `/${videoInternalPath}`, videoStream, {
+        contentType: file.mimetype,
+      });
+      if (!videoSuccess) {
+        return { message: 'Failed to upload video file to Bunny storage', data: null, code: 500 };
+      }
+
+      // Generate thumbnail from video frame
+      try {
+        const processed = await processVideoFile(file.buffer, 1.0);
+        baseBuffer = processed.baseBuffer;
+        miniBuffer = processed.miniBuffer;
+        pngBuffer = processed.pngBuffer;
+        finalBaseFilename = `${baseFilename}-thumb.webp`;
+        finalMiniFilename = getMiniFilename(finalBaseFilename);
+        finalPngFilename = getPngFilename(finalBaseFilename);
+        finalMimetype = 'image/webp';
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        console.error('Video thumbnail generation failed:', errorMessage);
+        warning = `Video uploaded but thumbnail generation failed`;
+        pngBuffer = null;
       }
     }
 
-    // Upload base version
+    // Upload base version (image WebP or video thumbnail WebP)
     const internalPath = `${category}/${finalBaseFilename}`;
     const zone = getZone();
     const baseStream = bufferToWebStream(baseBuffer);
@@ -145,7 +173,6 @@ const uploadFile = async (
 
     if (!miniSuccess) {
       console.error('Failed to upload mini version, but base uploaded successfully');
-      // If mini fails, still return success with base info but add warning
       warning = (warning ? warning + '; ' : '') + 'Minified version upload failed';
     }
 
@@ -167,28 +194,44 @@ const uploadFile = async (
     // touch unused param to satisfy linter (future: include in audit logs)
     void _uploadedBy;
 
-    const result: UploadedPathInfo = {
-      path: internalPath,
-      miniPath: miniSuccess ? miniInternalPath : internalPath, // Fallback to base if mini failed
-      pngPath: pngSuccess ? pngInternalPath : internalPath, // Fallback to base if PNG failed
-      url: BUNNY_BASE_URL ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}` : undefined,
-      miniUrl:
-        BUNNY_BASE_URL && miniSuccess
-          ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${miniInternalPath}`
-          : BUNNY_BASE_URL
-            ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}`
+    const cdnBase = BUNNY_BASE_URL ? BUNNY_BASE_URL.replace(/\/$/, '') : undefined;
+
+    const result: UploadedPathInfo = isVideo
+      ? {
+          // For videos: path/url point to the actual video file; thumbnail fields hold the preview image
+          path: videoInternalPath!,
+          url: cdnBase ? `${cdnBase}/${videoInternalPath}` : undefined,
+          thumbnailPath: internalPath,
+          thumbnailUrl: cdnBase ? `${cdnBase}/${internalPath}` : undefined,
+          miniPath: miniSuccess ? miniInternalPath : internalPath,
+          miniUrl: cdnBase
+            ? `${cdnBase}/${miniSuccess ? miniInternalPath : internalPath}`
             : undefined,
-      pngUrl:
-        BUNNY_BASE_URL && pngSuccess
-          ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${pngInternalPath}`
-          : BUNNY_BASE_URL
-            ? `${BUNNY_BASE_URL.replace(/\/$/, '')}/${internalPath}`
+          pngPath: pngSuccess ? pngInternalPath : internalPath,
+          pngUrl: cdnBase ? `${cdnBase}/${pngSuccess ? pngInternalPath : internalPath}` : undefined,
+          mediaType: 'video',
+          size: file.size,
+          mimetype: file.mimetype,
+          originalName: file.originalname,
+          warning,
+        }
+      : {
+          path: internalPath,
+          miniPath: miniSuccess ? miniInternalPath : internalPath,
+          pngPath: pngSuccess ? pngInternalPath : internalPath,
+          url: cdnBase ? `${cdnBase}/${internalPath}` : undefined,
+          miniUrl: cdnBase
+            ? `${cdnBase}/${miniSuccess ? miniInternalPath : internalPath}`
             : undefined,
-      size: file.size,
-      mimetype: finalMimetype,
-      originalName: file.originalname,
-      warning,
-    };
+          pngUrl: cdnBase
+            ? `${cdnBase}/${pngSuccess ? pngInternalPath : internalPath}`
+            : undefined,
+          mediaType: 'image',
+          size: file.size,
+          mimetype: finalMimetype,
+          originalName: file.originalname,
+          warning,
+        };
 
     return { message: 'File uploaded successfully', data: result, code: 201 };
   } catch (error) {
@@ -266,6 +309,7 @@ const getFilesByCategory = async (
         size: f.length,
         mimetype: f.contentType,
         originalName: f.objectName,
+        mediaType: (f.contentType?.startsWith('video/') ? 'video' : 'image') as 'image' | 'video',
       };
     });
     return { message: 'Files retrieved successfully', data: { files, total, page, limit }, code: 200 };
