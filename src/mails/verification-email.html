@@ -115,7 +115,7 @@ h3 {
       Best regards,
     </p>
     <p style="font-size: 16px; line-height: 24px; color: #767676; margin-bottom: 0; margin-top: -10px">
-      <a href="#" style="color: #97c142ff; text-decoration-line: none; font-weight: 700">OEP</a> Team
+      {{#if logoUrl}}<img src="{{logoUrl}}" alt="Logo" style="max-height: 20px; vertical-align: middle;">{{else}}<a href="#" style="color: #97c142ff; text-decoration-line: none; font-weight: 700">OEP</a>{{/if}} Team
     </p>                    </td>
                   </tr>
                 </table>
@@ -130,8 +130,8 @@ h3 {
                   <tr class="sm-flex sm-flex-col-reverse">
                     <td class="sm-flex sm-justify-center sm-mt-12">
                       <table cellpadding="0" cellspacing="0" role="presentation">
-                        <tr> <td style="font-size: 24px; font-weight: 700; color: #fff">
-                            OEP
+                        <tr> <td>
+                            {{#if logoUrl}}<img src="{{logoUrl}}" alt="Logo" style="max-height: 40px; display: block;">{{else}}<span style="font-size: 24px; font-weight: 700; color: #fff">OEP</span>{{/if}}
                           </td>
                         </tr>
                       </table>
