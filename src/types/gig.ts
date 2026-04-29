@@ -118,6 +118,31 @@ export interface GIGPriceResult {
 }
 
 // ============================================
+// /price/v3 — Fetch Shipment Price V3
+// ============================================
+
+export interface GIGPriceV3Request {
+  SenderStationId?: number;
+  ReceiverStationId?: number;
+  VehicleType?: GIGVehicleType;
+  ReceiverLocation: GIGPriceLocation;
+  SenderLocation: GIGPriceLocation;
+  IsPriorityShipment?: boolean;
+  PickUpOptions: GIGPickupOption;
+  ShipmentItems: GIGPriceShipmentItem[];
+}
+
+export interface GIGPriceV3Result {
+  GrandTotal: number;
+  DeliveryOptionPrice: number;
+  DeliveryPrice: number;
+  Vat: number;
+  Discount: number;
+  InsurancePrice: number;
+  SurchargeFee: number;
+}
+
+// ============================================
 // /capture/preshipment — Create Shipment
 // ============================================
 
@@ -290,10 +315,11 @@ export interface GIGCalculateShippingResult {
     label: string;
   };
   breakdown?: {
-    deliverPrice: number;
-    pickupCharge: number;
-    insuranceValue: number;
-    mainCharge: number;
+    deliveryPrice: number;
+    deliveryOptionPrice: number;
+    insurancePrice: number;
+    vat: number;
+    surchargeFee: number;
     grandTotal: number;
     discount: number;
   };

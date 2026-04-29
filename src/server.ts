@@ -54,6 +54,7 @@ import {
 import FileUploadRoute from '@/routes/general/fileUpload';
 import EmailProcessor from './services/processor/EmailProcessor';
 import InternalServiceRoutes from '@/routes/internal/serviceRoutes';
+import { startGIGTrackingSync } from '@/cron/gigTrackingSync';
 
 // Helper to capture raw body without using any
 const rawBodySaver = (req: Request & { rawBody?: Buffer }, _res: Response, buf: Buffer) => {
@@ -164,6 +165,7 @@ app.listen(port, async () => {
   try {
     await connectDB();
     await EmailProcessor.initialize();
+    startGIGTrackingSync();
     console.log(`Server is listening on port ${port}`);
   } catch (error) {
     console.log(error);

@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { renderEmailTemplate } from "@/utils/email-template-engine";
+import Settings from "@/models/Settings";
 import {
   AbandonedCartData,
   CouponData,
@@ -73,8 +74,18 @@ class EmailProcessor {
     }
   }
 
+  private static async getLogoUrl(): Promise<string> {
+    try {
+      const settings = await Settings.findOne();
+      return settings?.logoUrl ?? '';
+    } catch {
+      return '';
+    }
+  }
+
   static async sendWelcomeEmail(data: WelcomeEmailData): Promise<void> {
-    const html = renderEmailTemplate('welcome', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('welcome', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -87,7 +98,8 @@ class EmailProcessor {
   }
 
   static async sendSignupOtpEmail(data: VerificationEmailData): Promise<void> {
-    const html = renderEmailTemplate('verification-email', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('verification-email', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -100,7 +112,8 @@ class EmailProcessor {
   }
 
   static async sendOrderConfirmationEmail(data: OrderConfirmationData): Promise<void> {
-    const html = renderEmailTemplate('order-confirmation', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('order-confirmation', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -113,7 +126,8 @@ class EmailProcessor {
   }
 
   static async sendForgotPasswordEmail(data: ForgotPasswordData): Promise<void> {
-    const html = renderEmailTemplate('forgot-password', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('forgot-password', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -126,7 +140,8 @@ class EmailProcessor {
   }
 
   static async sendAbandonedCartEmail(data: AbandonedCartData): Promise<void> {
-    const html = renderEmailTemplate('abandoned-cart', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('abandoned-cart', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -139,7 +154,8 @@ class EmailProcessor {
   }
 
   static async sendCouponEmail(data: CouponData): Promise<void> {
-    const html = renderEmailTemplate('coupon', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('coupon', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -152,7 +168,8 @@ class EmailProcessor {
   }
 
   static async sendOrderShippedEmail(data: OrderShippedData): Promise<void> {
-    const html = renderEmailTemplate('order-shipped', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('order-shipped', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -165,7 +182,8 @@ class EmailProcessor {
   }
 
   static async sendOrderDeliveredEmail(data: OrderDeliveredData): Promise<void> {
-    const html = renderEmailTemplate('order-delivered', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('order-delivered', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -178,7 +196,8 @@ class EmailProcessor {
   }
 
   static async sendOrderRefundedEmail(data: OrderRefundedData): Promise<void> {
-    const html = renderEmailTemplate('order-refunded', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('order-refunded', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -190,7 +209,8 @@ class EmailProcessor {
     await this.sendEmail(emailData);
   }
     static async sendOrderCancelledEmail(data: OrderCancelledData): Promise<void> {
-    const html = renderEmailTemplate('order-cancelled', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('order-cancelled', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -204,7 +224,8 @@ class EmailProcessor {
 
 
   static async sendRatingRequestEmail(data: RatingRequestData): Promise<void> {
-    const html = renderEmailTemplate('rating', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('rating', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,
@@ -217,7 +238,8 @@ class EmailProcessor {
   }
 
   static async sendWishlistEmail(data: WishlistData): Promise<void> {
-    const html = renderEmailTemplate('wishlist', data);
+    const logoUrl = await this.getLogoUrl();
+    const html = renderEmailTemplate('wishlist', { ...data, logoUrl });
     
     const emailData: EmailData = {
       to: data.email,

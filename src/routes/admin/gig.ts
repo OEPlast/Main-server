@@ -16,4 +16,8 @@ router.get('/stations', AdminGIGController.getStations);
 // GIG Tracking (proxy)
 router.get('/track/:waybill', AdminGIGController.trackShipment);
 
+// GIG Shipments list and detail
+router.get('/shipments', AdminGIGController.listGIGShipments);
+router.get('/shipments/:waybill', AdminGIGController.getGIGShipmentInfo);
+
 export default router;

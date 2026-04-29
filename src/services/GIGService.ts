@@ -3,6 +3,8 @@ import {
   CHECKOUT_DELIVERY_METHOD,
   CheckoutDeliveryMethod,
   GIGPriceRequest,
+  GIGPriceV3Request,
+  GIGPriceV3Result,
   GIGPreshipmentRequest,
   GIG_VEHICLE_TYPE,
   GIG_CUSTOMER_TYPE,
@@ -250,6 +252,25 @@ async function calculatePrice(
 }
 
 /**
+ * Calculate shipping price via GIG API V3
+ */
+async function calculatePriceV3(
+  payload: GIGPriceV3Request
+): Promise<{ message: string; data: GIGPriceV3Result | null; code: number }> {
+  try {
+    const result = await gigFetchV3<GIGPriceV3Result>('/price/v3', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return { message: 'Price calculated successfully', data: result.data, code: 200 };
+  } catch (error) {
+    console.error('GIG calculatePriceV3 error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to calculate GIG shipping price';
+    return { message: errMsg, data: null, code: 503 };
+  }
+}
+
+/**
  * Create a GIG preshipment (capture)
  */
 async function createPreshipment(
@@ -408,10 +429,9 @@ async function calculateShipping(
   }
 
   const vehicleType = VEHICLE_TYPE_MAP[config.vehicleType?.toUpperCase() ?? ''] ?? GIG_VEHICLE_TYPE.Bike;
-  const customerType = CUSTOMER_TYPE_MAP[config.customerType ?? ''] ?? GIG_CUSTOMER_TYPE.Company;
   const pickupOption = PICKUP_OPTION_MAP[config.defaultPickUpOptions ?? ''] ?? GIG_PICKUP_OPTION.HomeDelivery;
 
-  const pricePayload: GIGPriceRequest = {
+  const pricePayload: GIGPriceV3Request = {
     SenderStationId: config.senderStationId,
     ReceiverStationId: receiverStationId,
     VehicleType: vehicleType,
@@ -423,14 +443,11 @@ async function calculateShipping(
       Latitude: input.receiverLatitude ?? 0,
       Longitude: input.receiverLongitude ?? 0,
     },
-    CustomerCode: config.customerCode,
-    CustomerType: customerType,
     PickUpOptions: pickupOption,
     ShipmentItems: input.items.map((item) => normalizeShipmentItemForGig(item, GIG_SHIPMENT_TYPE.Regular)),
   };
-  console.log(pricePayload);
 
-  const priceResult = await calculatePrice(pricePayload);
+  const priceResult = await calculatePriceV3(pricePayload);
   if (!priceResult.data) {
     return { message: priceResult.message, data: null, code: priceResult.code };
   }
@@ -448,10 +465,11 @@ async function calculateShipping(
         deliverySettings.shippingMaxDeliveryDays
       ),
       breakdown: {
-        deliverPrice: priceResult.data.DeliverPrice,
-        pickupCharge: priceResult.data.PickupCharge,
-        insuranceValue: priceResult.data.InsuranceValue,
-        mainCharge: priceResult.data.MainCharge,
+        deliveryPrice: priceResult.data.DeliveryPrice,
+        deliveryOptionPrice: priceResult.data.DeliveryOptionPrice,
+        insurancePrice: priceResult.data.InsurancePrice,
+        vat: priceResult.data.Vat,
+        surchargeFee: priceResult.data.SurchargeFee,
         grandTotal: priceResult.data.GrandTotal,
         discount: priceResult.data.Discount,
       },
@@ -545,6 +563,7 @@ async function createShipmentForOrder(
 const GIGService = {
   getStations,
   calculatePrice,
+  calculatePriceV3,
   createPreshipment,
   trackShipment,
   getConfig,
