@@ -33,10 +33,20 @@ const bannerSchema = new mongoose.Schema(
       type: String,
       trim: true,
     },
+    supportingText: {
+      type: String,
+      trim: true,
+      default: null,
+    },
     CTA: {
       type: String,
       default: '#',
       trim: true,
+    },
+    ctaColor: {
+      type: String,
+      trim: true,
+      default: '#000000',
     },
     fullImage: {
       type: Boolean,

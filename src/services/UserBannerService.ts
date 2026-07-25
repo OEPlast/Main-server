@@ -24,7 +24,7 @@ interface GetUserBannersParams {
 
       // Get banners sorted by position (ascending) and creation date (newest first)
       const banners = await Banner.find(query)
-        .select('name imageUrl pageLink category position createdAt headerText mainText CTA fullImage')
+        .select('name imageUrl pageLink category position createdAt headerText mainText supportingText CTA ctaColor fullImage')
         .sort({ position: 1, createdAt: -1 });
 
 
@@ -53,7 +53,7 @@ interface GetUserBannersParams {
     try {
       // Get all active banners
       const banners = await Banner.find({ active: true })
-        .select('name imageUrl pageLink category position createdAt headerText mainText CTA fullImage')
+        .select('name imageUrl pageLink category position createdAt headerText mainText supportingText CTA ctaColor fullImage')
         .sort({ position: 1, createdAt: -1 });
 
       // Group by category

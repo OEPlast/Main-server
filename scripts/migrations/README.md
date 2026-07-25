@@ -86,6 +86,22 @@ npx ts-node -r tsconfig-paths/register scripts/migrations/rollback-text-fields-f
 
 ---
 
+### `add-supporting-text-and-cta-color-to-banners.ts`
+
+**Purpose**: Backfills `supportingText` (defaults to `null`) and `ctaColor` (defaults to `'#000000'`) on existing banner documents.
+
+```bash
+npx ts-node -r tsconfig-paths/register scripts/migrations/add-supporting-text-and-cta-color-to-banners.ts
+```
+
+**Rollback**:
+
+```bash
+npx ts-node -r tsconfig-paths/register scripts/migrations/rollback-supporting-text-and-cta-color-from-banners.ts
+```
+
+---
+
 ### `verify-priority-field.ts`
 
 **Purpose**: Read-only verification script. Checks that all category documents have the `priority` field set correctly after running `add-priority-to-categories.ts`.

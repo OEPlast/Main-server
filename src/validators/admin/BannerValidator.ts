@@ -54,6 +54,16 @@ const createBannerValidator = (req: Request, res: Response, next: NextFunction) 
         errorMessage: 'Main text should be between 1 and 500 characters',
       },
     },
+    supportingText: {
+      in: ['body'],
+      isString: true,
+      optional: { options: { nullable: true } },
+      errorMessage: 'Supporting text should be a string',
+      isLength: {
+        options: { min: 1, max: 500 },
+        errorMessage: 'Supporting text should be between 1 and 500 characters',
+      },
+    },
     CTA: {
       in: ['body'],
       isString: true,
@@ -62,6 +72,15 @@ const createBannerValidator = (req: Request, res: Response, next: NextFunction) 
       isLength: {
         options: { min: 1, max: 100 },
         errorMessage: 'CTA should be between 1 and 100 characters',
+      },
+    },
+    ctaColor: {
+      in: ['body'],
+      isString: true,
+      optional: true,
+      matches: {
+        options: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/,
+        errorMessage: 'CTA color must be a valid hex color (e.g. #000000)',
       },
     },
     fullImage: {
@@ -153,6 +172,15 @@ const updateBannerValidator = (req: Request, res: Response, next: NextFunction) 
         errorMessage: 'Main text should be between 1 and 500 characters',
       },
     },
+    supportingText: {
+      in: ['body'],
+      isString: true,
+      optional: { options: { nullable: true } },
+      isLength: {
+        options: { min: 1, max: 500 },
+        errorMessage: 'Supporting text should be between 1 and 500 characters',
+      },
+    },
     CTA: {
       in: ['body'],
       isString: true,
@@ -160,6 +188,15 @@ const updateBannerValidator = (req: Request, res: Response, next: NextFunction) 
       isLength: {
         options: { min: 1, max: 100 },
         errorMessage: 'CTA should be between 1 and 100 characters',
+      },
+    },
+    ctaColor: {
+      in: ['body'],
+      isString: true,
+      optional: true,
+      matches: {
+        options: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/,
+        errorMessage: 'CTA color must be a valid hex color (e.g. #000000)',
       },
     },
     fullImage: {

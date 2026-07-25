@@ -9,6 +9,8 @@ interface CreateBannerInput {
   active?: boolean;
   category: 'A' | 'B' | 'C' | 'D' | 'E';
   position?: number;
+  supportingText?: string | null;
+  ctaColor?: string;
 }
 
 interface SearchBannerInput {
