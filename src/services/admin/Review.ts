@@ -706,14 +706,18 @@ const getStatistics = async (): Promise<CustomResponseType<ReviewStatistics>> =>
         // Total reviews
         Review.countDocuments(),
 
-        // Approved reviews
-        Review.countDocuments({ isApproved: true }),
+        // Live reviews. Policy is post-moderation: a review publishes on submit
+        // and stays up until an admin takes it down. Moderation is binary on the
+        // schema (`isApproved` true/false) — there is no `isRejected` field, so
+        // counting one produced a permanently wrong figure.
+        Review.countDocuments({ isApproved: { $ne: false } }),
 
-        // Pending reviews (not approved and not rejected)
-        Review.countDocuments({ isApproved: { $ne: true }, isRejected: { $ne: true } }),
+        // Nothing is ever queued for approval, so this is not a backlog — it is
+        // simply how many reviews no admin has looked at yet. Informational.
+        Review.countDocuments({ moderatedAt: { $exists: false } }),
 
-        // Rejected reviews
-        Review.countDocuments({ isRejected: true }),
+        // Removed by an admin.
+        Review.countDocuments({ isApproved: false }),
 
         // Reviews with replies
         Review.countDocuments({ 'replies.0': { $exists: true } }),

@@ -55,6 +55,10 @@ function addReviewLookupStages(): any[] {
         localField: '_id',
         foreignField: 'product',
         pipeline: [
+          // Moderated-out reviews must not move the average. This figure is
+          // surfaced publicly and emitted as Product JSON-LD aggregateRating,
+          // where counting rejected content is a review-snippet policy risk.
+          { $match: { isApproved: { $ne: false } } },
           {
             $group: {
               _id: null,
@@ -205,7 +209,7 @@ const getAllProducts = async (
     if (params.sortBy === 'sales') sortStage.salesCount = sortOrderNum;
     else if (params.sortBy === 'price') sortStage.price = sortOrderNum;
     else if (params.sortBy === 'name') sortStage.name = sortOrderNum;
-    else if (params.sortBy === 'rating') sortStage.rating = sortOrderNum as 1 | -1; // rating may not exist
+    else if (params.sortBy === 'rating') sortStage.ratingAverage = sortOrderNum as 1 | -1;
     else sortStage.createdAt = sortOrderNum; // default newest
 
     pipeline.push({ $sort: sortStage });
@@ -634,7 +638,7 @@ const getWeekProducts = async (
           sortStage.orderFrequency = -1;
           break;
         case 'rating':
-          sortStage.rating = -1;
+          sortStage.ratingAverage = -1;
           break;
       }
     }
@@ -658,7 +662,8 @@ const getWeekProducts = async (
               sku: 1,
               stock: 1,
               originStock: 1,
-              rating: 1,
+              ratingAverage: 1,
+              ratingCount: 1,
               description_images: 1,
               pricingTiers: 1,
               category: 1,
@@ -833,7 +838,7 @@ const getTopSoldProducts = async (
           sortStage.orderFrequency = -1;
           break;
         case 'rating':
-          sortStage.rating = -1;
+          sortStage.ratingAverage = -1;
           break;
       }
     }
@@ -857,7 +862,8 @@ const getTopSoldProducts = async (
               sku: 1,
               stock: 1,
               originStock: 1,
-              rating: 1,
+              ratingAverage: 1,
+              ratingCount: 1,
               description_images: 1,
               pricingTiers: 1,
               category: 1,
@@ -927,7 +933,8 @@ const getHotSalesProducts = async (
                 sku: 1,
                 stock: 1,
                 originStock: 1,
-                rating: 1,
+                ratingAverage: 1,
+                ratingCount: 1,
                 description_images: 1,
                 pricingTiers: 1,
                 category: 1,
@@ -1746,7 +1753,7 @@ const getNewProducts = async (
           sortStage.orderFrequency = -1;
           break;
         case 'rating':
-          sortStage.rating = -1;
+          sortStage.ratingAverage = -1;
           break;
       }
     }
@@ -1771,7 +1778,8 @@ const getNewProducts = async (
               sku: 1,
               stock: 1,
               originStock: 1,
-              rating: 1,
+              ratingAverage: 1,
+              ratingCount: 1,
               description_images: 1,
               pricingTiers: 1,
               category: 1,
@@ -2037,7 +2045,8 @@ const getDealsOfTheDay = async (
           sku: 1,
           stock: 1,
           originStock: 1,
-          rating: 1,
+          ratingAverage: 1,
+          ratingCount: 1,
           description_images: 1,
           sale: 1,
           pricingTiers: 1,
@@ -2206,7 +2215,8 @@ const getProductsForComparison = async (identifiers: string[]): Promise<CustomRe
           pricingTiers: 1,
           packSizes: 1,
           shipping: 1,
-          rating: 1,
+          ratingAverage: 1,
+          ratingCount: 1,
           sale: 1,
           status: 1,
           createdAt: 1,
@@ -2418,7 +2428,7 @@ const getProductsByCampaignSlug = async (
           sortStage.orderFrequency = -1;
           break;
         case 'rating':
-          sortStage.rating = -1;
+          sortStage.ratingAverage = -1;
           break;
       }
     }
@@ -2441,7 +2451,8 @@ const getProductsByCampaignSlug = async (
         sku: 1,
         stock: 1,
         originStock: 1,
-        rating: 1,
+        ratingAverage: 1,
+        ratingCount: 1,
         description_images: 1,
         pricingTiers: 1,
         sale: 1,
@@ -3222,6 +3233,9 @@ const getProductBySlugOrId = async (
           localField: '_id',
           foreignField: 'product',
           pipeline: [
+            // Approved-only: this drives the product page's visible rating and
+            // its Product JSON-LD aggregateRating.
+            { $match: { isApproved: { $ne: false } } },
             {
               $group: {
                 _id: null,
@@ -3364,7 +3378,9 @@ const getProductReviews = async (
       {
         $match: {
           product: new mongoose.Types.ObjectId(productId),
-          deleted: false,
+          // `deleted` is not a field on the Review schema — matching it on false
+          // matched nothing, so this endpoint always returned an empty page.
+          isApproved: { $ne: false },
         },
       },
     ];
@@ -3639,7 +3655,8 @@ const getRelatedProducts = async (productId: string, limit = 8): Promise<CustomR
           pricingTiers: 1,
           category: 1,
           stock: 1,
-          rating: 1,
+          ratingAverage: 1,
+          ratingCount: 1,
           sale: 1,
           relevanceScore: 1,
         },
@@ -3743,7 +3760,8 @@ const getPopularProducts = async (limit = 8): Promise<CustomResponseType<Product
           pricingTiers: 1,
           category: 1,
           stock: 1,
-          rating: 1,
+          ratingAverage: 1,
+          ratingCount: 1,
           sale: 1,
           popularityScore: 1,
         },

@@ -13,6 +13,7 @@ import Order, { OrderType } from '@/models/Order';
 import { CustomResponseType } from '@/types';
 import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
 import eventPublisher from '@/events/eventPublisher';
+import { orderStatusUpdate } from '@/utils/orderStatusTimestamps';
 import type {
   CheckoutDeliveryType,
   SecureCheckoutItemInput,
@@ -399,7 +400,7 @@ class CheckoutService {
     });
 
     if (paymentInit.code !== 200) {
-      await Order.findByIdAndUpdate(orderId, { status: 'Cancelled' });
+      await Order.findByIdAndUpdate(orderId, orderStatusUpdate('Cancelled'));
 
       // Restore stock and reverse sale counters when payment initialization fails
       await CheckoutService.restoreStockOnPaymentFailure(orderId);

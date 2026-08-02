@@ -227,7 +227,6 @@ export const updateSale = async (
 export const deleteSale = async (id: string): CustomResponsePromise<null> => {
   try {
     const sale = await Sales.findByIdAndDelete(id);
-    console.log(sale);
     return {
       message: sale !== null ? 'Sale deleted successfully' : 'Sale not found',
       data: null,

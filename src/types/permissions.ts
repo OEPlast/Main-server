@@ -14,6 +14,7 @@ export enum PermissionResource {
   COUPONS = 'coupons',
   REVIEWS = 'reviews',
   CAMPAIGNS = 'campaigns',
+  INTENTS = 'intents',
   BANNERS = 'banners',
   GALLERY = 'gallery',
   ANALYTICS = 'analytics',

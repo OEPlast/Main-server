@@ -242,7 +242,6 @@ async function calculatePrice(
       method: 'POST',
       body: JSON.stringify(payload),
     });
-    console.log(result.data);
     return { message: 'Price calculated successfully', data: result.data, code: 200 };
   } catch (error) {
     console.error('GIG calculatePrice error:', error);

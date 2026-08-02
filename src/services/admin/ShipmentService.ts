@@ -3,6 +3,7 @@ import Shipment, { IShipment } from '../../models/Shipment';
 import { CustomResponseType } from '@/types';
 import Order from '@/models/Order';
 import { eventPublisher } from '@/events';
+import { orderStatusUpdate } from '@/utils/orderStatusTimestamps';
 
 // Define shipment status union based on updated model enum
 type ShipmentStatus = 'In-Warehouse' | 'Shipped' | 'Dispatched' | 'In-Transit' | 'Delivered' | 'Returned' | 'Failed';
@@ -218,7 +219,6 @@ const updateShipment = async (
 const trackShipment = async (trackingNumber: string): Promise<CustomResponseType<IShipment>> => {
   try {
     const shipment = await Shipment.findOne({ trackingNumber }).populate('orderId', 'orderNumber customerInfo');
-    console.log({ shipment });
 
     if (!shipment) {
       return {
@@ -451,7 +451,7 @@ const updateShipmentStatus = async (
     shipment.status = status as IShipment['status'];
     if (shipment.status === 'Delivered' && !shipment.deliveredOn) {
       shipment.deliveredOn = new Date();
-      await Order.findByIdAndUpdate(shipment.orderId._id, { status: 'Completed' });
+      await Order.findByIdAndUpdate(shipment.orderId._id, orderStatusUpdate('Completed'));
 
       if (populatedOrder.user && populatedOrder.products) {
         await eventPublisher.publishOrderDelivered({
@@ -607,7 +607,6 @@ const listByCourierUser = async (
     const filter: Record<string, unknown> = { courierUser: new mongoose.Types.ObjectId(userId) };
 
     if (status) filter.status = status;
-    console.log(filter);
 
     const [shipments, total] = await Promise.all([
       Shipment.find(filter)
@@ -639,7 +638,6 @@ const statsByCourierUser = async (
       { $group: { _id: '$status', count: { $sum: 1 } } },
     ];
     const results = await Shipment.aggregate(pipeline);
-    console.log(results);
 
     const statMap: Record<ShipmentStatus | 'total', number> = {
       'In-Warehouse': 0,

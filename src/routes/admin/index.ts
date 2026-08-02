@@ -12,6 +12,7 @@ export { default as AdminAnalyticsRoute } from './analytics';
 export { default as AdminShipmentRoute } from './shipment';
 export { default as AdminRolesRoute } from './roles';
 export { default as AdminCampaignRoute } from './campaign';
+export { default as AdminIntentRoute } from './intent';
 export { default as AdminSalesRoute } from './sales';
 export { default as AdminInventoryRoute } from './inventory';
 export { default as AdminLogisticsRoute } from './logistics';

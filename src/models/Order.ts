@@ -169,10 +169,28 @@ const orderSchema = new mongoose.Schema(
       ref: 'Shipment',
       default: null,
     },
+    // Event timestamps. Analytics buckets by WHEN AN EVENT HAPPENED, so every
+    // measurable transition records its own time here. `updatedAt` cannot serve
+    // this purpose — it only ever holds the most recent mutation, so an order
+    // cancelled in March and edited in June looks like a June cancellation.
+    // Written via `orderStatusUpdate()` (utils/orderStatusTimestamps) so a new
+    // transition site cannot silently forget one.
     paidAt: {
       type: Date,
     },
     deliveredAt: {
+      type: Date,
+    },
+    cancelledAt: {
+      type: Date,
+    },
+    completedAt: {
+      type: Date,
+    },
+    failedAt: {
+      type: Date,
+    },
+    refundedAt: {
       type: Date,
     },
     flashSaleApplied: [

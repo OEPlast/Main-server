@@ -496,7 +496,6 @@ const searchUsers = async (
     }
 
     const searchRegex = new RegExp(escapeRegex(query), 'i');
-    console.log(searchRegex);
 
     const users = await User.find({
       $or: [{ email: searchRegex }, { firstName: searchRegex }, { lastName: searchRegex }],

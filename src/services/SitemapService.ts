@@ -7,8 +7,9 @@ import Category from '../models/Category';
  */
 class SitemapService {
   /**
-   * Get all active product slugs with update timestamps
-   * Uses aggregation pipeline to avoid loading full documents
+   * Get all active product slugs with update timestamps + cover image
+   * (cover image powers the storefront's image sitemap → Google Images traffic).
+   * Uses aggregation pipeline to avoid loading full documents.
    */
   async getProductSlugs() {
     const products = await Product.aggregate([
@@ -22,6 +23,28 @@ class SitemapService {
           _id: 0,
           slug: 1,
           updatedAt: 1,
+          // Prefer the flagged cover image, else the first image.
+          coverImage: {
+            $let: {
+              vars: {
+                cover: {
+                  $first: {
+                    $filter: {
+                      input: { $ifNull: ['$description_images', []] },
+                      as: 'img',
+                      cond: { $eq: ['$$img.cover_image', true] },
+                    },
+                  },
+                },
+              },
+              in: {
+                $ifNull: [
+                  '$$cover.url',
+                  { $first: { $ifNull: ['$description_images.url', []] } },
+                ],
+              },
+            },
+          },
         },
       },
       {
@@ -33,8 +56,8 @@ class SitemapService {
   }
 
   /**
-   * Get all category slugs with update timestamps
-   * Uses aggregation pipeline to avoid loading full documents
+   * Get all category slugs with update timestamps + image.
+   * Uses aggregation pipeline to avoid loading full documents.
    */
   async getCategorySlugs() {
     const categories = await Category.aggregate([
@@ -46,6 +69,7 @@ class SitemapService {
           _id: 0,
           slug: 1,
           updatedAt: 1,
+          image: 1,
         },
       },
       {

@@ -137,6 +137,48 @@ const productSchema = new mongoose.Schema(
     },
     tags: [{ type: String }],
 
+    // ── SEO / Google Merchant Center product identity ──────────────────────────
+    // Populated via admin UI. GTIN is the strongest Shopping-match signal; brand
+    // + mpn are fallbacks. Optional so existing products remain valid.
+    brand: {
+      type: String,
+      trim: true,
+    },
+    gtin: {
+      type: String,
+      trim: true,
+    },
+    mpn: {
+      type: String,
+      trim: true,
+    },
+    condition: {
+      type: String,
+      enum: ['new', 'used', 'refurbished'],
+      default: 'new',
+    },
+
+    // Denormalized review stats for aggregateRating schema + fast reads.
+    // Keep in sync from the review write path.
+    ratingAverage: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 5,
+    },
+    ratingCount: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    // Previous slugs → lets the storefront 301 old URLs to the current one so
+    // ranking equity is preserved when a slug changes.
+    slugHistory: {
+      type: [String],
+      default: [],
+    },
+
     description_images: [
       {
         url: { type: String, required: true, default: '' },

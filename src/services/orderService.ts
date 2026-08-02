@@ -20,6 +20,7 @@ import GIGService from '@/services/GIGService';
 import ShipmentService from '@/services/ShipmentService';
 import Return, { ReturnType } from '../models/Return';
 import { EnrichedOrder } from './admin/Order';
+import { orderStatusUpdate } from '@/utils/orderStatusTimestamps';
 import type { CouponDoc, PricedItem, OrderDataInput, PlaceOrderResponse } from '@/types/order';
 import { validateCouponCodes, computeCouponDiscount } from '@/helpers/couponUtils';
 
@@ -762,8 +763,8 @@ const cancelOrder = async (orderId: string, userId: string): Promise<CustomRespo
       session
     );
 
-    // Update order status
-    order.status = 'Cancelled';
+    // Update order status + stamp the cancellation time
+    Object.assign(order, orderStatusUpdate('Cancelled'));
     await order.save({ session });
 
     await session.commitTransaction();

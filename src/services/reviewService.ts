@@ -1,9 +1,142 @@
 import Review, { ReviewType } from '../models/Review';
 import Reply from '@/models/Reply';
 import Order from '@/models/Order';
+import Product from '@/models/Product';
 import Transaction from '@/models/Transaction';
 import { ObjectId } from 'mongodb';
 import AnalyticsService from './MainAnalyticsService';
+
+/**
+ * Only moderated-in reviews are ever visible to shoppers, counted in a product's
+ * rating, or emitted in Product JSON-LD. Every public read path must spread this
+ * into its $match — a rejected review that still shows publicly (or still moves
+ * the average) is both a trust bug and a Google review-snippet policy risk.
+ *
+ * `isApproved` defaults to true on the schema, i.e. post-moderation: reviews
+ * publish immediately and an admin removes bad ones. Switching to pre-moderation
+ * is a change to that default (plus "pending" messaging for the author) — this
+ * filter is correct either way.
+ */
+const PUBLIC_REVIEW_MATCH = { isApproved: { $ne: false } } as const;
+
+/**
+ * Recompute and persist denormalized rating stats on the Product
+ * (ratingAverage, ratingCount). Keeps Product-level reads (Merchant feed,
+ * fast listings, Product JSON-LD fallback) accurate without an aggregation.
+ * Fire-and-forget: failures are logged but never block the review flow.
+ */
+const syncProductRatingStats = async (productId: string): Promise<void> => {
+  try {
+    const [agg] = await Review.aggregate([
+      { $match: { product: new ObjectId(productId), ...PUBLIC_REVIEW_MATCH } },
+      { $group: { _id: null, count: { $sum: 1 }, avg: { $avg: '$rating' } } },
+    ]);
+    const ratingCount: number = agg?.count ?? 0;
+    const ratingAverage: number = agg?.avg ? Math.round(agg.avg * 10) / 10 : 0;
+    await Product.findByIdAndUpdate(productId, { ratingCount, ratingAverage });
+  } catch (error) {
+    console.error('Failed to sync product rating stats:', error);
+  }
+};
+
+type ReviewSortKey = 'newest' | 'helpful' | 'rating-high' | 'rating-low';
+
+/**
+ * Sort orders available to the public review list.
+ *
+ * Every one of these ends with (createdAt desc, _id asc) so the ordering is
+ * *total* — no two reviews ever tie on the full key. That is what makes cursor
+ * pagination well defined: see `buildReviewCursorMatch`.
+ */
+const REVIEW_SORTS: Record<ReviewSortKey, Record<string, 1 | -1>> = {
+  newest: { createdAt: -1, _id: 1 },
+  helpful: { likesCount: -1, createdAt: -1, _id: 1 },
+  'rating-high': { rating: -1, createdAt: -1, _id: 1 },
+  'rating-low': { rating: 1, createdAt: -1, _id: 1 },
+};
+
+/**
+ * Serialise the full sort key of the last row on a page.
+ *
+ * A cursor has to encode every field the sort orders by. Paginating on `_id`
+ * while sorting on `createdAt` (the previous behaviour) leaves "the next page"
+ * undefined — it silently skips some reviews and repeats others, and under the
+ * rating sorts it is meaningless. Dates are tagged so they survive the JSON
+ * round-trip as Dates rather than strings.
+ */
+const encodeReviewCursor = (
+  doc: Record<string, unknown>,
+  sort: Record<string, 1 | -1>
+): string => {
+  const key: Record<string, unknown> = {};
+  for (const field of Object.keys(sort)) {
+    const value = doc[field];
+    key[field] = value instanceof Date ? { $date: value.toISOString() } : value;
+  }
+  return Buffer.from(JSON.stringify(key)).toString('base64url');
+};
+
+/**
+ * Inverse of `encodeReviewCursor`. Returns null for anything unreadable —
+ * including cursors minted by the old `_id`-only scheme — in which case the
+ * caller serves page one rather than an arbitrary slice.
+ */
+const decodeReviewCursor = (
+  cursor: string,
+  sort: Record<string, 1 | -1>
+): Record<string, unknown> | null => {
+  try {
+    const raw: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
+    if (!raw || typeof raw !== 'object') return null;
+
+    const source = raw as Record<string, unknown>;
+    const key: Record<string, unknown> = {};
+
+    for (const field of Object.keys(sort)) {
+      if (!(field in source)) return null;
+      const value = source[field];
+
+      if (value && typeof value === 'object' && '$date' in (value as Record<string, unknown>)) {
+        key[field] = new Date(String((value as Record<string, unknown>).$date));
+      } else if (field === '_id') {
+        key[field] = new ObjectId(String(value));
+      } else {
+        key[field] = value;
+      }
+    }
+
+    return key;
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Build the "strictly after this key" predicate for a compound sort.
+ *
+ * For sort (k1 desc, k2 desc, k3 asc) the rows after key v are:
+ *   k1 < v1
+ *   OR (k1 = v1 AND k2 < v2)
+ *   OR (k1 = v1 AND k2 = v2 AND k3 > v3)
+ * i.e. one clause per key, tying on all earlier keys and comparing the current
+ * one in the direction that sort key runs.
+ */
+const buildReviewCursorMatch = (
+  key: Record<string, unknown>,
+  sort: Record<string, 1 | -1>
+): Record<string, unknown> => {
+  const fields = Object.keys(sort);
+  const clauses = fields.map((field, index) => {
+    const clause: Record<string, unknown> = {};
+    for (let earlier = 0; earlier < index; earlier += 1) {
+      clause[fields[earlier]] = key[fields[earlier]];
+    }
+    clause[field] = { [sort[field] === -1 ? '$lt' : '$gt']: key[field] };
+    return clause;
+  });
+
+  return { $or: clauses };
+};
 
 type IReview = {
   product: string;
@@ -201,7 +334,7 @@ const getReviewsByProductId = async (
 ): Promise<CustomResponseType<(typeof Review)[]>> => {
   try {
     const reviews = await Review.aggregate([
-      { $match: { product: new ObjectId(productId) } },
+      { $match: { product: new ObjectId(productId), ...PUBLIC_REVIEW_MATCH } },
       {
         $lookup: {
           from: 'users',
@@ -383,6 +516,9 @@ const createReview = async (reviewData: IReview): Promise<CustomResponseType<Rev
       { path: 'product', select: 'name slug images' },
     ]);
 
+    // Keep denormalized product rating stats in sync (fire-and-forget).
+    syncProductRatingStats(product).catch(() => {});
+
     // Track review creation for analytics
     if (newReview._id && product && reviewBy) {
       AnalyticsService.trackReviewCreated(newReview._id.toString(), product, reviewBy).catch((err) =>
@@ -435,6 +571,12 @@ const updateReview = async (
       };
     }
 
+    // Resync denormalized product rating stats (rating may have changed).
+    const updatedProduct = updatedReview.product as unknown as { _id?: unknown } | unknown;
+    const productId =
+      (updatedProduct as { _id?: unknown })?._id?.toString?.() ?? String(updatedProduct);
+    if (productId) syncProductRatingStats(productId).catch(() => {});
+
     return {
       message: 'Review updated successfully',
       data: updatedReview.toObject() as unknown as IReview,
@@ -462,6 +604,8 @@ const deleteReview = async ({
   reviewBy: string;
 }): Promise<CustomResponseType<void>> => {
   try {
+    // Capture the product before deletion so we can resync its rating stats.
+    const existing = await Review.findOne({ _id: reviewId, reviewBy }).select('product');
     const deleteReview = await Review.deleteOne({ _id: reviewId, reviewBy });
     if (deleteReview.deletedCount === 0) {
       return {
@@ -471,6 +615,11 @@ const deleteReview = async ({
       };
     }
     await Reply.deleteMany({ review: reviewId });
+
+    if (existing?.product) {
+      syncProductRatingStats(existing.product.toString()).catch(() => {});
+    }
+
     return {
       message: 'Review deleted successfully',
       data: null,
@@ -516,13 +665,11 @@ const allReviews = async (
   };
 }> => {
   try {
-    // Build match condition
-    const matchCondition: Record<string, unknown> = { product: new ObjectId(productId) };
-
-    // Apply cursor for pagination
-    if (cursor) {
-      matchCondition._id = { $gt: new ObjectId(cursor) };
-    }
+    // Build match condition. Moderated-out reviews are never public.
+    const matchCondition: Record<string, unknown> = {
+      product: new ObjectId(productId),
+      ...PUBLIC_REVIEW_MATCH,
+    };
 
     // Apply rating filter
     if (filters?.rating) {
@@ -534,18 +681,11 @@ const allReviews = async (
       matchCondition.images = { $exists: true, $ne: [], $type: 'array' };
     }
 
-    // Determine sort order - default to newest (most recent first)
-    let sortStage: Record<string, 1 | -1> = { createdAt: -1, _id: 1 }; // Default: newest first
+    const sortStage = REVIEW_SORTS[filters?.sortBy ?? 'newest'] ?? REVIEW_SORTS.newest;
 
-    if (filters?.sortBy === 'helpful') {
-      sortStage = { likesCount: -1, createdAt: -1, _id: 1 };
-    } else if (filters?.sortBy === 'rating-high') {
-      sortStage = { rating: -1, createdAt: -1, _id: 1 };
-    } else if (filters?.sortBy === 'rating-low') {
-      sortStage = { rating: 1, createdAt: -1, _id: 1 };
-    } else if (filters?.sortBy === 'newest' || !filters?.sortBy) {
-      sortStage = { createdAt: -1, _id: 1 }; // Newest first (default)
-    }
+    // The cursor may reference `likesCount`, which only exists after $addFields,
+    // so it is matched in a second stage rather than folded into the base match.
+    const cursorKey = cursor ? decodeReviewCursor(cursor, sortStage) : null;
 
     const reviews = await Review.aggregate([
       { $match: matchCondition },
@@ -556,6 +696,7 @@ const allReviews = async (
           isLikedByUser: userId ? { $in: [new ObjectId(userId), { $ifNull: ['$likes', []] }] } : false,
         },
       },
+      ...(cursorKey ? [{ $match: buildReviewCursorMatch(cursorKey, sortStage) }] : []),
       { $sort: sortStage },
       { $limit: limit + 1 }, // Fetch one extra to check if there are more
       {
@@ -598,8 +739,10 @@ const allReviews = async (
     const hasMore = reviews.length > limit;
     const data = hasMore ? reviews.slice(0, limit) : reviews;
 
-    // Get next cursor (last item's ID) - null indicates no more results
-    const nextCursor = hasMore && data.length > 0 ? data[data.length - 1]._id.toString() : null;
+    // Next cursor is the full sort key of the last row on this page, so the
+    // follow-up query resumes exactly where this one stopped under any sort.
+    const nextCursor =
+      hasMore && data.length > 0 ? encodeReviewCursor(data[data.length - 1], sortStage) : null;
 
     return {
       message: 'Reviews retrieved successfully',
@@ -806,7 +949,7 @@ const getProductReviewStats = async (
 > => {
   try {
     const stats = await Review.aggregate([
-      { $match: { product: new ObjectId(productId) } },
+      { $match: { product: new ObjectId(productId), ...PUBLIC_REVIEW_MATCH } },
       {
         $facet: {
           totalAndAverage: [
@@ -888,6 +1031,7 @@ const ReviewService = {
   userReviewPerProduct,
   getProductReviewStats,
   verifyPurchaseEligibility,
+  syncProductRatingStats,
 };
 
 export default ReviewService;

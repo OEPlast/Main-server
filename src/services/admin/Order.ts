@@ -3,6 +3,7 @@ import Order, { OrderType } from '../../models/Order';
 import { TransactionStatus } from '../../models/Transaction';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import AnalyticsService from '../MainAnalyticsService';
+import { orderStatusUpdate, type OrderStatusValue } from '@/utils/orderStatusTimestamps';
 
 /**
  * Enriched order response type with all details
@@ -121,7 +122,6 @@ const getOrders = async (
     const pipeline: mongoose.PipelineStage[] = [];
     const matchStage: Record<string, unknown> = {};
 
-    console.log(filters);
 
     // Apply filters if provided
     if (filters?.status) matchStage.status = filters.status;
@@ -545,7 +545,14 @@ const updateOrderDetails = async (
       };
     }
 
-    await Order.findByIdAndUpdate(orderId, updates, { new: true });
+    // Stamp the event timestamp when an admin edit changes status, so an
+    // admin-driven cancellation is bucketed by when it happened like any other.
+    const statusChanged = updates.status && previousOrder.status !== updates.status;
+    const payload = statusChanged
+      ? { ...updates, ...orderStatusUpdate(updates.status as OrderStatusValue) }
+      : updates;
+
+    await Order.findByIdAndUpdate(orderId, payload, { new: true });
 
     // Track analytics for status changes
     if (updates.status && previousOrder.status !== updates.status) {
@@ -641,7 +648,10 @@ const updateDeliveryTimeline = async (orderId: string, timeline: string): Promis
  */
 const rejectOrder = async (orderId: string): Promise<CustomResponseType<null>> => {
   try {
-    const order = await Order.findByIdAndUpdate(orderId, { status: 'Not Processed' });
+    // Was writing 'Not Processed', which is not in the status enum — findByIdAndUpdate
+    // skips validators by default, so it wrote silently and no report ever matched
+    // those orders. A rejected order is a cancellation.
+    const order = await Order.findByIdAndUpdate(orderId, orderStatusUpdate('Cancelled'));
     if (!order) {
       return {
         message: 'Order not found',

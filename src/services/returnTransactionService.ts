@@ -1,5 +1,6 @@
 import Transaction from '../models/Transaction';
 import Return from '../models/Return';
+import Order from '../models/Order';
 import mongoose from 'mongoose';
 import { CustomResponseType } from '../types/index';
 
@@ -66,9 +67,23 @@ const createReturnTransaction = async (
     });
 
     // Link transaction to return
-    await Return.findByIdAndUpdate(returnId, {
-      refundTransaction: transaction._id,
-    });
+    const updatedReturn = await Return.findByIdAndUpdate(
+      returnId,
+      { refundTransaction: transaction._id },
+      { new: true }
+    );
+
+    // Stamp the order's refund event time. The Transaction remains the
+    // authoritative record of refund amounts and partials — this is the
+    // first-refund marker that lets "refunds by month" be answered from the
+    // Order collection without a join. Only set once, so a second partial
+    // refund does not rewrite when the order was first refunded.
+    if (updatedReturn?.order) {
+      await Order.updateOne(
+        { _id: updatedReturn.order, refundedAt: { $exists: false } },
+        { $set: { refundedAt: new Date() } }
+      );
+    }
 
     return {
       message: 'Return transaction created successfully',

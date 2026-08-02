@@ -18,6 +18,7 @@ import {
   PaystackWebhookData,
 } from '@/types/paystack';
 import { toString } from 'express-validator/lib/utils';
+import { orderStatusUpdate } from '@/utils/orderStatusTimestamps';
 
 const initializePayment = async (paymentData: {
   orderId: string;
@@ -265,7 +266,7 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<ITra
           }
 
           // Update order status to Cancelled
-          await Order.findByIdAndUpdate(transaction.orderId, { status: 'Cancelled' });
+          await Order.findByIdAndUpdate(transaction.orderId, orderStatusUpdate('Cancelled'));
         }
       }
 
@@ -460,7 +461,7 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
           );
 
           // Update order status to Cancelled
-          await Order.findByIdAndUpdate(transaction.orderId, { status: 'Cancelled' });
+          await Order.findByIdAndUpdate(transaction.orderId, orderStatusUpdate('Cancelled'));
         }
 
         await eventPublisher.publish(EventType.PAYMENT_FAILED, {

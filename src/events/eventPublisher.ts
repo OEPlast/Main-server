@@ -138,20 +138,11 @@ class EventPublisher {
     await this.publish(EventType.INVENTORY_LOW, { productId, currentStock, threshold, productName });
   }
 
-  async publishInventoryOutOfStock(
-    productId: string,
-    productName: string,
-    lastQuantity: number = 0
-  ): Promise<void> {
+  async publishInventoryOutOfStock(productId: string, productName: string, lastQuantity: number = 0): Promise<void> {
     await this.publish(EventType.INVENTORY_OUT_OF_STOCK, { productId, productName, lastQuantity });
   }
 
-  async publishProductUpdated(
-    productId: string,
-    name: string,
-    price: number,
-    stock: number
-  ): Promise<void> {
+  async publishProductUpdated(productId: string, name: string, price: number, stock: number): Promise<void> {
     await this.publish(EventType.PRODUCT_UPDATED, { productId, name, price, stock });
   }
 
@@ -198,10 +189,10 @@ class EventPublisher {
   }
 
   async publishOrderSuccessful(data: OrderConfirmationData): Promise<void> {
-    console.log('Publishing order successful event...');
-    console.log(data);
-    console.log('Publishing order successful event...');
-    
+    // console.log('Publishing order successful event...');
+    // console.log(data);
+    // console.log('Publishing order successful event...');
+
     await this.publish(EventType.ORDER_SUCCESSFUL, data);
   }
 
@@ -242,10 +233,9 @@ class EventPublisher {
     await this.publish(EventType.SHIPMENT_STATUS_UPDATED, data);
   }
 
-    async publishOrderDelivered(data: OrderDeliveredData ): Promise<void> {
+  async publishOrderDelivered(data: OrderDeliveredData): Promise<void> {
     await this.publish(EventType.ORDER_DELIVERED, data);
   }
-
 }
 
 const eventPublisher = new EventPublisher();

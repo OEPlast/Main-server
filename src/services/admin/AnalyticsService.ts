@@ -6000,7 +6000,6 @@ const getUserDemographics = async ({
       },
       { $sort: { count: -1 } },
     ]);
-    console.log(result);
 
     const chartData = result.map((item: any) => ({
       country: item._id || 'Unknown',

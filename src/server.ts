@@ -10,6 +10,9 @@ import ReviewRoute from './routes/general/review';
 import CategoriesRoute from '@/routes/general/categories';
 import TransactionRoute from '@/routes/general/transaction';
 import SitemapRoute from '@/routes/general/sitemap';
+import IntentsRoute from '@/routes/general/intents';
+import FeedRoute from '@/routes/general/feed';
+import MerchantRoute from '@/routes/general/merchant';
 import AuthRoute from '@/routes/auth/user';
 import OrderRoute from '@/routes/users/orders';
 import CartRoute from '@/routes/users/cart';
@@ -41,6 +44,7 @@ import {
   AdminShipmentRoute,
   AdminRolesRoute,
   AdminCampaignRoute,
+  AdminIntentRoute,
   AdminSalesRoute,
   AdminInventoryRoute,
   AdminCouponAnalyticsRoute,
@@ -55,6 +59,7 @@ import FileUploadRoute from '@/routes/general/fileUpload';
 import EmailProcessor from './services/processor/EmailProcessor';
 import InternalServiceRoutes from '@/routes/internal/serviceRoutes';
 import { startGIGTrackingSync } from '@/cron/gigTrackingSync';
+import { startMerchantSync } from '@/cron/merchantSync';
 
 // Helper to capture raw body without using any
 const rawBodySaver = (req: Request & { rawBody?: Buffer }, _res: Response, buf: Buffer) => {
@@ -124,6 +129,9 @@ app.use('/coupons', CouponsRoute);
 app.use('/settings', SettingsRoute);
 app.use('/gig', GIGPublicRoute);
 app.use('/sitemap', SitemapRoute);
+app.use('/intents', IntentsRoute);
+app.use('/feed', FeedRoute);
+app.use('/merchant', MerchantRoute);
 
 app.use('/users', UserShipmentsRoute);
 app.use('/inventory', InventoryRoute);
@@ -140,6 +148,7 @@ app.use('/admin/products', AdminProductRoute);
 app.use('/admin/logistics', AdminLogisticsRoute);
 app.use('/admin/sales', AdminSalesRoute);
 app.use('/admin/campaigns', AdminCampaignRoute);
+app.use('/admin/intents', AdminIntentRoute);
 app.use('/admin/orders', AdminOrderRoute);
 app.use('/admin/inventory', AdminInventoryRoute);
 app.use('/admin/coupon-analytics', AdminCouponAnalyticsRoute);
@@ -166,6 +175,7 @@ app.listen(port, async () => {
     await connectDB();
     await EmailProcessor.initialize();
     startGIGTrackingSync();
+    startMerchantSync();
     console.log(`Server is listening on port ${port}`);
   } catch (error) {
     console.log(error);
