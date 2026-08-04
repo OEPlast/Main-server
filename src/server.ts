@@ -2,7 +2,7 @@ import express, { Application, Request, Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import { config as envConfig } from 'dotenv';
-import { morganMiddleware } from './middleware/morgan';
+import { morganAccessLog, morganMiddleware } from './middleware/morgan';
 import connectDB from './lib/db';
 
 import ProductsRoute from '@/routes/general/products';
@@ -94,6 +94,7 @@ app.use(
   })
 );
 app.use(morganMiddleware);
+app.use(morganAccessLog);
 
 // Connect RabbitMQ publisher (non-blocking)
 (async () => {

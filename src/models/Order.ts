@@ -233,6 +233,18 @@ const orderSchema = new mongoose.Schema(
 orderSchema.index({ createdAt: 1 });
 orderSchema.index({ user: 1 });
 
+// Event-timestamp indexes. The analytics engine ranges on whichever of these a
+// metric is measured on — revenue on `paidAt`, cancellations on `cancelledAt` —
+// so without these every metric except `orders_placed` falls back to a collection
+// scan. Sparse because most orders never reach most of these states, and a sparse
+// index also skips exactly the documents the range match would exclude anyway.
+orderSchema.index({ paidAt: 1 }, { sparse: true });
+orderSchema.index({ deliveredAt: 1 }, { sparse: true });
+orderSchema.index({ cancelledAt: 1 }, { sparse: true });
+orderSchema.index({ completedAt: 1 }, { sparse: true });
+orderSchema.index({ failedAt: 1 }, { sparse: true });
+orderSchema.index({ refundedAt: 1 }, { sparse: true });
+
 export type OrderType = InferSchemaType<typeof orderSchema>;
 const Order = mongoose.model('Order', orderSchema);
 

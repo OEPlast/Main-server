@@ -1,5 +1,6 @@
 import { Schema, model, InferSchemaType } from 'mongoose';
 import { Types } from 'mongoose';
+import { DEFAULT_TIMEZONE } from '@/config/timezone';
 
 const addressSchema = new Schema(
   {
@@ -9,6 +10,17 @@ const addressSchema = new Schema(
     state: { type: String },
     zip: { type: String },
     country: { type: String },
+  },
+  { _id: false }
+);
+
+const socialLinksSchema = new Schema(
+  {
+    instagram: { type: String, default: '' },
+    facebook: { type: String, default: '' },
+    whatsapp: { type: String, default: '' },
+    x: { type: String, default: '' },
+    threads: { type: String, default: '' },
   },
   { _id: false }
 );
@@ -25,6 +37,8 @@ const settingsSchema = new Schema(
     taxId: { type: String, default: '' },
     taxRate: { type: Number, default: 0, min: 0, max: 100 },
     currency: { type: String, default: 'USD' },
+    timezone: { type: String, default: DEFAULT_TIMEZONE },
+    socialLinks: { type: socialLinksSchema, default: {} },
   },
   { timestamps: true }
 );

@@ -20,6 +20,14 @@ interface UpdateSettingsInput {
   taxId?: string;
   taxRate?: number;
   currency?: string;
+  timezone?: string;
+  socialLinks?: {
+    instagram?: string;
+    facebook?: string;
+    whatsapp?: string;
+    x?: string;
+    threads?: string;
+  };
 }
 
 /**

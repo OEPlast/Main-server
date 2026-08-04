@@ -1,7 +1,7 @@
 import Product, { ProductType } from '../../models/Product';
 import slugify from 'slugify';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
-import mongoose, { PipelineStage } from 'mongoose';
+import mongoose, { FilterQuery, PipelineStage } from 'mongoose';
 import eventPublisher from '@/events/eventPublisher';
 import { duplicateMessage, isDuplicateKeyError } from '@/middleware/mongodb';
 import Category from '@/models/Category';
@@ -31,7 +31,12 @@ type CreateProductData = {
   brand?: string;
   category: string; // Category id
   tags?: string[];
-  description_images?: { url: string; cover_image?: boolean }[];
+  description_images?: {
+    url: string;
+    cover_image?: boolean;
+    mediaType?: 'image' | 'video';
+    miniUrl?: string;
+  }[];
   specifications?: { key: string; value: string }[];
   dimension?: { key: 'length' | 'breadth' | 'height' | 'volume' | 'width' | 'weight'; value: string }[];
   shipping?: { addedCost?: number; increaseCostBy?: number; addedDays?: number };
@@ -189,12 +194,14 @@ const updateProduct = async (
       }
     }
 
+    type ProductUpdate = Partial<CreateProductData> & { originStock?: number };
+    const update: ProductUpdate = { ...data };
     // Update originStock when stock is being updated
     if (data.stock !== undefined && data.stock !== existing.stock) {
-      (data as any).originStock = data.stock;
+      update.originStock = data.stock;
     }
 
-    const updatedProduct = await Product.findByIdAndUpdate(id, data, { new: true });
+    const updatedProduct = await Product.findByIdAndUpdate(id, update, { new: true });
     if (!updatedProduct) {
       return {
         message: 'Product not found',
@@ -337,7 +344,7 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
     const newSlug = await findNextAvailableSlug(product.slug);
 
     // Prepare duplicated product data by spreading and overriding
-    const productObj: any = product.toObject();
+    const productObj = product.toObject();
 
     const duplicatedProductData = {
       sku: productObj.sku,
@@ -356,9 +363,9 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
       lowStockThreshold: productObj.lowStockThreshold,
       status: 'inactive' as const, // New duplicates start as inactive
       // Reset attribute children stock to 0
-      attributes: productObj.attributes?.map((attr: any) => ({
+      attributes: productObj.attributes?.map((attr) => ({
         name: attr.name,
-        children: attr.children?.map((child: any) => ({
+        children: attr.children?.map((child) => ({
           name: child.name,
           price: child.price,
           stock: 0, // Reset stock
@@ -950,7 +957,7 @@ const checkSlugAvailable = async (
   excludeId?: string
 ): Promise<CustomResponseType<{ available: boolean; productId?: string; productName?: string }>> => {
   try {
-    const query: any = { slug };
+    const query: FilterQuery<ProductType> = { slug };
 
     // When editing, exclude the current product from the check
     if (excludeId) {
@@ -998,7 +1005,7 @@ const getProductListMinimal = async (): Promise<
 
     const productList = products.map((product) => {
       // Find cover image or use first image
-      const coverImage = product.description_images?.find((img: any) => img.cover_image);
+      const coverImage = product.description_images?.find((img) => img.cover_image);
       const imageUrl = coverImage?.url || product.description_images?.[0]?.url || '';
 
       return {

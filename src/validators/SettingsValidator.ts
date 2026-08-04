@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { checkSchema, validationResult } from 'express-validator';
+import { isValidTimezone } from '@/config/timezone';
 
 const validateUpdateSettings = async (req: Request, res: Response, next: NextFunction) => {
   await checkSchema({
@@ -112,6 +113,52 @@ const validateUpdateSettings = async (req: Request, res: Response, next: NextFun
         options: { min: 3, max: 3 },
       },
       errorMessage: 'Currency must be a 3-letter currency code (e.g., USD)',
+    },
+    timezone: {
+      in: ['body'],
+      optional: true,
+      isString: true,
+      trim: true,
+      custom: {
+        options: (value: unknown) => isValidTimezone(value),
+      },
+      errorMessage: 'Timezone must be a valid IANA timezone (e.g., Africa/Lagos)',
+    },
+    'socialLinks.instagram': {
+      in: ['body'],
+      optional: true,
+      trim: true,
+      isURL: true,
+      errorMessage: 'Instagram must be a valid URL',
+    },
+    'socialLinks.facebook': {
+      in: ['body'],
+      optional: true,
+      trim: true,
+      isURL: true,
+      errorMessage: 'Facebook must be a valid URL',
+    },
+    'socialLinks.x': {
+      in: ['body'],
+      optional: true,
+      trim: true,
+      isURL: true,
+      errorMessage: 'X must be a valid URL',
+    },
+    'socialLinks.threads': {
+      in: ['body'],
+      optional: true,
+      trim: true,
+      isURL: true,
+      errorMessage: 'Threads must be a valid URL',
+    },
+    // A phone number, not a URL — matching what the admin form asks for.
+    'socialLinks.whatsapp': {
+      in: ['body'],
+      optional: true,
+      isString: true,
+      trim: true,
+      errorMessage: 'WhatsApp must be a string',
     },
   }).run(req);
 

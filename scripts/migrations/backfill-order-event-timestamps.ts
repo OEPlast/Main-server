@@ -31,6 +31,7 @@ import mongoose from 'mongoose';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 import Order from '../../src/models/Order';
+import Shipment from '../../src/models/Shipment';
 
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
@@ -76,6 +77,40 @@ async function backfill() {
       ]);
       console.log(`  ✅ stamped ${result.modifiedCount}`);
     }
+
+    // ── 1b. Accurate recovery: deliveredAt := shipment.deliveredOn ──────────
+    //
+    // The reverse of the step above. An order can be Completed with a Delivered
+    // shipment and still have no `deliveredAt`, because the order field was only
+    // added later. The shipment records the same event, so this is recovery, not
+    // inference. Note the shipment calls it `deliveredOn`, not `deliveredAt`.
+    const missingDelivered = await Order.find({
+      deliveredAt: { $in: [null, undefined] },
+      shipmentId: { $exists: true, $ne: null },
+    })
+      .select('_id shipmentId')
+      .lean();
+
+    let deliveredRecovered = 0;
+
+    for (const order of missingDelivered as Array<{ _id: unknown; shipmentId: unknown }>) {
+      const shipment = (await Shipment.findById(order.shipmentId)
+        .select('deliveredOn')
+        .lean()) as { deliveredOn?: Date } | null;
+
+      if (!shipment?.deliveredOn) continue;
+
+      deliveredRecovered++;
+      if (apply) {
+        await Order.updateOne(
+          { _id: order._id as never },
+          { $set: { deliveredAt: shipment.deliveredOn } }
+        );
+      }
+    }
+
+    console.log(`  deliveredAt from shipment.deliveredOn : ${deliveredRecovered}`);
+    if (apply && deliveredRecovered > 0) console.log(`  ✅ stamped ${deliveredRecovered}`);
     console.log();
 
     // ── 2. What remains genuinely unknown ───────────────────────────────────

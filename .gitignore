@@ -5,5 +5,8 @@ node_modules/
 dist/
 .env
 
+# HTTP access log sink (see src/lib/logger.ts)
+logs/
+
 # Generated review IDs from populate-reviews.ts
 generated-review-ids.json

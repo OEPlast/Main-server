@@ -1,9 +1,91 @@
 import { Router } from 'express';
 import { validateAnalyticsQuery } from '@/validators/admin/AnalyticsValidator';
+import {
+  validateBreakdownQuery,
+  validateProductPerformanceQuery,
+  validateSeriesQuery,
+  validateSummaryQuery,
+} from '@/validators/admin/AnalyticsQueryValidator';
 import Admin_AnalyticsController from '@/controller/admin/AnalyticsController';
+import Admin_AnalyticsQueryController from '@/controller/admin/AnalyticsQueryController';
 import { authenticateUser, isAdmin, requirePermission } from '@/middleware/auth';
 
 const router = Router();
+
+// =============================================================================
+// QUERY ENGINE
+//
+// Four endpoints that replace the ~99 below. Every number they return is
+// computed from the metric registry (services/admin/analytics/metrics.ts), which
+// declares the timestamp each metric is measured on in one reviewable place.
+//
+// Registered first so that everything beneath the "LEGACY" banner is one
+// contiguous block, and retiring it is a single deletion rather than a hunt.
+// =============================================================================
+
+router.get(
+  '/series',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateSeriesQuery,
+  Admin_AnalyticsQueryController.getSeries
+);
+
+router.get(
+  '/summary',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateSummaryQuery,
+  Admin_AnalyticsQueryController.getSummary
+);
+
+router.get(
+  '/breakdown',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateBreakdownQuery,
+  Admin_AnalyticsQueryController.getBreakdown
+);
+
+router.get(
+  '/meta',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  Admin_AnalyticsQueryController.getMeta
+);
+
+
+router.get(
+  '/products/:productId/performance',
+  authenticateUser,
+  isAdmin,
+  requirePermission('analytics', 'read'),
+  validateProductPerformanceQuery,
+  Admin_AnalyticsQueryController.getProductPerformance
+);
+
+// =============================================================================
+// LEGACY — DEPRECATED. Everything below is superseded by the four endpoints
+// above. Do not add to it, and do not point new UI at it.
+//
+// All seven analytics pages and the dashboard stat cards have migrated. What
+// remains in use here are the row-listing endpoints (`*-table`, `top-*`,
+// `most-*`, `*-distribution`), which are filtered document listings rather than
+// metrics and were never in scope for the engine.
+//
+// Deletion is gated on evidence, not on the migration being finished:
+//
+//   npx ts-node scripts/analytics-legacy-usage.ts --days 14
+//
+// That reads the access log and reports which of these still receive traffic,
+// and from whom. Delete only once it reports a span of at least 14 days AND no
+// legacy traffic — an endpoint unused by the admin app may still be called by
+// something outside this repo, which the code cannot tell you.
+// =============================================================================
 
 router.get(
   '/seller-statistics',

@@ -19,6 +19,12 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
       description_images: { optional: true, isArray: true },
       'description_images.*.url': { optional: true, isString: true, notEmpty: true },
       'description_images.*.cover_image': { optional: true, isBoolean: true },
+      'description_images.*.mediaType': {
+        optional: true,
+        isIn: { options: [['image', 'video']] },
+        errorMessage: 'mediaType must be either "image" or "video"',
+      },
+      'description_images.*.miniUrl': { optional: true, isString: true },
 
       specifications: { optional: true, isArray: true },
       'specifications.*.key': { optional: true, isString: true, notEmpty: true },
@@ -111,6 +117,12 @@ const updateProductValidator = async (req: Request, res: Response, next: NextFun
       description_images: { optional: true, isArray: true },
       'description_images.*.url': { optional: true, isString: true, notEmpty: true },
       'description_images.*.cover_image': { optional: true, isBoolean: true },
+      'description_images.*.mediaType': {
+        optional: true,
+        isIn: { options: [['image', 'video']] },
+        errorMessage: 'mediaType must be either "image" or "video"',
+      },
+      'description_images.*.miniUrl': { optional: true, isString: true },
 
       specifications: { optional: true, isArray: true },
       'specifications.*.key': { optional: true, isString: true },
