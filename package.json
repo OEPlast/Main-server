@@ -1,7 +1,6 @@
 {
-  "name": "typescript-node-setup",
+  "name": "rawura-main",
   "version": "1.0.0",
-  "description": "Node.js project with TypeScript, Express.js, ESLint, Prettier, ts-node, nodemon and package.json environment specific scripts.",
   "main": "index.js",
   "scripts": {
     "dev": "nodemon src/server.ts",
@@ -10,7 +9,7 @@
     "build": "tsc --outDir dist && tsc-alias",
     "build:start": "node dist/server.js",
     "publish:sample-events": "ts-node -r tsconfig-paths/register src/events/sampleEventsPublisher.ts",
-    "start": "nodemon dist/src/server.js",
+    "start": "node dist/src/server.js",
     "lint:no-fix": "eslint src/**/*.ts",
     "lint": "eslint src/**/*.ts --fix",
     "prettier": "prettier --write .",
