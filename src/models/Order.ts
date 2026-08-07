@@ -1,4 +1,5 @@
 import mongoose, { InferSchemaType } from 'mongoose';
+import { generateOrderNumber } from '@/utils/orderNumber';
 
 const { ObjectId } = mongoose.Schema;
 
@@ -17,6 +18,15 @@ const couponSnapshotSchema = new mongoose.Schema(
 
 const orderSchema = new mongoose.Schema(
   {
+    // Human-readable reference (e.g. RW-2608-00417) quoted in emails, the admin panel and by
+    // support. Assigned by the pre-save hook below; `sparse` so the unique index tolerates
+    // historical orders until the backfill script has run over them.
+    orderNumber: {
+      type: String,
+      unique: true,
+      sparse: true,
+      index: true,
+    },
     user: {
       type: ObjectId,
       ref: 'User',
@@ -244,6 +254,24 @@ orderSchema.index({ cancelledAt: 1 }, { sparse: true });
 orderSchema.index({ completedAt: 1 }, { sparse: true });
 orderSchema.index({ failedAt: 1 }, { sparse: true });
 orderSchema.index({ refundedAt: 1 }, { sparse: true });
+
+/**
+ * Assign the human-readable reference before the first save.
+ *
+ * Done in a hook rather than at the (single, transactional) creation site so that any future
+ * creation path gets a number automatically — an order without one falls back to showing a
+ * raw ObjectId to the customer.
+ */
+orderSchema.pre('save', async function assignOrderNumber(next) {
+  if (this.orderNumber) return next();
+
+  try {
+    this.orderNumber = await generateOrderNumber(this.get('createdAt') ?? new Date());
+    next();
+  } catch (error) {
+    next(error as Error);
+  }
+});
 
 export type OrderType = InferSchemaType<typeof orderSchema>;
 const Order = mongoose.model('Order', orderSchema);

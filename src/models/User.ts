@@ -121,6 +121,21 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    // Email opt-out state. Applies to marketing mail only — order confirmations, receipts,
+    // shipping updates and security notices are transactional and are always sent.
+    //
+    // Added because every email footer carried an "unsubscribe" link pointing at href="#",
+    // which is both useless to the recipient and a bulk-sender compliance problem.
+    emailPreferences: {
+      marketing: {
+        type: Boolean,
+        default: true,
+      },
+      unsubscribedAt: {
+        type: Date,
+        default: null,
+      },
+    },
     // Virtual fields for NextAuth relations (handled via populate)
     // accounts: referenced by Account model
     // sessions: referenced by Session model

@@ -1,6 +1,15 @@
-import AuthService from '@/services/authService';
+import AuthService, { type RequestContext } from '@/services/authService';
 import { isAuthenticatedRequest } from '@/types';
 import { Request, Response } from 'express';
+
+/**
+ * Captures who made a request, for the password-change security notification.
+ * Best-effort only — a proxy that strips these just means a slightly thinner email.
+ */
+const requestContext = (req: Request): RequestContext => ({
+  ipAddress: (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() || req.ip,
+  device: req.get('user-agent') ?? undefined,
+});
 
 // User login
 const userLogin = async (req: Request, res: Response) => {
@@ -55,7 +64,12 @@ const requestResetPasswordCode = async (req: Request, res: Response) => {
 const resetUserPasswordByCode = async (req: Request, res: Response) => {
   try {
     const { email, code, newPassword } = req.body;
-    const { message, code: statusCode } = await AuthService.resetPasswordWithCode({ email, code, newPassword });
+    const { message, code: statusCode } = await AuthService.resetPasswordWithCode({
+      email,
+      code,
+      newPassword,
+      context: requestContext(req),
+    });
     return res.status(statusCode).json({ message });
   } catch (error) {
     console.error('Error in resetPasswordWithCode:', error);
@@ -70,7 +84,12 @@ const updateUserPassword = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthenticated' });
     }
     const { currentPassword, newPassword } = req.body;
-    const { message, code } = await AuthService.changePassword({ userId: req.userId, currentPassword, newPassword });
+    const { message, code } = await AuthService.changePassword({
+      userId: req.userId,
+      currentPassword,
+      newPassword,
+      context: requestContext(req),
+    });
     return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in changePassword:', error);

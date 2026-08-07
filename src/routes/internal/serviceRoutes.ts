@@ -7,6 +7,10 @@ import { logger } from '@/lib/logger';
 import eventPublisher from '@/events/eventPublisher';
 import TransactionService from '@/services/TransactionService';
 import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
+import { loadOrderEmailContext, toOrderConfirmation } from '@/services/email/orderEmailPayload';
+import { getBrand } from '@/services/email/brand';
+import { isMarketingAllowed } from '@/services/email/consent';
+import { signUnsubscribeToken } from '@/utils/unsubscribeToken';
 import mongoose from 'mongoose';
 const router = Router();
 
@@ -130,85 +134,16 @@ router.post('/orders/verify-and-restore-stock', async (req: Request, res: Respon
         // Payment succeeded after timeout - order should already be marked as paid by verifyPayment
         logger.warn(`Payment completed late for order ${orderId} - already marked as paid`);
 
-        // Ensure ORDER_SUCCESSFUL event is emitted with complete data
-        const updatedOrder = await Order.findById(orderId).populate([
-          {
-            path: 'user',
-            select: 'email firstName lastName',
-          },
-          {
-            path: 'products.product',
-            select: 'name description_images category price',
-          },
-          {
-            path: 'shipmentId',
-            select: 'courier _id',
-          },
-        ]);
-
-        if (updatedOrder) {
-          const populatedUser = updatedOrder.user as unknown as {
-            email: string;
-            firstName: string;
-            lastName: string;
-          };
-
-          const populatedProducts = updatedOrder.products as unknown as Array<{
-            product: {
-              name: string;
-              description_images?: string[];
-              category?: string;
-              price?: number;
-            };
-            qty?: number;
-            price?: number;
-          }>;
-
-          // Determine courier and address based on delivery type
-          let courier = 'Standard Shipping';
-          let address = '';
-
-          if (updatedOrder.deliveryType === 'pickup') {
-            courier = 'Pickup';
-            address = process.env.STORE_ADDRESS || 'Store Pickup';
-          } else {
-            // For shipping, try to get courier from shipment if available
-            const populatedShipment = updatedOrder.shipmentId as unknown as { courier?: string } | null;
-            courier = populatedShipment?.courier || 'Standard Shipping';
-            address = `${updatedOrder.shippingAddress?.address1 || ''}, ${updatedOrder.shippingAddress?.city || ''}, ${
-              updatedOrder.shippingAddress?.state || ''
-            }`.trim();
-          }
-
-          await eventPublisher.publishOrderSuccessful({
-            email: populatedUser.email,
-            firstName: populatedUser.firstName,
-            lastName: populatedUser.lastName,
-            purchaseDate: updatedOrder.createdAt,
-            orderId: updatedOrder._id.toString(),
-            shipping: {
-              courier,
-              address,
-              _id: updatedOrder.shipmentId._id.toString(),
-            },
-            deliveryType: updatedOrder.deliveryType,
-            products: populatedProducts.map((item) => ({
-              name: item.product.name,
-              imagePath: item.product.description_images?.[0] || '',
-              category: item.product.category,
-              price: item.price || item.product.price || 0,
-              quantity: item.qty || 0,
-              subtotal: (item.price || item.product.price || 0) * (item.qty || 0),
-            })),
-            payment: {
-              totalShopping: updatedOrder.totalBeforeDiscount || updatedOrder.total || 0,
-              shipping: updatedOrder.shippingPrice || 0,
-              tax: updatedOrder.taxPrice || 0,
-              discount: updatedOrder.couponDiscount || 0,
-              subtotal: updatedOrder.total || 0,
-            },
-            orderStatusLink: `${process.env.FRONTEND_URL}/orders/${updatedOrder._id.toString()}`,
-          });
+        // Ensure ORDER_SUCCESSFUL is emitted with complete data.
+        //
+        // This branch used to hold its own copy of the payload builder, and it was the most
+        // broken of the three: it read `description_images[0]` as a string (the schema stores
+        // objects, so no product image ever resolved), omitted gigWaybill, the delivery
+        // estimate and every pickup field, and dereferenced `shipmentId._id` unguarded —
+        // which throws on pickup orders, where `shipmentId` is null.
+        const orderEmailContext = await loadOrderEmailContext(orderId);
+        if (orderEmailContext) {
+          await eventPublisher.publishOrderSuccessful(toOrderConfirmation(orderEmailContext));
         }
 
         return res.status(200).json({
@@ -305,5 +240,50 @@ async function restoreStock(orderId: string, items: Array<{ productId: string; q
     throw error;
   }
 }
+
+/**
+ * GET /api/internal/branding
+ *
+ * Store branding for services that send email but have no database connection.
+ *
+ * event-bus owns the entire order lifecycle mail — confirmation, shipped, delivered — and
+ * had no way to read the `Settings` document, so it rendered every one of those emails with
+ * no logo, no store name in the sender, no support address and no postal address, while
+ * Main-server's copies of the same templates had all of it.
+ */
+router.get('/branding', async (_req: Request, res: Response) => {
+  try {
+    const brand = await getBrand();
+    return res.status(200).json({ data: brand });
+  } catch (error) {
+    logger.error('Failed to resolve branding for internal consumer:', error);
+    return res.status(500).json({ error: 'Failed to resolve branding' });
+  }
+});
+
+/**
+ * GET /api/internal/email/marketing-consent?email=…
+ *
+ * Whether an address may be sent marketing email, plus its signed unsubscribe token.
+ *
+ * event-bus sends the post-delivery review request but has no database, so it cannot check
+ * an opt-out or sign a link itself. Both come from here in one call.
+ */
+router.get('/email/marketing-consent', async (req: Request, res: Response) => {
+  const email = String(req.query.email ?? '');
+  if (!email) return res.status(400).json({ error: 'email is required' });
+
+  try {
+    return res.status(200).json({
+      data: {
+        allowed: await isMarketingAllowed(email),
+        unsubscribeToken: signUnsubscribeToken(email),
+      },
+    });
+  } catch (error) {
+    logger.error(`Failed to resolve marketing consent for ${email}:`, error);
+    return res.status(500).json({ error: 'Failed to resolve marketing consent' });
+  }
+});
 
 export default router;

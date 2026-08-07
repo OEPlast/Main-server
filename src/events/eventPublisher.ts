@@ -1,7 +1,16 @@
 import amqplib, { type Channel } from 'amqplib';
 import { v4 as uuidv4 } from 'uuid';
 import { EventType, type BaseEvent } from './eventTypes';
-import { OrderConfirmationData, OrderDeliveredData, OrderShippedData, VerificationEmailData } from '@/types/email-data';
+import type {
+  OrderCancelledData,
+  OrderConfirmationData,
+  OrderDeliveredData,
+  OrderRefundedData,
+  OrderShippedData,
+  PaymentFailedData,
+  PaymentReceiptData,
+  VerificationEmailData,
+} from '@rawura/emails';
 
 // Simplified: single topic exchange. Consumers can bind a queue with patterns (e.g. order.*, payment.#, #)
 const EXCHANGE_NAME = 'app.events';
@@ -108,15 +117,17 @@ class EventPublisher {
     await this.publish(EventType.ORDER_CREATED, orderData);
   }
 
-  async publishPaymentSuccessful(paymentData: {
-    orderId: string;
-    userId: string;
-    paymentId: string;
-    amount: number;
-    paymentMethod: string;
-    orderNumber?: string;
-    customerInfo?: { email: string; name: string };
-  }): Promise<void> {
+  async publishPaymentSuccessful(
+    paymentData: Partial<PaymentReceiptData> & {
+      orderId: string;
+      userId: string;
+      paymentId: string;
+      amount: number;
+      paymentMethod: string;
+      orderNumber?: string;
+      customerInfo?: { email: string; name: string };
+    }
+  ): Promise<void> {
     await this.publish(EventType.PAYMENT_SUCCESSFUL, paymentData, { userId: paymentData.userId });
   }
 
@@ -189,11 +200,7 @@ class EventPublisher {
   }
 
   async publishOrderSuccessful(data: OrderConfirmationData): Promise<void> {
-    // console.log('Publishing order successful event...');
-    // console.log(data);
-    // console.log('Publishing order successful event...');
-
-    await this.publish(EventType.ORDER_SUCCESSFUL, data);
+    await this.publish(EventType.ORDER_SUCCESSFUL, data as unknown as Record<string, unknown>);
   }
 
   async publishWebsocketOrderUpdate(data: { orderId: string; status: string; message?: string }): Promise<void> {
@@ -230,11 +237,44 @@ class EventPublisher {
   }
 
   async publishShipmentStatusUpdated(data: OrderShippedData): Promise<void> {
-    await this.publish(EventType.SHIPMENT_STATUS_UPDATED, data);
+    await this.publish(EventType.SHIPMENT_STATUS_UPDATED, data as unknown as Record<string, unknown>);
   }
 
-  async publishOrderDelivered(data: OrderDeliveredData): Promise<void> {
-    await this.publish(EventType.ORDER_DELIVERED, data);
+  async publishOrderDelivered(data: OrderDeliveredData & { shipmentId: string }): Promise<void> {
+    await this.publish(EventType.ORDER_DELIVERED, data as unknown as Record<string, unknown>);
+  }
+
+  /**
+   * Cancellation, carrying everything the email needs.
+   *
+   * ORDER_CANCELLED was in the enum from the start and was never published by anything, so
+   * the order-cancelled template sat unused and customers were never told.
+   */
+  async publishOrderCancelled(data: OrderCancelledData & { userId: string }): Promise<void> {
+    await this.publish(EventType.ORDER_CANCELLED, data as unknown as Record<string, unknown>, {
+      userId: data.userId,
+    });
+  }
+
+  /** Refund issued and money sent. Feeds the order-refunded email. */
+  async publishPaymentRefunded(
+    data: OrderRefundedData & { userId: string; refundId: string; originalPaymentId: string }
+  ): Promise<void> {
+    await this.publish(EventType.PAYMENT_REFUNDED, data as unknown as Record<string, unknown>, {
+      userId: data.userId,
+    });
+  }
+
+  /**
+   * Payment attempt failed.
+   *
+   * Previously published with only an orderId, userId and reference, which is why nothing
+   * downstream could tell the customer what had happened or offer them a retry.
+   */
+  async publishPaymentFailed(data: PaymentFailedData & { userId: string; reference?: string }): Promise<void> {
+    await this.publish(EventType.PAYMENT_FAILED, data as unknown as Record<string, unknown>, {
+      userId: data.userId,
+    });
   }
 }
 

@@ -1,5 +1,6 @@
 import { CustomResponseType } from '@/types';
 import Settings, { SettingsType } from '../models/Settings';
+import { invalidateBrandCache } from './email/brand';
 
 // Settings input types
 interface UpdateSettingsInput {
@@ -75,6 +76,7 @@ const updateSettings = async (settingsData: UpdateSettingsInput): Promise<Custom
       // Create new settings with provided data
       settings = new Settings(settingsData);
       await settings.save();
+      invalidateBrandCache();
 
       return {
         message: 'Settings created successfully',
@@ -86,6 +88,10 @@ const updateSettings = async (settingsData: UpdateSettingsInput): Promise<Custom
     // Update existing settings
     Object.assign(settings, settingsData);
     await settings.save();
+
+    // Email branding is cached for a minute; drop it so a logo or support-address change
+    // shows up in the next email rather than the one after.
+    invalidateBrandCache();
 
     return {
       message: 'Settings updated successfully',

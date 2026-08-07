@@ -3,6 +3,7 @@ import Return from '../models/Return';
 import Order from '../models/Order';
 import mongoose from 'mongoose';
 import { CustomResponseType } from '../types/index';
+import { fireAndLog, sendRefundIssued } from './email/returnEmails';
 
 // Input interface
 interface CreateReturnTransactionInput {
@@ -82,6 +83,26 @@ const createReturnTransaction = async (
       await Order.updateOne(
         { _id: updatedReturn.order, refundedAt: { $exists: false } },
         { $set: { refundedAt: new Date() } }
+      );
+
+      // Tell the customer their money is on its way. The `order-refunded` template has
+      // existed all along; nothing ever called it, so a refund was recorded in the database
+      // and the customer was left to notice it on their statement.
+      const order = await Order.findById(updatedReturn.order).select('products').lean();
+      fireAndLog(
+        sendRefundIssued({
+          orderId: updatedReturn.order.toString(),
+          returnId: returnId,
+          returnNumber: updatedReturn.returnNumber,
+          returnType: updatedReturn.type,
+          items: updatedReturn.items,
+          orderLineIds: (order?.products ?? []).map((p: any) => p.product.toString()),
+          refundAmount: Math.abs(amount),
+          refundMethod,
+          refundReference: reference,
+          refundedAt: new Date(),
+        }),
+        `order-refunded for ${updatedReturn.returnNumber}`
       );
     }
 

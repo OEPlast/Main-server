@@ -1,7 +1,6 @@
 import Transaction, { ITransaction } from '../models/Transaction';
 import Order from '../models/Order';
 import Product from '../models/Product';
-import GIGConfig from '@/models/GIGConfig';
 import mongoose from 'mongoose';
 import eventPublisher from '@/events/eventPublisher';
 import { EventType } from '@/events/eventTypes';
@@ -19,6 +18,15 @@ import {
 } from '@/types/paystack';
 import { toString } from 'express-validator/lib/utils';
 import { orderStatusUpdate } from '@/utils/orderStatusTimestamps';
+import { loadOrderEmailContext, toOrderConfirmation } from './email/orderEmailPayload';
+
+/**
+ * How long unpaid orders are held before stock is released, in minutes.
+ * Mirrors `CART_RESTORATION_TIMEFRAME`, the window event-bus actually enforces, so the
+ * payment-failed email quotes the real deadline rather than a guess.
+ */
+const paymentHoldMinutes = (): number =>
+  Math.max(1, Math.floor(Number(process.env.CART_RESTORATION_TIMEFRAME || 1_800_000) / 60_000));
 
 const initializePayment = async (paymentData: {
   orderId: string;
@@ -275,20 +283,44 @@ const verifyPayment = async (reference: string): Promise<CustomResponseType<ITra
         // Publish ORDER_SUCCESSFUL event to trigger email confirmation
         await publishOrderSuccessfulEvent(transaction.orderId.toString());
 
+        // Enriched so the payment-receipt email has an order number, an amount, a reference
+        // and a recipient. The previous payload carried none of that, which is why the
+        // receipt send was commented out in the handler rather than fixed.
+        const receiptContext = await loadOrderEmailContext(transaction.orderId.toString());
         await eventPublisher.publishPaymentSuccessful({
           orderId: transaction.orderId.toString(),
           userId: transaction.userId.toString(),
           paymentId: (transaction._id as mongoose.Types.ObjectId).toString(),
           amount: transaction.amount,
           paymentMethod: 'paystack',
+          orderNumber: receiptContext?.orderNumber,
+          email: receiptContext?.email,
+          firstName: receiptContext?.firstName,
+          lastName: receiptContext?.lastName,
+          purchaseDate: receiptContext?.purchaseDate,
+          paidAt: new Date(),
+          paymentReference: transaction.reference,
+          orderStatusLink: receiptContext?.links.order,
         });
         await eventPublisher.publishWebsocketOrderUpdate({ orderId: transaction.orderId.toString(), status: 'paid' });
       } else if (!isSuccess && transaction.orderId) {
-        await eventPublisher.publish(EventType.PAYMENT_FAILED, {
-          orderId: transaction.orderId.toString(),
-          userId: transaction.userId.toString(),
-          reference: transaction.reference,
-        });
+        const failedContext = await loadOrderEmailContext(transaction.orderId.toString());
+        if (failedContext) {
+          await eventPublisher.publishPaymentFailed({
+            userId: transaction.userId.toString(),
+            reference: transaction.reference,
+            email: failedContext.email,
+            firstName: failedContext.firstName,
+            lastName: failedContext.lastName,
+            orderId: failedContext.orderId,
+            orderNumber: failedContext.orderNumber,
+            purchaseDate: failedContext.purchaseDate,
+            amount: transaction.amount,
+            paymentMethod: 'paystack',
+            retryPaymentLink: failedContext.links.order,
+            expiresInMinutes: paymentHoldMinutes(),
+          });
+        }
         await eventPublisher.publishWebsocketOrderUpdate({ orderId: transaction.orderId.toString(), status: 'failed' });
       }
     }
@@ -609,117 +641,18 @@ const refundPayment = async (
 };
 
 /**
- * Helper function to publish ORDER_SUCCESSFUL event with complete order data
- * Reusable in both verifyPayment and handleWebhook
+ * Publishes ORDER_SUCCESSFUL with the full order-email payload.
+ *
+ * The ~90 lines of populate-and-reshape that used to live here (and again, differently, in
+ * `routes/internal/serviceRoutes`) now come from `loadOrderEmailContext`, which is the single
+ * builder every order email draws on.
  */
 const publishOrderSuccessfulEvent = async (orderId: string): Promise<void> => {
   try {
-    const order = await Order.findById(orderId).populate([
-      {
-        path: 'user',
-        select: 'email firstName lastName',
-      },
-      {
-        path: 'products.product',
-        select: 'name description_images category price',
-      },
-      {
-        path: 'shipmentId',
-        select: 'courier _id',
-      },
-    ]);
+    const context = await loadOrderEmailContext(orderId);
+    if (!context) return;
 
-    if (!order) {
-      logger.warn(`publishOrderSuccessfulEvent: Order ${orderId} not found`);
-      return;
-    }
-
-    const populatedUser = order.user as unknown as {
-      email: string;
-      firstName: string;
-      lastName: string;
-    };
-
-    const populatedProducts = order.products as unknown as Array<{
-      product: {
-        name: string;
-        description_images?: Array<{ url: string; cover_image?: boolean }>;
-        category?: string;
-        price?: number;
-      };
-      qty?: number;
-      price?: number;
-    }>;
-
-    const gigConfig = await GIGConfig.findOne().lean();
-    const shippingMinDays =
-      typeof gigConfig?.shippingMinDeliveryDays === 'number' ? Math.max(0, gigConfig.shippingMinDeliveryDays) : 2;
-    const shippingMaxDaysBase =
-      typeof gigConfig?.shippingMaxDeliveryDays === 'number' ? Math.max(0, gigConfig.shippingMaxDeliveryDays) : 5;
-    const shippingMaxDays = Math.max(shippingMinDays, shippingMaxDaysBase);
-    const deliveryEstimateLabel = `${shippingMinDays} - ${shippingMaxDays} days`;
-    const pickupContactName = gigConfig?.senderName || process.env.STORE_NAME || 'Store Pickup';
-    const pickupContactPhone = gigConfig?.senderPhoneNumber || process.env.STORE_PHONE || '';
-    const pickupAddress = gigConfig?.senderAddress || process.env.STORE_ADDRESS || 'Store Pickup';
-
-    // Determine courier and address based on delivery type
-    let courier = 'Standard Shipping';
-    let address = '';
-
-    if (order.deliveryType === 'pickup') {
-      courier = 'Pickup';
-      address = pickupAddress;
-    } else {
-      // For shipping, try to get courier from shipment if available
-      const populatedShipment = order.shipmentId as unknown as { courier?: string } | null;
-      courier = populatedShipment?.courier || 'Standard Shipping';
-      address = `${order.shippingAddress?.address1 || ''}, ${order.shippingAddress?.city || ''}, ${
-        order.shippingAddress?.state || ''
-      }`.trim();
-    }
-
-    console.log({ shipmentId: order.shipmentId });
-
-    await eventPublisher.publishOrderSuccessful({
-      email: populatedUser.email,
-      firstName: populatedUser.firstName,
-      lastName: populatedUser.lastName,
-      purchaseDate: order.createdAt,
-      orderId: order._id.toString(),
-      shipping: {
-        courier,
-        address,
-        _id: order.shipmentId?._id.toString() || '',
-        deliveryEstimateLabel: order.deliveryType === 'pickup' ? undefined : deliveryEstimateLabel,
-        pickupContactName: order.deliveryType === 'pickup' ? pickupContactName : undefined,
-        pickupContactPhone: order.deliveryType === 'pickup' ? pickupContactPhone : undefined,
-        pickupAddress: order.deliveryType === 'pickup' ? pickupAddress : undefined,
-      },
-      deliveryType: order.deliveryType,
-      gigWaybill: order.gigWaybill || undefined,
-      products: populatedProducts.map((item) => {
-        // Find cover image or fallback to first image
-        const coverImage = item.product.description_images?.find((img) => img.cover_image === true);
-        const imageUrl = coverImage?.url || item.product.description_images?.[0]?.url || '';
-
-        return {
-          name: item.product.name,
-          imagePath: imageUrl,
-          category: item.product.category,
-          price: item.price || item.product.price || 0,
-          quantity: item.qty || 0,
-          subtotal: (item.price || item.product.price || 0) * (item.qty || 0),
-        };
-      }),
-      payment: {
-        totalShopping: order.totalBeforeDiscount || order.total || 0,
-        shipping: order.shippingPrice || 0,
-        tax: order.taxPrice || 0,
-        discount: order.couponDiscount || 0,
-        subtotal: order.total || 0,
-      },
-      orderStatusLink: `${process.env.FRONTEND_URL}/orders/${order._id.toString()}`,
-    });
+    await eventPublisher.publishOrderSuccessful(toOrderConfirmation(context));
 
     logger.info(`publishOrderSuccessfulEvent: ORDER_SUCCESSFUL event published for order ${orderId}`);
   } catch (error) {

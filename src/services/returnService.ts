@@ -2,6 +2,23 @@ import Return from '../models/Return';
 import Order from '../models/Order';
 import mongoose from 'mongoose';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '../types/index';
+import { fireAndLog, sendReturnRequested, sendReturnStatus } from './email/returnEmails';
+
+/**
+ * What the customer is likely to get back, from the prices actually charged on the order.
+ * Shown as a guide in the acknowledgement email; the real figure is set after inspection.
+ */
+const estimateRefund = (
+  orderProducts: Array<{ product?: unknown; qty?: number | null; price?: number | null }>,
+  items: Array<{ product: string; qty: number }>
+): number | undefined => {
+  const total = items.reduce((sum, item) => {
+    const line = orderProducts.find((p) => String(p.product) === item.product);
+    return sum + (line?.price ?? 0) * item.qty;
+  }, 0);
+
+  return total > 0 ? total : undefined;
+};
 
 // Type aliases
 type ReturnType = any;
@@ -105,6 +122,23 @@ const initiateReturn = async (
       customerNotes,
       status: 'pending',
     });
+
+    // Acknowledge the request. Until now a customer submitted a return and heard nothing —
+    // no confirmation it had been received, and no return number to quote.
+    fireAndLog(
+      sendReturnRequested({
+        orderId,
+        returnId: String(returnDoc._id),
+        returnNumber: returnDoc.returnNumber,
+        returnType: type,
+        items: returnDoc.items,
+        orderLineIds: order.products.map((p: any) => String(p.product)),
+        requestedAt: returnDoc.requestedAt ?? returnDoc.createdAt,
+        reason: items[0]?.reason,
+        estimatedRefund: estimateRefund(order.products as any[], items),
+      }),
+      `return-requested for ${returnDoc.returnNumber}`
+    );
 
     return {
       message: 'Return initiated successfully',
@@ -262,6 +296,26 @@ const updateReturnStatus = async (
     }
 
     await returnDoc.save();
+
+    // Tell the customer. Every one of these nine statuses was previously a silent database
+    // write — including rejection, where the admin's reason existed only in `adminNotes` and
+    // was never shown to the person it concerned.
+    const order = await Order.findById(returnDoc.order).select('products').lean();
+    fireAndLog(
+      sendReturnStatus({
+        orderId: String(returnDoc.order),
+        returnId: String(returnDoc._id),
+        returnNumber: returnDoc.returnNumber,
+        returnType: returnDoc.type,
+        status: returnDoc.status,
+        updatedAt: returnDoc.updatedAt ?? new Date(),
+        items: returnDoc.items,
+        orderLineIds: (order?.products ?? []).map((p: any) => p.product.toString()),
+        adminNotes,
+        refundAmount: returnDoc.totalRefundAmount ?? undefined,
+      }),
+      `return-status (${returnDoc.status}) for ${returnDoc.returnNumber}`
+    );
 
     return {
       message: 'Return status updated successfully',

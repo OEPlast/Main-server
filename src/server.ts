@@ -29,6 +29,7 @@ import UserCampaignsRoute from '@/routes/users/campaigns';
 import UserReturnsRoute from '@/routes/users/returns';
 import CouponsRoute from '@/routes/general/coupons';
 import SettingsRoute from '@/routes/general/settings';
+import UnsubscribeRoute from '@/routes/general/unsubscribe';
 import GIGPublicRoute from '@/routes/general/gig';
 import { eventPublisher } from '@/events';
 
@@ -128,6 +129,8 @@ app.use('/reviews', ReviewRoute);
 app.use('/returns', UserReturnsRoute);
 app.use('/coupons', CouponsRoute);
 app.use('/settings', SettingsRoute);
+// Public, unauthenticated: reached from a link in an email footer.
+app.use('/unsubscribe', UnsubscribeRoute);
 app.use('/gig', GIGPublicRoute);
 app.use('/sitemap', SitemapRoute);
 app.use('/intents', IntentsRoute);

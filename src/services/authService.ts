@@ -7,6 +7,40 @@ import mongoose from 'mongoose';
 import { eventPublisher } from '@/events';
 import EmailProcessor from './processor/EmailProcessor';
 import Account from '@/models/Account';
+import { OTP_EXPIRY_MINUTES } from '@/models/OTP';
+import { getBrand } from './email/brand';
+import { shopUrl, supportUrl } from '@rawura/emails';
+
+/**
+ * Best-effort request context attached to security notifications, so a customer can tell a
+ * change they made from one they did not.
+ */
+export type RequestContext = {
+  ipAddress?: string;
+  device?: string;
+};
+
+/**
+ * Tells the account holder their password changed.
+ *
+ * Fired from every path that writes a new password. Silent password changes are the gap an
+ * account takeover hides in, and the platform had no notification for them at all.
+ */
+const notifyPasswordChanged = async (
+  user: { email: string; firstName?: string | null; lastName?: string | null },
+  context: RequestContext = {}
+): Promise<void> => {
+  const brand = await getBrand();
+  await EmailProcessor.send('password-changed', {
+    email: user.email,
+    firstName: user.firstName ?? undefined,
+    lastName: user.lastName ?? undefined,
+    changedAt: new Date(),
+    ipAddress: context.ipAddress,
+    device: context.device,
+    supportLink: supportUrl(brand),
+  });
+};
 
 type TMiniUser = {
   _id: string;
@@ -269,13 +303,17 @@ const changePassword = async ({
   userId,
   currentPassword,
   newPassword,
+  context,
 }: {
   userId: string;
   currentPassword: string;
   newPassword: string;
+  context?: RequestContext;
 }): Promise<CustomResponseType<null>> => {
   try {
-    const user = await User.findById(userId, { password: true });
+    // `email` and `firstName` are needed for the change notification; the original
+    // projection asked for the password alone.
+    const user = await User.findById(userId, { password: true, email: true, firstName: true, lastName: true });
     if (!user) {
       return {
         message: 'User not found',
@@ -286,6 +324,7 @@ const changePassword = async ({
     if (!user.password) {
       user.password = await passwordLib.hashPassword(newPassword);
       await user.save();
+      await notifyPasswordChanged(user, context);
       return {
         message: 'Password changed successfully',
         data: null,
@@ -302,6 +341,7 @@ const changePassword = async ({
     }
     user.password = await passwordLib.hashPassword(newPassword);
     await user.save();
+    await notifyPasswordChanged(user, context);
     return {
       message: 'Password changed successfully',
       data: null,
@@ -346,10 +386,11 @@ const requestResetCode = async (email: string): Promise<CustomResponseType<null>
     const createOTP = await OTPService.createOtp({ user: user._id.toString(), type: 'reset password' });
 
     if (createOTP.data) {
-      await EmailProcessor.sendForgotPasswordEmail({
-        firstName: user.firstName!,
+      await EmailProcessor.send('forgot-password', {
+        firstName: user.firstName ?? undefined,
         otpCode: createOTP.data.toString(),
         email: user.email,
+        expiresInMinutes: OTP_EXPIRY_MINUTES,
       });
     }
     return {
@@ -372,10 +413,12 @@ const resetPasswordWithCode = async ({
   email,
   code,
   newPassword,
+  context,
 }: {
   email: string;
   code: number;
   newPassword: string;
+  context?: RequestContext;
 }) => {
   try {
     // Find the user by email
@@ -401,6 +444,8 @@ const resetPasswordWithCode = async ({
     // Reset the password
     user.password = await passwordLib.hashPassword(newPassword);
     await user.save();
+
+    await notifyPasswordChanged(user, context);
 
     return {
       message: 'Password reset successful',
@@ -452,6 +497,16 @@ const verifyAccountOtp = async ({
     user.emailVerified = new Date();
     await user.save();
 
+    // Welcome email. The template has existed since the email system was written and nothing
+    // ever called it — a verified account got no confirmation of any kind.
+    const brand = await getBrand();
+    await EmailProcessor.send('welcome', {
+      email: user.email,
+      firstName: user.firstName ?? undefined,
+      lastName: user.lastName ?? undefined,
+      startShoppingLink: shopUrl(brand),
+    });
+
     return {
       message: 'Account verified successfully',
       data: null,
@@ -485,11 +540,11 @@ const resendAccountOtp = async ({ userId }: { userId: string }): Promise<CustomR
     });
 
     if (createOTP.data) {
-      await EmailProcessor.sendSignupOtpEmail({
-        firstName: user.firstName!,
+      await EmailProcessor.send('verification-email', {
+        firstName: user.firstName ?? undefined,
         otpCode: `${createOTP.data}`,
         email: user.email,
-        expiresInMinutes: 10,
+        expiresInMinutes: OTP_EXPIRY_MINUTES,
       });
     }
     return {

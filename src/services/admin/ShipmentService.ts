@@ -4,6 +4,8 @@ import { CustomResponseType } from '@/types';
 import Order from '@/models/Order';
 import { eventPublisher } from '@/events';
 import { orderStatusUpdate } from '@/utils/orderStatusTimestamps';
+import { loadOrderEmailContext, RETURN_WINDOW_DAYS } from '@/services/email/orderEmailPayload';
+import EmailProcessor from '@/services/processor/EmailProcessor';
 
 // Define shipment status union based on updated model enum
 type ShipmentStatus = 'In-Warehouse' | 'Shipped' | 'Dispatched' | 'In-Transit' | 'Delivered' | 'Returned' | 'Failed';
@@ -415,6 +417,26 @@ const updateShipmentStatus = async (
         description: 'Delivery attempt failed. Please contact support.',
         timestamp: new Date(),
       });
+
+      // A failed delivery told the customer nothing — the tracking-history entry was written
+      // and that was the end of it, so an order simply stopped moving with no explanation.
+      const failedContext = await loadOrderEmailContext(populatedOrder._id.toString());
+      if (failedContext) {
+        await EmailProcessor.send('delivery-failed', {
+          email: failedContext.email,
+          firstName: failedContext.firstName,
+          lastName: failedContext.lastName,
+          orderId: failedContext.orderId,
+          orderNumber: failedContext.orderNumber,
+          purchaseDate: failedContext.purchaseDate,
+          trackingNumber: shipment.trackingNumber || undefined,
+          courierName: shipment.courier || undefined,
+          deliveryAddress: shipment.shippingAddress?.address1 || failedContext.shipping.address,
+          reason: note || undefined,
+          manageOrderLink: failedContext.links.order,
+          supportLink: failedContext.links.support,
+        });
+      }
     }
     if (status === 'Shipped') {
       shipment.trackingHistory.push({
@@ -423,20 +445,32 @@ const updateShipmentStatus = async (
         timestamp: new Date(),
       });
 
-      if (populatedOrder.user) {
+      // Built from the shared order-email context rather than hand-assembled here, so the
+      // shipped email quotes the same order number, the same product images and the same
+      // storefront links as every other email about this order. The version this replaces
+      // sent the Mongo _id as the "order number", omitted the item list entirely, and linked
+      // to plasticsnmore.com — a different company's domain.
+      const emailContext = await loadOrderEmailContext(populatedOrder._id.toString());
+      if (emailContext) {
         await eventPublisher.publishShipmentStatusUpdated({
-          email: populatedOrder.user.email,
-          firstName: populatedOrder.user.firstName,
-          purchaseDate: shipment.createdAt,
-          orderNumber: populatedOrder._id.toString(),
+          email: emailContext.email,
+          firstName: emailContext.firstName,
+          lastName: emailContext.lastName,
+          orderId: emailContext.orderId,
+          orderNumber: emailContext.orderNumber,
+          purchaseDate: emailContext.purchaseDate,
           trackingNumber: shipment.trackingNumber || '',
-          shipping: {
-            address: shipment.shippingAddress?.address1 || '',
-            courier: shipment.courier || '',
-          },
-          manageOrderLink: `https://plasticsnmore.com/orders/${populatedOrder._id.toString()}`,
           orderStatus: 'Shipped',
-          gigWaybill: populatedOrder.gigWaybill || undefined,
+          deliveryType: emailContext.deliveryType,
+          gigWaybill: emailContext.gigWaybill,
+          products: emailContext.products,
+          shipping: {
+            ...emailContext.shipping,
+            courier: shipment.courier || emailContext.shipping.courier,
+            address: shipment.shippingAddress?.address1 || emailContext.shipping.address,
+          },
+          manageOrderLink: emailContext.links.order,
+          trackingLink: emailContext.links.tracking,
         });
       }
     }
@@ -453,25 +487,28 @@ const updateShipmentStatus = async (
       shipment.deliveredOn = new Date();
       await Order.findByIdAndUpdate(shipment.orderId._id, orderStatusUpdate('Completed'));
 
-      if (populatedOrder.user && populatedOrder.products) {
+      // `populatedOrder.orderNumber` used to be read here against a schema that had no such
+      // field, so every delivery email was subject-lined "…has been delivered - undefined";
+      // and `description_images?.[0]` was indexed as a string against an array of objects,
+      // so none of the product images resolved either.
+      const deliveredContext = await loadOrderEmailContext(populatedOrder._id.toString());
+      if (deliveredContext) {
         await eventPublisher.publishOrderDelivered({
-          orderId: populatedOrder._id.toString(),
-          shipmentId: shipment._id.toString(),
-          courierName: shipment.courier || '',
+          email: deliveredContext.email,
+          firstName: deliveredContext.firstName,
+          lastName: deliveredContext.lastName,
+          orderId: deliveredContext.orderId,
+          orderNumber: deliveredContext.orderNumber,
+          purchaseDate: deliveredContext.purchaseDate,
+          products: deliveredContext.products,
           deliveredAt: shipment.deliveredOn.toISOString(),
-          deliveryAddress: shipment.shippingAddress?.address1 || '',
-          email: populatedOrder.user.email,
-          firstName: populatedOrder.user.firstName,
-          lastName: populatedOrder.user.lastName,
-          purchaseDate: populatedOrder.createdAt,
-          orderNumber: populatedOrder.orderNumber,
-          products: populatedOrder.products.map((item) => ({
-            name: item.product.name,
-            imagePath: item.product.description_images?.[0] || '',
-            category: item.product.category,
-          })),
+          courierName: shipment.courier || undefined,
+          deliveryAddress: shipment.shippingAddress?.address1 || deliveredContext.shipping.address,
           trackingNumber: shipment.trackingNumber || undefined,
-          viewOrderLink: `https://plasticsnmore.com/orders/${populatedOrder._id.toString()}`,
+          viewOrderLink: deliveredContext.links.order,
+          returnWindowDays: RETURN_WINDOW_DAYS,
+          startReturnLink: deliveredContext.links.returns,
+          shipmentId: shipment._id.toString(),
         });
       }
     }

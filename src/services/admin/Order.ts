@@ -4,6 +4,11 @@ import { TransactionStatus } from '../../models/Transaction';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import AnalyticsService from '../MainAnalyticsService';
 import { orderStatusUpdate, type OrderStatusValue } from '@/utils/orderStatusTimestamps';
+import { loadOrderEmailContext } from '@/services/email/orderEmailPayload';
+import { eventPublisher } from '@/events';
+
+/** Business days a card refund typically takes to land. Quoted in cancellation emails. */
+const REFUND_ETA_DAYS = 7;
 
 /**
  * Enriched order response type with all details
@@ -337,7 +342,10 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<Enriche
       {
         $project: {
           _id: 1,
-          orderNumber: { $toString: '$_id' },
+          // Real reference now that orders carry one, falling back to the id for orders the
+          // backfill has not reached. Admin, storefront and email must quote the same string
+          // or a support conversation cannot start.
+          orderNumber: { $ifNull: ['$orderNumber', { $toString: '$_id' }] },
           user: {
             _id: '$userDetails._id',
             firstName: '$userDetails.firstName',
@@ -582,9 +590,16 @@ const updateOrderDetails = async (
 /**
  * Cancels an order by its ID.
  * @param orderId - The ID of the order to cancel.
+ * @param reason - Optional explanation, shown to the customer in the cancellation email.
  */
-const cancelOrder = async (orderId: string): Promise<CustomResponseType<null>> => {
+const cancelOrder = async (orderId: string, reason?: string): Promise<CustomResponseType<null>> => {
   try {
+    // Read the order for the email BEFORE it is removed. This is a hard ordering
+    // requirement, not a preference: cancellation deletes the document outright, so once
+    // `findByIdAndDelete` has run there is no user, no line items and no total left to write
+    // an email from — which is a large part of why the cancellation email was never sent.
+    const emailContext = await loadOrderEmailContext(orderId);
+
     const order = await Order.findByIdAndDelete(orderId);
     if (!order) {
       return {
@@ -597,6 +612,28 @@ const cancelOrder = async (orderId: string): Promise<CustomResponseType<null>> =
     AnalyticsService.trackOrderReturned(orderId).catch((err) =>
       console.error('Failed to track order cancellation analytics:', err)
     );
+
+    if (emailContext) {
+      await eventPublisher
+        .publishOrderCancelled({
+          userId: order.user.toString(),
+          email: emailContext.email,
+          firstName: emailContext.firstName,
+          lastName: emailContext.lastName,
+          orderId: emailContext.orderId,
+          orderNumber: emailContext.orderNumber,
+          purchaseDate: emailContext.purchaseDate,
+          cancelledAt: new Date(),
+          reason,
+          products: emailContext.products,
+          // Only promise a refund when money was actually taken.
+          refundAmount: order.isPaid ? emailContext.payment.subtotal : undefined,
+          refundEtaDays: order.isPaid ? REFUND_ETA_DAYS : undefined,
+          shopLink: emailContext.links.shop,
+        })
+        .catch((err) => console.error('Failed to publish order cancellation event:', err));
+    }
+
     return {
       message: 'Order canceled successfully',
       data: null,
@@ -646,7 +683,7 @@ const updateDeliveryTimeline = async (orderId: string, timeline: string): Promis
  * Rejects an order by its ID.
  * @param orderId - The ID of the order to reject.
  */
-const rejectOrder = async (orderId: string): Promise<CustomResponseType<null>> => {
+const rejectOrder = async (orderId: string, reason?: string): Promise<CustomResponseType<null>> => {
   try {
     // Was writing 'Not Processed', which is not in the status enum — findByIdAndUpdate
     // skips validators by default, so it wrote silently and no report ever matched
@@ -659,6 +696,30 @@ const rejectOrder = async (orderId: string): Promise<CustomResponseType<null>> =
         code: 404,
       };
     }
+
+    // Rejection is a cancellation from the customer's point of view, so it gets the same
+    // email. Unlike `cancelOrder` the document survives, so the context can be loaded after.
+    const emailContext = await loadOrderEmailContext(orderId);
+    if (emailContext) {
+      await eventPublisher
+        .publishOrderCancelled({
+          userId: order.user.toString(),
+          email: emailContext.email,
+          firstName: emailContext.firstName,
+          lastName: emailContext.lastName,
+          orderId: emailContext.orderId,
+          orderNumber: emailContext.orderNumber,
+          purchaseDate: emailContext.purchaseDate,
+          cancelledAt: new Date(),
+          reason: reason ?? 'We were unable to fulfil this order',
+          products: emailContext.products,
+          refundAmount: order.isPaid ? emailContext.payment.subtotal : undefined,
+          refundEtaDays: order.isPaid ? REFUND_ETA_DAYS : undefined,
+          shopLink: emailContext.links.shop,
+        })
+        .catch((err) => console.error('Failed to publish order rejection event:', err));
+    }
+
     return {
       message: 'Order rejected successfully',
       data: null,
