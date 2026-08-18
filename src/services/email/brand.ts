@@ -27,6 +27,7 @@ async function loadSettings(): Promise<BrandInput> {
     storefrontUrl: str(settings.websiteUrl),
     supportEmail: str(settings.supportEmail),
     supportPhone: str(settings.supportPhone),
+    whatsappNumber: str(settings.whatsappNumber),
     address: settings.address
       ? {
           line1: str(settings.address.line1),

@@ -81,7 +81,7 @@ x-tagGroups:
       - Admin - Reviews
       - Misc
 paths:
-  /health-check:
+  /health:
     get:
       summary: Health
       tags: [Misc]

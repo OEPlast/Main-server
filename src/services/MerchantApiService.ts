@@ -2,6 +2,7 @@ import axios, { AxiosRequestConfig } from 'axios';
 import { GoogleAuth } from 'google-auth-library';
 import Product from '../models/Product';
 import { getGoogleProductCategory } from '../config/googleProductCategories';
+import { getBrand } from './email/brand';
 
 /**
  * MerchantApiService
@@ -123,7 +124,7 @@ class MerchantApiService {
   }
 
   /** Build the Merchant API ProductInput resource from a Product document. */
-  private mapProductToInput(p: FeedProduct) {
+  private mapProductToInput(p: FeedProduct, storeName: string) {
     const images = (p.description_images || []).filter((i) => i.mediaType !== 'video');
     const cover = images.find((i) => i.cover_image) || images[0];
     const additionalImageLinks = images
@@ -143,7 +144,7 @@ class MerchantApiService {
       availability: p.stock > 0 ? 'in_stock' : 'out_of_stock',
       price: priceMicros(p.price),
       condition: p.condition || 'new',
-      brand: p.brand || 'Rawura',
+      brand: p.brand || storeName,
       identifierExists: hasIdentifier,
       shipping: [{ country: COUNTRY, price: priceMicros(0) }],
     };
@@ -166,7 +167,8 @@ class MerchantApiService {
    * re-inserting a changed product refreshes price/availability).
    */
   async upsertProduct(product: FeedProduct): Promise<unknown> {
-    const input = this.mapProductToInput(product);
+    const brand = await getBrand();
+    const input = this.mapProductToInput(product, brand.storeName);
     const url = `${PRODUCTS_BASE}/${this.accountPath()}/productInputs:insert?dataSource=${encodeURIComponent(
       this.dataSourcePath()
     )}`;

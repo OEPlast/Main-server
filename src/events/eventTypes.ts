@@ -1,3 +1,5 @@
+// Keep enum values in sync with event-bus/src/types/eventTypes.ts — no shared package between
+// these two services yet, so a value added to one enum must be added to the other by hand.
 export enum EventType {
   // User events
   USER_SIGNUP = 'user.signup',
@@ -49,6 +51,7 @@ export enum EventType {
   // Shipment events
   SHIPMENT_CREATED = 'shipment.created',
   SHIPMENT_STATUS_UPDATED = 'shipment.status.updated',
+  SHIPMENT_DELIVERED = 'shipment.delivered',
 
   // Real-time events
   NOTIFICATION_SEND = 'notification.send',
@@ -64,7 +67,7 @@ export interface BaseEvent {
   source: string;
   userId?: string;
   metadata?: Record<string, unknown>;
-  data?: unknown;
+  data: Record<string, unknown>;
 }
 
 export interface UserSignupEvent extends BaseEvent {

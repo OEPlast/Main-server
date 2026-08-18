@@ -53,6 +53,11 @@ class EventPublisher {
     }
   }
 
+  /** For health checks — RabbitMQ is connected non-blockingly at startup, so this reports it rather than gating readiness on it. */
+  isRabbitMQConnected(): boolean {
+    return this.isConnected;
+  }
+
   async disconnect(): Promise<void> {
     try {
       await this.channel?.close();

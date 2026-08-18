@@ -1,6 +1,7 @@
 import express, { Application, Request, Response } from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
+import mongoose from 'mongoose';
 import { config as envConfig } from 'dotenv';
 import { morganAccessLog, morganMiddleware } from './middleware/morgan';
 import connectDB from './lib/db';
@@ -168,21 +169,41 @@ app.use('/admin/analytics', AdminAnalyticsRoute);
 
 //------------------
 // server Health Check
-app.get('/health-check', (_req: Request, res: Response) => {
-  res.status(200).json({ message: 'Server is up and running!' });
+app.get('/health', (_req: Request, res: Response) => {
+  const dbConnected = mongoose.connection.readyState === 1;
+  // RabbitMQ is connected non-blockingly at startup (see the IIFE above) and Main-server
+  // still functions with it down — publishes just get dropped — so it's reported but doesn't
+  // flip overall status, unlike the DB which everything here depends on.
+  const rabbitmqConnected = eventPublisher.isRabbitMQConnected();
+
+  res.status(dbConnected ? 200 : 503).json({
+    status: dbConnected ? 'healthy' : 'unhealthy',
+    service: 'main-server',
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    dependencies: {
+      database: dbConnected ? 'connected' : 'disconnected',
+      rabbitmq: rabbitmqConnected ? 'connected' : 'disconnected',
+    },
+  });
 });
 
-// Start the server
+// Start the server — DB and dependent services must be ready before we accept traffic.
 const port = process.env.PORT || 4000;
-app.listen(port, async () => {
+
+async function startServer() {
   try {
     await connectDB();
     await EmailProcessor.initialize();
     startGIGTrackingSync();
     startMerchantSync();
-    console.log(`Server is listening on port ${port}`);
+    app.listen(port, () => {
+      console.log(`Server is listening on port ${port}`);
+    });
   } catch (error) {
     console.log(error);
     process.exit(1);
   }
-});
+}
+
+startServer();

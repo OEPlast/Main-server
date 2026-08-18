@@ -1,5 +1,6 @@
 import Product from '../models/Product';
 import { getGoogleProductCategory } from '../config/googleProductCategories';
+import { getBrand } from './email/brand';
 
 /**
  * FeedService
@@ -67,7 +68,7 @@ interface FeedProduct {
 }
 
 class FeedService {
-  private itemXml(p: FeedProduct): string {
+  private itemXml(p: FeedProduct, storeName: string): string {
     const images = (p.description_images || []).filter((i) => i.mediaType !== 'video');
     const cover = images.find((i) => i.cover_image) || images[0];
     const imageLink = toAbsoluteImage(cover?.url);
@@ -91,7 +92,7 @@ class FeedService {
       `    <g:availability>${availability}</g:availability>`,
       `    <g:price>${p.price.toFixed(2)} ${CURRENCY}</g:price>`,
       `    <g:condition>${xmlEscape(p.condition || 'new')}</g:condition>`,
-      `    <g:brand>${xmlEscape(p.brand || 'Rawura')}</g:brand>`,
+      `    <g:brand>${xmlEscape(p.brand || storeName)}</g:brand>`,
       p.gtin ? `    <g:gtin>${xmlEscape(p.gtin)}</g:gtin>` : '',
       p.mpn ? `    <g:mpn>${xmlEscape(p.mpn)}</g:mpn>` : '',
       `    <g:identifier_exists>${hasIdentifier ? 'yes' : 'no'}</g:identifier_exists>`,
@@ -115,20 +116,23 @@ class FeedService {
    * Build the full product feed XML string.
    */
   async generateProductFeed(): Promise<string> {
-    const products = (await Product.find({ status: 'active' })
-      .populate('category', 'name slug')
-      .select('sku name slug description price stock brand gtin mpn condition description_images category')
-      .lean()
-      .exec()) as unknown as FeedProduct[];
+    const [products, brand] = await Promise.all([
+      Product.find({ status: 'active' })
+        .populate('category', 'name slug')
+        .select('sku name slug description price stock brand gtin mpn condition description_images category')
+        .lean()
+        .exec() as unknown as Promise<FeedProduct[]>,
+      getBrand(),
+    ]);
 
-    const items = products.map((p) => this.itemXml(p)).join('\n');
+    const items = products.map((p) => this.itemXml(p, brand.storeName)).join('\n');
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" xmlns:g="http://base.google.com/ns/1.0">
 <channel>
-  <title>Rawura Product Feed</title>
+  <title>${xmlEscape(brand.storeName)} Product Feed</title>
   <link>${xmlEscape(STORE_URL)}</link>
-  <description>Rawura product feed for Google Merchant Center</description>
+  <description>${xmlEscape(brand.storeName)} product feed for Google Merchant Center</description>
 ${items}
 </channel>
 </rss>`;

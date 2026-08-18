@@ -2,6 +2,33 @@ import { CustomResponseType } from '@/types';
 import Settings, { SettingsType } from '../models/Settings';
 import { invalidateBrandCache } from './email/brand';
 
+/**
+ * Pings storefront/admin to drop their cached branding (Next.js `revalidateTag('branding')`)
+ * so a Settings change shows up immediately instead of on their next deploy.
+ *
+ * Fire-and-forget by design: a revalidation ping failing (frontend down, network blip) must
+ * never fail or delay the settings save itself — the cache just stays stale until the next
+ * successful save, same as it would if this feature didn't exist.
+ */
+function triggerBrandingRevalidation(): void {
+  const secret = process.env.REVALIDATE_SECRET;
+  if (!secret) return;
+
+  const targets = [process.env.STOREFRONT_REVALIDATE_URL, process.env.ADMIN_REVALIDATE_URL].filter(
+    (url): url is string => Boolean(url)
+  );
+
+  for (const url of targets) {
+    fetch(url, {
+      method: 'POST',
+      headers: { 'X-Revalidate-Secret': secret },
+      signal: AbortSignal.timeout(5000),
+    }).catch((error) => {
+      console.warn(`[settings] branding revalidation ping to ${url} failed:`, error);
+    });
+  }
+}
+
 // Settings input types
 interface UpdateSettingsInput {
   storeName?: string;
@@ -10,6 +37,7 @@ interface UpdateSettingsInput {
   websiteUrl?: string;
   supportEmail?: string;
   supportPhone?: string;
+  whatsappNumber?: string;
   address?: {
     line1?: string;
     line2?: string;
@@ -77,6 +105,7 @@ const updateSettings = async (settingsData: UpdateSettingsInput): Promise<Custom
       settings = new Settings(settingsData);
       await settings.save();
       invalidateBrandCache();
+      triggerBrandingRevalidation();
 
       return {
         message: 'Settings created successfully',
@@ -92,6 +121,7 @@ const updateSettings = async (settingsData: UpdateSettingsInput): Promise<Custom
     // Email branding is cached for a minute; drop it so a logo or support-address change
     // shows up in the next email rather than the one after.
     invalidateBrandCache();
+    triggerBrandingRevalidation();
 
     return {
       message: 'Settings updated successfully',

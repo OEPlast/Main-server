@@ -46,6 +46,13 @@ const validateUpdateSettings = async (req: Request, res: Response, next: NextFun
       trim: true,
       errorMessage: 'Support phone must be a string',
     },
+    whatsappNumber: {
+      in: ['body'],
+      optional: true,
+      isString: true,
+      trim: true,
+      errorMessage: 'WhatsApp number must be a string',
+    },
     'address.line1': {
       in: ['body'],
       optional: true,
