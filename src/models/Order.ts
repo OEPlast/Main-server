@@ -16,6 +16,34 @@ const couponSnapshotSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/**
+ * Shared by `shippingAddress` and `billingAddress` so the two can never drift.
+ *
+ * Every field is optional: a pickup order has no shipping address at all, and a billing
+ * address is absent whenever it simply mirrors shipping (see `billingSameAsShipping`).
+ *
+ * `latitude`/`longitude` are supplied by the storefront's geocoding step for GIG deliveries.
+ * They were previously accepted at checkout and then dropped on save, so the coordinates the
+ * courier quote was based on were lost the moment the order was written.
+ */
+const addressSchema = new mongoose.Schema(
+  {
+    firstName: { type: String },
+    lastName: { type: String },
+    phoneNumber: { type: String },
+    address1: { type: String },
+    address2: { type: String },
+    city: { type: String },
+    state: { type: String },
+    zipCode: { type: String },
+    country: { type: String },
+    lga: { type: String },
+    latitude: { type: Number },
+    longitude: { type: Number },
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     // Human-readable reference (e.g. RW-2608-00417) quoted in emails, the admin panel and by
@@ -85,37 +113,18 @@ const orderSchema = new mongoose.Schema(
         },
       },
     ],
-    shippingAddress: {
-      firstName: {
-        type: String,
-      },
-      lastName: {
-        type: String,
-      },
-      phoneNumber: {
-        type: String,
-      },
-      address1: {
-        type: String,
-      },
-      address2: {
-        type: String,
-      },
-      city: {
-        type: String,
-      },
-      state: {
-        type: String,
-      },
-      zipCode: {
-        type: String,
-      },
-      country: {
-        type: String,
-      },
-      lga: {
-        type: String,
-      },
+    shippingAddress: { type: addressSchema },
+    /**
+     * Where the customer is billed, when that differs from where the order ships.
+     *
+     * Read alongside `billingSameAsShipping`: this field being absent is ambiguous on its own
+     * (it means "mirrors shipping" on a new order, but "never captured" on one placed before
+     * billing addresses existed), which is what the boolean disambiguates.
+     */
+    billingAddress: { type: addressSchema, default: undefined },
+    billingSameAsShipping: {
+      type: Boolean,
+      default: true,
     },
     paymentMethod: {
       type: String,

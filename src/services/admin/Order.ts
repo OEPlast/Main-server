@@ -49,7 +49,9 @@ export type EnrichedOrder = {
 
   // Addresses
   shippingAddress: OrderType['shippingAddress'] | null;
-  billingAddress: OrderType['shippingAddress'] | null;
+  billingAddress: OrderType['billingAddress'] | null;
+  /** False when the customer entered a distinct billing address. */
+  billingSameAsShipping: boolean;
 
   // Products with enriched details
   products: Array<{
@@ -399,14 +401,10 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<Enriche
             },
           },
 
-          // Billing address (same as shipping for now)
-          billingAddress: {
-            $cond: {
-              if: { $eq: ['$deliveryType', 'shipping'] },
-              then: '$shippingAddress',
-              else: null,
-            },
-          },
+          // Falls back to the shipping address for orders placed before billing addresses were
+          // captured, which is what they effectively were.
+          billingAddress: { $ifNull: ['$billingAddress', '$shippingAddress'] },
+          billingSameAsShipping: { $ifNull: ['$billingSameAsShipping', true] },
 
           // Products with enriched details
           products: {

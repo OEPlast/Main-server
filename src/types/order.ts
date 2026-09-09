@@ -24,6 +24,9 @@ export type SecureCheckoutItemInput = FrontendCartItemInput & {
 export type SecureCheckoutPayload = {
   items: SecureCheckoutItemInput[];
   shippingAddress?: OrderType['shippingAddress'];
+  /** Only read when `billingSameAsShipping` is explicitly false. */
+  billingAddress?: OrderType['billingAddress'];
+  billingSameAsShipping?: boolean;
   paymentMethod?: string;
   couponCodes?: string[];
   taxPrice?: number;

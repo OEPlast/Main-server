@@ -910,14 +910,10 @@ const getOneOrder = async ({
             },
           },
 
-          // Billing address (same as shipping for now)
-          billingAddress: {
-            $cond: {
-              if: { $in: ['$deliveryType', ['shipping', 'gig']] },
-              then: '$shippingAddress',
-              else: null,
-            },
-          },
+          // Falls back to the shipping address for orders placed before billing addresses were
+          // captured, which is what they effectively were.
+          billingAddress: { $ifNull: ['$billingAddress', '$shippingAddress'] },
+          billingSameAsShipping: { $ifNull: ['$billingSameAsShipping', true] },
 
           // GIG waybill number
           gigWaybill: 1,

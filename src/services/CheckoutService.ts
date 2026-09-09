@@ -104,6 +104,8 @@ class CheckoutService {
     const {
       items,
       shippingAddress,
+      billingAddress,
+      billingSameAsShipping = true,
       paymentMethod = 'paystack',
       couponCodes,
       taxPrice = 0,
@@ -138,6 +140,18 @@ class CheckoutService {
     if ((deliveryType === 'shipping' || deliveryType === 'gig') && !shippingAddress) {
       return {
         message: 'Shipping address is required for delivery',
+        data: null,
+        code: 400,
+      };
+    }
+
+    // A caller that opts out of mirroring has to supply the address it opted out in favour of.
+    // Note the inverse is deliberately not enforced: on a pickup order there is no shipping
+    // address to mirror, so `billingSameAsShipping` simply resolves to nothing rather than
+    // failing — the storefront is what decides whether to insist on one.
+    if (billingSameAsShipping === false && !billingAddress) {
+      return {
+        message: 'Billing address is required when it differs from the shipping address',
         data: null,
         code: 400,
       };
@@ -346,7 +360,15 @@ class CheckoutService {
         saleType: undefined,
         saleDiscount: correctedItem.appliedDiscount || 0,
       })),
-      shippingAddress: deliveryType === 'shipping' ? shippingAddress : undefined,
+      // `!== 'pickup'` rather than `=== 'shipping'`: GIG orders were previously saved with no
+      // address at all, which left ShipmentService unable to create their shipment and their
+      // confirmation emails with an empty address line — even though the address had been
+      // required, quoted against and sent to the courier moments earlier.
+      shippingAddress: deliveryType !== 'pickup' ? shippingAddress : undefined,
+      // Billing intentionally never feeds the shipping quote or the courier payload above —
+      // both of those read `shippingAddress` directly and must keep doing so.
+      billingAddress: billingSameAsShipping ? shippingAddress : billingAddress,
+      billingSameAsShipping,
       deliveryType,
       paymentMethod,
       total: finalTotal,
