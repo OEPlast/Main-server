@@ -1,4 +1,4 @@
-import type { EmailProduct, ReturnStatus } from '@rawura/emails';
+import type { EmailProduct, ReturnStatus } from '@/types/emailPayloads';
 import EmailProcessor from '@/services/processor/EmailProcessor';
 import { loadOrderEmailContext } from './orderEmailPayload';
 import { logger } from '@/lib/logger';

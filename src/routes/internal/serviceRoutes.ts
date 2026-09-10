@@ -8,7 +8,7 @@ import eventPublisher from '@/events/eventPublisher';
 import TransactionService from '@/services/TransactionService';
 import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
 import { loadOrderEmailContext, toOrderConfirmation } from '@/services/email/orderEmailPayload';
-import { getBrand } from '@/services/email/brand';
+import { getBrand } from '@/services/brand';
 import { isMarketingAllowed } from '@/services/email/consent';
 import { signUnsubscribeToken } from '@/utils/unsubscribeToken';
 import mongoose from 'mongoose';

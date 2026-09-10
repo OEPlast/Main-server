@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import User from '@/models/User';
 import { logger } from '@/lib/logger';
 import { verifyUnsubscribeToken } from '@/utils/unsubscribeToken';
-import { getBrand } from '@/services/email/brand';
+import { getBrand } from '@/services/brand';
 
 /**
  * Marketing email opt-out.

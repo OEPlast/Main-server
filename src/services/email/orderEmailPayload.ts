@@ -2,20 +2,22 @@ import type { HydratedDocument } from 'mongoose';
 import Order, { type OrderType } from '@/models/Order';
 import GIGConfig from '@/models/GIGConfig';
 import {
+  getBrand,
   orderUrl,
   orderTrackingUrl,
   productReviewUrl,
   returnsUrl,
   shopUrl,
   supportUrl,
-  type Brand,
-  type DeliveryType,
-  type EmailProduct,
-  type OrderConfirmationData,
-  type PaymentDetails,
-  type ShippingInfo,
-} from '@rawura/emails';
-import { getBrand } from './brand';
+  type StoreBrand,
+} from '@/services/brand';
+import type {
+  DeliveryType,
+  EmailProduct,
+  OrderConfirmationData,
+  PaymentDetails,
+  ShippingInfo,
+} from '@/types/emailPayloads';
 import { logger } from '@/lib/logger';
 
 /**
@@ -45,7 +47,7 @@ type OrderDocument = HydratedDocument<OrderType>;
 
 /** The subset of an order that every order-scoped email draws on. */
 export interface OrderEmailContext {
-  brand: Brand;
+  brand: StoreBrand;
   email: string;
   firstName?: string;
   lastName?: string;

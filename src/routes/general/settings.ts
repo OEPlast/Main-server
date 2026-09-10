@@ -2,7 +2,7 @@ import express from 'express';
 import SettingsController from '../../controller/SettingsController';
 import SettingsValidator from '../../validators/SettingsValidator';
 import { authenticateUser, requirePermission } from '@/middleware/auth';
-import { getBrand } from '@/services/email/brand';
+import { getBrand } from '@/services/brand';
 
 const router = express.Router();
 

@@ -1,9 +1,27 @@
 import Settings from '@/models/Settings';
-import { resolveBrand, type Brand, type BrandInput } from '@rawura/emails';
 import { logger } from '@/lib/logger';
+import { resolveBrand } from './resolveBrand';
+import type { BrandInput, StoreBrand } from './types';
+
+export type { BrandAddress, BrandInput, BrandSocialLinks, ResolvedSocialLink, StoreBrand } from './types';
+export { resolveBrand, normalizeBaseUrl } from './resolveBrand';
+export {
+  orderUrl,
+  orderTrackingUrl,
+  productUrl,
+  productReviewUrl,
+  shopUrl,
+  cartUrl,
+  accountUrl,
+  returnsUrl,
+  supportUrl,
+} from './links';
 
 /**
- * Brand values for outgoing email, read from the store `Settings` document.
+ * Store brand values, read from the store `Settings` document.
+ *
+ * Main-server owns brand. It is used for outgoing email (handed to `Mailer` as `getBrand`),
+ * the public settings route, feeds and merchant integrations.
  *
  * Cached: the previous implementation ran `Settings.findOne()` on every single send, on the
  * order-confirmation hot path. A minute of staleness on a logo URL costs nothing.
@@ -11,7 +29,7 @@ import { logger } from '@/lib/logger';
 
 const TTL_MS = 60_000;
 
-let cached: { brand: Brand; expiresAt: number } | null = null;
+let cached: { brand: StoreBrand; expiresAt: number } | null = null;
 
 /** `lean()` returns `string | null` for optional fields; the brand resolver wants `undefined`. */
 const str = (value: string | null | undefined): string | undefined => value ?? undefined;
@@ -57,7 +75,7 @@ async function loadSettings(): Promise<BrandInput> {
  * an email with a slightly generic footer is better than an order confirmation that never
  * sends.
  */
-export async function getBrand(): Promise<Brand> {
+export async function getBrand(): Promise<StoreBrand> {
   if (cached && cached.expiresAt > Date.now()) return cached.brand;
 
   let input: BrandInput = {};

@@ -1,6 +1,6 @@
 import Product from '../models/Product';
 import { getGoogleProductCategory } from '../config/googleProductCategories';
-import { getBrand } from './email/brand';
+import { getBrand } from './brand';
 
 /**
  * FeedService

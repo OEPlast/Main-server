@@ -8,8 +8,7 @@ import { eventPublisher } from '@/events';
 import EmailProcessor from './processor/EmailProcessor';
 import Account from '@/models/Account';
 import { OTP_EXPIRY_MINUTES } from '@/models/OTP';
-import { getBrand } from './email/brand';
-import { shopUrl, supportUrl } from '@rawura/emails';
+import { getBrand, shopUrl, supportUrl } from './brand';
 
 /**
  * Best-effort request context attached to security notifications, so a customer can tell a

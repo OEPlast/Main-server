@@ -1,6 +1,6 @@
 import { CustomResponseType } from '@/types';
 import Settings, { SettingsType } from '../models/Settings';
-import { invalidateBrandCache } from './email/brand';
+import { invalidateBrandCache } from './brand';
 
 /**
  * Pings storefront/admin to drop their cached branding (Next.js `revalidateTag('branding')`)

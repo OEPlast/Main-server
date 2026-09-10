@@ -10,7 +10,7 @@ import type {
   PaymentFailedData,
   PaymentReceiptData,
   VerificationEmailData,
-} from '@rawura/emails';
+} from '@/types/emailPayloads';
 
 // Simplified: single topic exchange. Consumers can bind a queue with patterns (e.g. order.*, payment.#, #)
 const EXCHANGE_NAME = 'app.events';

@@ -2,7 +2,7 @@ import axios, { AxiosRequestConfig } from 'axios';
 import { GoogleAuth } from 'google-auth-library';
 import Product from '../models/Product';
 import { getGoogleProductCategory } from '../config/googleProductCategories';
-import { getBrand } from './email/brand';
+import { getBrand } from './brand';
 
 /**
  * MerchantApiService
