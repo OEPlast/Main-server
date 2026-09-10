@@ -107,8 +107,15 @@
     /* Completeness */
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
     "skipLibCheck": true /* Skip type checking all .d.ts files. */,
-    // No baseUrl: it is deprecated in TypeScript 6.0 (TS5101) and removed in 7.0.
-    // Without it, `paths` entries resolve relative to this tsconfig.
+
+    // TypeScript 6.0 changed these defaults, so they are set explicitly:
+    //  - rootDir: without it, single-file compiles (ts-node --transpile-only) fail with TS5011.
+    //    "." is what the build already used, so output stays at dist/src/server.js.
+    //  - types: now defaults to [], which drops Node globals from any file whose imports never
+    //    reach @types/node, such as scripts run with `npx ts-node scripts/...`.
+    //  - No baseUrl: deprecated (TS5101) and removed in 7.0. `paths` resolve relative to this file.
+    "rootDir": ".",
+    "types": ["node"],
     "paths": {
       "@/*": ["./src/*"]
     }
