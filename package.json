@@ -33,7 +33,7 @@
     "@types/jsonwebtoken": "^9.0.9",
     "@types/morgan": "^1.9.9",
     "@types/multer": "^1.4.12",
-    "@types/node": "^20.10.4",
+    "@types/node": "^20.19.43",
     "@types/node-cron": "^3.0.11",
     "@types/paystack__inline-js": "^1.0.2",
     "@types/uuid": "^10.0.0",
@@ -42,7 +42,7 @@
     "gulp-copy": "^5.0.0",
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
-    "typescript": "^5.3.3"
+    "typescript": "6.0.3"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.864.0",

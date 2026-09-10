@@ -731,13 +731,14 @@ const cancelOrder = async (orderId: string, userId: string): Promise<CustomRespo
       }
     }
 
-    // Restore stock
-    const bulkUpdates = order.products.map((item) => ({
-      updateOne: {
-        filter: { _id: item.product },
-        update: { $inc: { stock: item.qty } },
-      },
-    }));
+    // Restore stock. `product` and `qty` are optional on an order line, and Mongoose rejects a
+    // null/undefined `$inc` with a CastError that would roll back the whole cancellation, so a
+    // line missing either is skipped — the same rule the sale-counter reversal below applies.
+    const bulkUpdates = order.products.flatMap((item) =>
+      item.product && item.qty
+        ? [{ updateOne: { filter: { _id: item.product }, update: { $inc: { stock: item.qty } } } }]
+        : []
+    );
 
     await Product.bulkWrite(bulkUpdates, { session });
 

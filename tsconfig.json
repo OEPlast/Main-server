@@ -107,9 +107,10 @@
     /* Completeness */
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
     "skipLibCheck": true /* Skip type checking all .d.ts files. */,
-    "baseUrl": ".",
+    // No baseUrl: it is deprecated in TypeScript 6.0 (TS5101) and removed in 7.0.
+    // Without it, `paths` entries resolve relative to this tsconfig.
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "ts-node": {
