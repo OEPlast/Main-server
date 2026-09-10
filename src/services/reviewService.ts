@@ -64,10 +64,7 @@ const REVIEW_SORTS: Record<ReviewSortKey, Record<string, 1 | -1>> = {
  * rating sorts it is meaningless. Dates are tagged so they survive the JSON
  * round-trip as Dates rather than strings.
  */
-const encodeReviewCursor = (
-  doc: Record<string, unknown>,
-  sort: Record<string, 1 | -1>
-): string => {
+const encodeReviewCursor = (doc: Record<string, unknown>, sort: Record<string, 1 | -1>): string => {
   const key: Record<string, unknown> = {};
   for (const field of Object.keys(sort)) {
     const value = doc[field];
@@ -81,10 +78,7 @@ const encodeReviewCursor = (
  * including cursors minted by the old `_id`-only scheme — in which case the
  * caller serves page one rather than an arbitrary slice.
  */
-const decodeReviewCursor = (
-  cursor: string,
-  sort: Record<string, 1 | -1>
-): Record<string, unknown> | null => {
+const decodeReviewCursor = (cursor: string, sort: Record<string, 1 | -1>): Record<string, unknown> | null => {
   try {
     const raw: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'));
     if (!raw || typeof raw !== 'object') return null;
@@ -278,7 +272,8 @@ const unlikeReview = async (reviewId: string, userId: string): Promise<CustomRes
  */
 const isLikedByUser = async (reviewId: string, userId: string): Promise<CustomResponseType<boolean>> => {
   try {
-    const review = await Review.findById(reviewId, {
+    const review = await Review.findOne({
+      _id: new ObjectId(reviewId),
       likes: { $in: [new ObjectId(userId)] },
     });
     return {
@@ -573,8 +568,7 @@ const updateReview = async (
 
     // Resync denormalized product rating stats (rating may have changed).
     const updatedProduct = updatedReview.product as unknown as { _id?: unknown } | unknown;
-    const productId =
-      (updatedProduct as { _id?: unknown })?._id?.toString?.() ?? String(updatedProduct);
+    const productId = (updatedProduct as { _id?: unknown })?._id?.toString?.() ?? String(updatedProduct);
     if (productId) syncProductRatingStats(productId).catch(() => {});
 
     return {
@@ -741,8 +735,7 @@ const allReviews = async (
 
     // Next cursor is the full sort key of the last row on this page, so the
     // follow-up query resumes exactly where this one stopped under any sort.
-    const nextCursor =
-      hasMore && data.length > 0 ? encodeReviewCursor(data[data.length - 1], sortStage) : null;
+    const nextCursor = hasMore && data.length > 0 ? encodeReviewCursor(data[data.length - 1], sortStage) : null;
 
     return {
       message: 'Reviews retrieved successfully',

@@ -36,6 +36,7 @@
     "@types/node": "^20.10.4",
     "@types/node-cron": "^3.0.11",
     "@types/paystack__inline-js": "^1.0.2",
+    "@types/uuid": "^10.0.0",
     "gulp": "^5.0.1",
     "gulp-cli": "^3.1.0",
     "gulp-copy": "^5.0.0",
