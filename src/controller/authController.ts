@@ -129,7 +129,7 @@ const providerLogin = async (req: Request, res: Response) => {
     const { provider, providerAccountId } = req.body;
     const { data, code, message } = await AuthService.loginWithProvider({ provider, providerAccountId });
     return res.status(code).json({ message, data });
-  } catch (error) {
+  } catch {
     return res.status(500).json({ error: 'Something went wrong' });
   }
 };

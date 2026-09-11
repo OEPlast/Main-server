@@ -441,8 +441,8 @@ const resetPasswordWithCode = async ({
     }
 
     // Reset the password
-    user.password = await passwordLib.hashPassword(newPassword);
-    await user.save();
+    const newPasswordHash = await passwordLib.hashPassword(newPassword);
+    await User.updateOne({ _id: user._id }, { $set: { password: newPasswordHash } });
 
     await notifyPasswordChanged(user, context);
 
