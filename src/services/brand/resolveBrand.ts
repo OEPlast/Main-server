@@ -103,6 +103,7 @@ export function resolveBrand(input: BrandInput = {}): StoreBrand {
     supportPhone: firstNonEmpty(input.supportPhone, env.SUPPORT_PHONE, env.STORE_PHONE),
     // Settings document only — deliberately no env fallback.
     whatsappNumber: firstNonEmpty(input.whatsappNumber),
+    socialLinks: input.social ?? {},
     address,
     addressLine: formatAddress(address),
     social,

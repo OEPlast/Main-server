@@ -63,6 +63,8 @@ export interface StoreBrand {
   supportPhone: string;
   /** Empty when the Settings document has no WhatsApp number. */
   whatsappNumber: string;
+  /** Raw social URLs for storefront surfaces such as the footer. */
+  socialLinks: BrandSocialLinks;
   address: BrandAddress;
   /** Single-line postal address for the footer. Empty when nothing is configured. */
   addressLine: string;

@@ -322,13 +322,13 @@ const calculateSalesDiscount = (
 
   if (!matchingVariant) return 0;
 
-  // MAXBUYS LIMIT CHECK: If sale type is 'Limited', verify qty doesn't exceed remaining stock
+  // MAXBUYS LIMIT CHECK: Only limited sales are capped by maxBuys.
   const maxBuys = matchingVariant.maxBuys || 0;
   const boughtCount = matchingVariant.boughtCount || 0;
   const remainingStock = maxBuys - boughtCount;
 
-  // Only apply sale if quantity doesn't exceed remaining stock (maxBuys = 0 means unlimited)
-  if (maxBuys > 0 && quantity > remainingStock) {
+  // Bulk quantities must not disable normal or flash sale pricing.
+  if (salesData.type === 'Limited' && maxBuys > 0 && quantity > remainingStock) {
     return 0; // Quantity exceeds sale limit, no sale applied
   }
 
