@@ -22,13 +22,11 @@ const SOCIAL_ICONS: Record<keyof BrandSocialLinks, { name: string; iconUrl: stri
   },
   facebook: {
     name: 'Facebook',
-    iconUrl:
-      'https://res.cloudinary.com/dau2gxgbw/image/upload/v1676965509/email-template/images/fb-icon_jdwajr.png',
+    iconUrl: 'https://res.cloudinary.com/dau2gxgbw/image/upload/v1676965509/email-template/images/fb-icon_jdwajr.png',
   },
   instagram: {
     name: 'Instagram',
-    iconUrl:
-      'https://res.cloudinary.com/dau2gxgbw/image/upload/v1676965510/email-template/images/ig-icon_lyd5yy.png',
+    iconUrl: 'https://res.cloudinary.com/dau2gxgbw/image/upload/v1676965510/email-template/images/ig-icon_lyd5yy.png',
   },
   whatsapp: { name: 'WhatsApp', iconUrl: '' },
   threads: { name: 'Threads', iconUrl: '' },
