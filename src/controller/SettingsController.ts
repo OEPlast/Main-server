@@ -3,7 +3,7 @@ import type { AuthenticatedRequest } from '@/types';
 import SettingsService from '../services/SettingsService';
 
 /** Tax registration details are for staff; the storefront reads this endpoint too. */
-const STAFF_ONLY_FIELDS = ['taxId'] as const;
+const STAFF_ONLY_FIELDS = ['taxId', 'taxRate'] as const;
 
 /**
  * Get store settings (public endpoint).
