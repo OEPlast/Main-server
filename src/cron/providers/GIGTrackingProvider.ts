@@ -1,4 +1,5 @@
 import GIGService from '@/services/GIGService';
+import { markOrderDelivered } from '@/services/orders/delivery';
 import type { TrackingProvider, OrderDoc, ShipmentDoc } from './TrackingProvider';
 
 const GIG_STATUS_MAP: Record<string, string> = {
@@ -45,5 +46,11 @@ export const GIGTrackingProvider: TrackingProvider = {
       shipment.deliveredOn = new Date();
     }
     await shipment.save();
+
+    // The shipment alone used to be updated here, so a GIG-delivered order stayed "Processing"
+    // forever: no delivered email, no review request, no return window.
+    if (mappedStatus === 'Delivered') {
+      await markOrderDelivered(shipment, { source: 'tracking-sync' });
+    }
   },
 };

@@ -40,8 +40,16 @@ export interface BrandInput {
   supportPhone?: string;
   /** Store WhatsApp number. Read from the Settings document only; there is no env fallback. */
   whatsappNumber?: string;
+  /** Free text, e.g. "Mon–Sat, 9am–6pm WAT". Settings only. */
+  supportHours?: string;
   address?: BrandAddress;
   social?: BrandSocialLinks;
+}
+
+/** Policy figures the storefront quotes (returns page, FAQ, product page). */
+export interface StorePolicies {
+  returnWindowDays: number;
+  refundEtaDays: number;
 }
 
 /** A social icon that survived resolution — i.e. one that has a real URL. */
@@ -63,6 +71,9 @@ export interface StoreBrand {
   supportPhone: string;
   /** Empty when the Settings document has no WhatsApp number. */
   whatsappNumber: string;
+  /** Empty when not configured; surfaces then omit hours rather than guess. */
+  supportHours: string;
+  policies: StorePolicies;
   /** Raw social URLs for storefront surfaces such as the footer. */
   socialLinks: BrandSocialLinks;
   address: BrandAddress;

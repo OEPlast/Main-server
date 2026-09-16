@@ -11,6 +11,9 @@ export interface ShipmentDoc {
   _id: Types.ObjectId;
   orderId: Types.ObjectId;
   status: string;
+  courier?: string | null;
+  trackingNumber?: string | null;
+  shippingAddress?: { address1?: string | null } | null;
   trackingHistory: Array<{ location: string; timestamp: Date; description: string }>;
   deliveredOn?: Date;
   save(): Promise<unknown>;

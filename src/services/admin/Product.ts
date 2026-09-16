@@ -29,6 +29,9 @@ type CreateProductData = {
   price: number;
   slug?: string;
   brand?: string;
+  gtin?: string;
+  mpn?: string;
+  condition?: 'new' | 'used' | 'refurbished';
   category: string; // Category id
   tags?: string[];
   description_images?: {
@@ -201,7 +204,24 @@ const updateProduct = async (
       update.originStock = data.stock;
     }
 
-    const updatedProduct = await Product.findByIdAndUpdate(id, update, { new: true });
+    // A changed slug keeps the old one in `slugHistory`, so /product/<old-slug> can 301 to the
+    // new URL instead of 404ing links, bookmarks and search results.
+    const nextSlug = (update as { slug?: string }).slug;
+    const slugChanged = typeof nextSlug === 'string' && nextSlug && nextSlug !== existing.slug;
+    const updatedProduct = await Product.findByIdAndUpdate(
+      id,
+      slugChanged
+        ? {
+            ...update,
+            $addToSet: { slugHistory: existing.slug },
+          }
+        : update,
+      { new: true }
+    );
+    if (updatedProduct && slugChanged) {
+      // Renaming back to an old slug makes it current again, not a redirect.
+      await Product.updateOne({ _id: id }, { $pull: { slugHistory: nextSlug } });
+    }
     if (!updatedProduct) {
       return {
         message: 'Product not found',

@@ -39,7 +39,8 @@ const reviewSchema = new mongoose.Schema(
     fit: {
       type: String,
     },
-    images: [],
+    // Storage paths under `reviews/` (see ReviewValidator); rendered through the CDN.
+    images: { type: [String], default: [] },
     // Transaction that verifies purchase
     transactionId: {
       type: ObjectId,

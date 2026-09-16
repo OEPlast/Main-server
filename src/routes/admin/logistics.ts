@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import AdminLogisticsController from '@/controller/admin/LogisticsController';
-import { authenticateUser, isAdmin } from '@/middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '@/middleware/auth';
 import {
   upsertConfigValidator,
   getByCountryValidator,
@@ -15,19 +15,20 @@ const router = Router();
 
 router.use(authenticateUser, isAdmin);
 
-router.get('/countries', AdminLogisticsController.listCountries);
-router.get('/one/:country', getByCountryValidator, validate, AdminLogisticsController.getByCountry);
+router.get('/countries', requirePermission('logistics', 'read'), AdminLogisticsController.listCountries);
+router.get('/one/:country', requirePermission('logistics', 'read'), getByCountryValidator, validate, AdminLogisticsController.getByCountry);
 // Create full logistics config and update by ID
-router.post('/config', upsertConfigValidator, validate, AdminLogisticsController.createConfig);
+router.post('/config', requirePermission('logistics', 'create'), upsertConfigValidator, validate, AdminLogisticsController.createConfig);
 router.patch(
   '/config/:id',
+  requirePermission('logistics', 'update'),
   updateConfigIdValidator,
   updateConfigPartialValidator,
   validate,
   AdminLogisticsController.updateConfig
 );
 // routes to create an empty country, delete a country and update a country name
-router.post('/country/add', createEmptyCountryValidator, validate, AdminLogisticsController.createEmptyCountry);
-router.delete('/country/:id', deleteCountryValidator, validate, AdminLogisticsController.deleteCountry);
+router.post('/country/add', requirePermission('logistics', 'create'), createEmptyCountryValidator, validate, AdminLogisticsController.createEmptyCountry);
+router.delete('/country/:id', requirePermission('logistics', 'delete'), deleteCountryValidator, validate, AdminLogisticsController.deleteCountry);
 
 export default router;

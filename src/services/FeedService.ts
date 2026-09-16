@@ -11,7 +11,10 @@ import { getBrand } from './brand';
  * Notes:
  * - Prices/availability MUST match the on-page Product schema exactly (mismatch
  *   → Merchant Center disapproval). Both derive from the same Product fields.
- * - Free shipping nationwide + 7-day returns are declared to match store policy.
+ * - No per-item <g:shipping>: delivery is charged by destination and is free only above the
+ *   configured order value, which a flat per-product price cannot express. Shipping and the
+ *   7-day return policy are configured once in Merchant Center (account shipping/return
+ *   settings). This feed used to declare 0.00 NGN shipping on every item, which checkout contradicted.
  * - GTIN/MPN/brand improve match quality; when none exist we set
  *   identifier_exists=no (required by Google in that case).
  */
@@ -20,7 +23,6 @@ const STORE_URL =
   process.env.STOREFRONT_URL || process.env.FRONTEND_URL || 'https://www.rawura.com';
 const CDN_BASE_URL = process.env.CDN_BASE_URL || 'https://oeptest.b-cdn.net/';
 const CURRENCY = 'NGN';
-const COUNTRY = 'NG';
 
 function xmlEscape(input: unknown): string {
   const s = String(input ?? '');
@@ -101,11 +103,6 @@ class FeedService {
         const gpc = getGoogleProductCategory(p.category?.slug, p.category?.name);
         return gpc ? `    <g:google_product_category>${xmlEscape(gpc)}</g:google_product_category>` : '';
       })(),
-      // Free shipping nationwide (matches store policy + on-page schema).
-      '    <g:shipping>',
-      `      <g:country>${COUNTRY}</g:country>`,
-      `      <g:price>0.00 ${CURRENCY}</g:price>`,
-      '    </g:shipping>',
       '  </item>',
     ];
 

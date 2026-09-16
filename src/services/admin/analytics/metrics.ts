@@ -228,6 +228,9 @@ export const METRICS: Record<string, MetricDefinition> = {
     source: 'users',
     timestampField: 'createdAt',
     aggregation: 'count',
+    // Registered accounts only. Guest checkout creates a user record per new email; counting
+    // those would report every first-time guest purchase as a sign-up.
+    filter: { isGuest: { $ne: true } },
   },
 
   reviews_written: {
@@ -379,6 +382,8 @@ export const METRICS: Record<string, MetricDefinition> = {
     source: 'users',
     timestampField: 'createdAt',
     aggregation: 'count',
+    // Registered accounts only — see new_customers.
+    filter: { isGuest: { $ne: true } },
   },
 
   total_products: {

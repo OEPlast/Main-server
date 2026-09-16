@@ -87,6 +87,27 @@ const validateTransactionQueryParams = async (req: Request, res: Response, next:
           errorMessage: 'Transaction type must be one of: order_payment, return_refund',
         },
       },
+      paymentGateway: {
+        in: ['query'],
+        optional: true,
+        isIn: {
+          options: [['paystack', 'stripe', 'flutterwave', 'manual']],
+          errorMessage: 'Payment gateway must be one of: paystack, stripe, flutterwave, manual',
+        },
+      },
+      search: {
+        in: ['query'],
+        optional: true,
+        isString: true,
+        isLength: { options: { max: 100 } },
+        errorMessage: 'Search must be a string of at most 100 characters',
+      },
+      needsReview: {
+        in: ['query'],
+        optional: true,
+        isIn: { options: [['true', 'false']] },
+        errorMessage: 'needsReview must be true or false',
+      },
       startDate: {
         in: ['query'],
         optional: true,

@@ -68,8 +68,8 @@ export interface OrderEmailContext {
   };
 }
 
-/** Days a customer has to open a return after delivery. Mirrors `returnService`. */
-export const RETURN_WINDOW_DAYS = 7;
+/** Re-exported for existing importers; defined once in config/storePolicies. */
+export { RETURN_WINDOW_DAYS } from '@/config/storePolicies';
 
 type PopulatedImage = { url?: string; cover_image?: boolean };
 
@@ -174,7 +174,8 @@ export async function loadOrderEmailContext(orderId: string): Promise<OrderEmail
     shipping: await buildShipping(order, deliveryType),
     links: {
       order: orderUrl(brand, orderIdString),
-      tracking: orderTrackingUrl(brand, orderIdString),
+      // The tracking page looks orders up by their human order number (plus the customer's email).
+      tracking: orderTrackingUrl(brand, order.orderNumber ?? orderIdString),
       returns: returnsUrl(brand, orderIdString),
       shop: shopUrl(brand),
       support: supportUrl(brand),

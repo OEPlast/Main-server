@@ -8,7 +8,9 @@ import GIGService from '@/services/GIGService';
 // import CartService from '@/services/cartService';
 // import Cart from '@/models/Cart';
 import CheckoutService, { SecureCheckoutPayload } from '@/services/CheckoutService';
+import CheckoutCustomerService from '@/services/CheckoutCustomerService';
 import { TransactionStatus } from '@/models/Transaction';
+import { priceCart, qualifiesForFreeDelivery } from '@/services/pricing';
 
 // Fetch paginated order history for a user
 export const getOrders = async (req: Request, res: Response) => {
@@ -64,10 +66,28 @@ export const getOrderById = async (req: Request, res: Response) => {
 // Secure checkout with simplified price validation
 export const secureCheckout = async (req: Request, res: Response) => {
   try {
-    const userId = (req as AuthenticatedRequest).userId!;
+    // Optional auth: set for signed-in shoppers, undefined for guests.
+    const tokenUserId = (req as Partial<AuthenticatedRequest>).userId;
     const checkoutPayload = req.body as SecureCheckoutPayload;
 
-    const result = await CheckoutService.secureCheckout(userId, checkoutPayload);
+    // A signed-in shopper's details come from their account; drop any guest block so it can never
+    // be written onto their order. From here on `payload.guest` present <=> guest checkout.
+    if (tokenUserId) {
+      delete checkoutPayload.guest;
+    }
+
+    const customer = await CheckoutCustomerService.resolveCheckoutCustomer({
+      userId: tokenUserId,
+      guest: checkoutPayload.guest,
+    });
+    if (!customer.ok) {
+      return res.status(customer.code).json({
+        message: customer.message,
+        data: customer.reason ? { reason: customer.reason, email: customer.email } : null,
+      });
+    }
+
+    const result = await CheckoutService.secureCheckout(customer.userId, checkoutPayload);
     return res.status(result.code).json({ message: result.message, data: result.data });
   } catch (error) {
     console.error('Error in secureCheckout:', error);
@@ -107,18 +127,13 @@ export const cancelOrder = async (req: Request, res: Response) => {
   }
 };
 
-// Initiate a return for an order
-export const initiateReturn = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const userId = (req as AuthenticatedRequest).userId!;
-
-    const { message, code } = await OrderService.initiateReturn(id, userId);
-    return res.status(code).json({ message });
-  } catch (error) {
-    console.error('Error in initiateReturn:', error);
-    return res.status(500).json({ error: 'Internal server error' });
-  }
+// Legacy: this route logged the request and created nothing. Returns are filed at POST /returns.
+export const initiateReturn = async (_req: Request, res: Response) => {
+  return res.status(410).json({
+    message: 'This endpoint has been retired. Create a return with POST /returns.',
+    data: null,
+    code: 410,
+  });
 };
 
 export const getAllReturns = async (req: Request, res: Response) => {
@@ -162,13 +177,14 @@ export const calculateShipping = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'Cart items are required', code: 400 });
     }
 
-    const itemsSubtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    // Priced on the server with the checkout formula, so the free-delivery decision here is the
+    // one checkout and order creation will make.
+    const { itemsSubtotal } = await priceCart(
+      items.map((item) => ({ product: item.product, qty: item.qty, selectedAttributes: item.selectedAttributes }))
+    );
     const checkoutConfig = await GIGService.getPublicCheckoutConfig();
     const freeShippingThreshold = checkoutConfig.data.freeShippingThreshold;
-    const qualifiesForFreeShipping =
-      Number.isFinite(freeShippingThreshold) &&
-      freeShippingThreshold !== null &&
-      itemsSubtotal >= freeShippingThreshold;
+    const qualifiesForFreeShipping = qualifiesForFreeDelivery(itemsSubtotal, freeShippingThreshold);
 
     const isPickupEnabled = await GIGService.isDeliveryMethodEnabled('pickup');
     const isShippingEnabled = await GIGService.isDeliveryMethodEnabled('shipping');

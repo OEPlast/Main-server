@@ -149,6 +149,56 @@ const validateSecureCheckout = async (req: Request, res: Response, next: NextFun
       },
     },
 
+    // Guest contact. Required only when the request carries no token — the route runs
+    // authenticateUserIfTokenSent, so `userId` is set for signed-in shoppers and their `guest`
+    // block (if any) is ignored. Presence is checked here as a whole; formats per field below.
+    guest: {
+      in: ['body'],
+      custom: {
+        options: (value: unknown, { req }) => {
+          if ((req as Request & { userId?: string }).userId) return true;
+
+          const guest = value as Record<string, unknown> | undefined;
+          const missing = ['email', 'firstName', 'lastName', 'phoneNumber'].filter(
+            (field) => typeof guest?.[field] !== 'string' || !(guest[field] as string).trim()
+          );
+          if (missing.length > 0) {
+            throw new Error('Please enter your email, name and phone number to check out as a guest.');
+          }
+          return true;
+        },
+      },
+    },
+    'guest.email': {
+      in: ['body'],
+      optional: true,
+      trim: true,
+      toLowerCase: true,
+      isEmail: { errorMessage: 'Please enter a valid email address.' },
+      isLength: { options: { max: 254 }, errorMessage: 'Email address is too long.' },
+    },
+    'guest.firstName': {
+      in: ['body'],
+      optional: true,
+      trim: true,
+      isLength: { options: { min: 1, max: 50 }, errorMessage: 'First name must be 1-50 characters.' },
+    },
+    'guest.lastName': {
+      in: ['body'],
+      optional: true,
+      trim: true,
+      isLength: { options: { min: 1, max: 50 }, errorMessage: 'Last name must be 1-50 characters.' },
+    },
+    'guest.phoneNumber': {
+      in: ['body'],
+      optional: true,
+      trim: true,
+      matches: {
+        options: /^\+?[0-9\s()-]{7,20}$/,
+        errorMessage: 'Please enter a valid phone number.',
+      },
+    },
+
     // Shipping address validation.
     //
     // Optional at the object level because a pickup order legitimately has none — the service

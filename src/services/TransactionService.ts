@@ -1,32 +1,12 @@
 import Transaction, { ITransaction } from '../models/Transaction';
 import Order from '../models/Order';
-import Product from '../models/Product';
-import mongoose from 'mongoose';
-import eventPublisher from '@/events/eventPublisher';
-import { EventType } from '@/events/eventTypes';
-import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
 import { CustomResponseType } from '@/types';
 import { logger } from '@/lib/logger';
-import ShipmentService from './ShipmentService';
-import crypto, { randomUUID } from 'crypto';
-import {
-  PaystackCreateRefundResponse,
-  PaystackInitializeData,
-  PaystackResponse,
-  PaystackVerifyTransactionResponse,
-  PaystackWebhookData,
-} from '@/types/paystack';
-import { toString } from 'express-validator/lib/utils';
-import { orderStatusUpdate } from '@/utils/orderStatusTimestamps';
-import { loadOrderEmailContext, toOrderConfirmation } from './email/orderEmailPayload';
-
-/**
- * How long unpaid orders are held before stock is released, in minutes.
- * Mirrors `CART_RESTORATION_TIMEFRAME`, the window event-bus actually enforces, so the
- * payment-failed email quotes the real deadline rather than a guess.
- */
-const paymentHoldMinutes = (): number =>
-  Math.max(1, Math.floor(Number(process.env.CART_RESTORATION_TIMEFRAME || 1_800_000) / 60_000));
+import crypto from 'crypto';
+import { PaystackInitializeData, PaystackResponse, PaystackRefundWebhookData, PaystackWebhookData } from '@/types/paystack';
+import { verifyTransaction } from './payments/paystackClient';
+import { applyChargeOutcome, toChargeReport } from './payments/paymentOutcome';
+import { applyRefundWebhook, refundTransaction } from './payments/refunds';
 
 const initializePayment = async (paymentData: {
   orderId: string;
@@ -51,7 +31,6 @@ const initializePayment = async (paymentData: {
     const currency = paymentData.currency || 'NGN';
     const amount = typeof order.total === 'number' ? order.total : paymentData.amount;
     const amountInKobo = Math.round(currency === 'NGN' ? amount * 100 : amount);
-    console.log(amountInKobo);
 
     // Initialize payment with Paystack first to get transaction ID
     const paystackData: PaystackInitializeData = {
@@ -70,10 +49,10 @@ const initializePayment = async (paymentData: {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(paystackData),
+      signal: AbortSignal.timeout(15_000),
     });
 
     const result = (await paystackResponse.json()) as PaystackResponse;
-    console.log(result);
 
     if (!result.status) {
       return {
@@ -136,380 +115,85 @@ const initializePayment = async (paymentData: {
 };
 
 /**
- * Verify payment with Paystack
+ * Verifies a payment with Paystack and applies the result.
+ *
+ * Called by the storefront when the payment window closes (success, cancel or error) and before a
+ * new checkout. Paystack's answer is the only input: the order is paid on `success`, cancelled on
+ * `failed`/`abandoned`, and left alone while Paystack still reports the payment in progress.
  */
 const verifyPayment = async (reference: string): Promise<CustomResponseType<ITransaction>> => {
   try {
-    const paystackResponse = await fetch(`https://api.paystack.co/transaction/verify/${reference}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    const result = (await paystackResponse.json()) as PaystackVerifyTransactionResponse;
-
+    const result = await verifyTransaction(reference);
     if (!result.status) {
-      return {
-        message: result.message || 'Payment verification failed',
-        data: null,
-        code: 400,
-      };
+      return { message: result.message || 'Payment verification failed', data: null, code: 400 };
     }
 
-    const paymentData = result.data;
-
-    // Find associated paystack reference
-    const transaction = await Transaction.findOne({ reference: reference });
-    if (!transaction) {
+    const { action, transaction } = await applyChargeOutcome(reference, toChargeReport(result.data), 'verify');
+    if (action === 'not_found' || !transaction) {
       return { message: 'Transaction record not found', data: null, code: 404 };
     }
-    if (!transaction.orderId) {
-      return { message: 'Order not found for transaction', data: null, code: 404 };
-    }
 
-    // Idempotent update
-    const isSuccess = paymentData.status === 'success';
-    if (transaction.status !== 'completed' && transaction.status !== 'failed') {
-      transaction.status = isSuccess ? 'completed' : 'failed';
-      transaction.gatewayResponse = {
-        ...transaction.gatewayResponse,
-        gatewayTransactionId: toString(paymentData.id),
-        responseCode: paymentData.gateway_response,
-        responseMessage: paymentData.status,
-        metadata: paymentData,
-      };
-      if (paymentData.fees) {
-        transaction.fees = { gatewayFee: paymentData.fees / 100, processingFee: 0, totalFees: paymentData.fees / 100 };
-      }
-      transaction.paidAt = isSuccess ? new Date(paymentData.paid_at || Date.now()) : undefined;
-      transaction.channel = paymentData.channel;
-      await transaction.save();
-
-      // Update Order
-      if (isSuccess && transaction.orderId) {
-        const order = await Order.findByIdAndUpdate(
-          transaction.orderId,
-          { isPaid: true, paidAt: new Date() },
-          { new: true }
-        ).populate([
-          {
-            path: 'user',
-            select: 'email firstName lastName',
-          },
-          {
-            path: 'products.product',
-            select: 'name description_images category price',
-          },
-          {
-            path: 'shipmentId',
-            select: 'courier _id',
-          },
-        ]);
-
-        // Update order status to Processing
-        await Order.findByIdAndUpdate(transaction.orderId, { status: 'Processing' });
-
-        // Create shipment if delivery type is shipping
-        if (order && order.deliveryType === 'shipping') {
-          try {
-            const shipmentResult = await ShipmentService.createShipmentForOrder(transaction.orderId.toString());
-            if (shipmentResult) {
-              logger.info(
-                `Shipment created for order ${transaction.orderId.toString()} - Tracking: ${
-                  shipmentResult.trackingNumber
-                }`
-              );
-            }
-          } catch (shipmentError) {
-            logger.error(
-              `Failed to create shipment for order ${transaction.orderId.toString()}: ${
-                (shipmentError as Error).message
-              }`
-            );
-            // Don't fail payment verification if shipment creation fails
-          }
-        }
-      } else if (!isSuccess && transaction.orderId) {
-        // Restore stock when payment fails
-        const order = await Order.findById(transaction.orderId);
-        if (order && order.products && order.products.length > 0) {
-          logger.info(`Payment failed - Restoring stock for order ${transaction.orderId.toString()}`);
-
-          const bulkUpdates = order.products.map((item) => ({
-            updateOne: {
-              filter: { _id: item.product },
-              update: { $inc: { stock: item.qty || 0 } },
-            },
-          }));
-
-          await Product.bulkWrite(bulkUpdates);
-          logger.info(
-            `Stock restored for ${order.products.length} products in order ${transaction.orderId.toString()}`
-          );
-
-          // Reverse sale counters using session for atomicity
-          const session = await mongoose.startSession();
-          session.startTransaction();
-          try {
-            await reverseSaleCountersOnCancel(
-              order.products
-                .filter((item) => item.product && item.qty)
-                .map((item) => ({
-                  product: item.product!,
-                  qty: item.qty!,
-                  sale: (item as any).sale || undefined,
-                  saleSnapshot: (item as any).saleSnapshot,
-                })),
-              session
-            );
-            await session.commitTransaction();
-            logger.info(`Sale counters reversed for order ${transaction.orderId.toString()}`);
-          } catch (err) {
-            await session.abortTransaction();
-            logger.error(`Failed to reverse sale counters for order ${transaction.orderId.toString()}:`, err);
-          } finally {
-            session.endSession();
-          }
-
-          // Update order status to Cancelled
-          await Order.findByIdAndUpdate(transaction.orderId, orderStatusUpdate('Cancelled'));
-        }
-      }
-
-      // Events
-      if (isSuccess && transaction.orderId) {
-        // Publish ORDER_SUCCESSFUL event to trigger email confirmation
-        await publishOrderSuccessfulEvent(transaction.orderId.toString());
-
-        // Enriched so the payment-receipt email has an order number, an amount, a reference
-        // and a recipient. The previous payload carried none of that, which is why the
-        // receipt send was commented out in the handler rather than fixed.
-        const receiptContext = await loadOrderEmailContext(transaction.orderId.toString());
-        await eventPublisher.publishPaymentSuccessful({
-          orderId: transaction.orderId.toString(),
-          userId: transaction.userId.toString(),
-          paymentId: (transaction._id as mongoose.Types.ObjectId).toString(),
-          amount: transaction.amount,
-          paymentMethod: 'paystack',
-          orderNumber: receiptContext?.orderNumber,
-          email: receiptContext?.email,
-          firstName: receiptContext?.firstName,
-          lastName: receiptContext?.lastName,
-          purchaseDate: receiptContext?.purchaseDate,
-          paidAt: new Date(),
-          paymentReference: transaction.reference,
-          orderStatusLink: receiptContext?.links.order,
-        });
-        await eventPublisher.publishWebsocketOrderUpdate({ orderId: transaction.orderId.toString(), status: 'paid' });
-      } else if (!isSuccess && transaction.orderId) {
-        const failedContext = await loadOrderEmailContext(transaction.orderId.toString());
-        if (failedContext) {
-          await eventPublisher.publishPaymentFailed({
-            userId: transaction.userId.toString(),
-            reference: transaction.reference,
-            email: failedContext.email,
-            firstName: failedContext.firstName,
-            lastName: failedContext.lastName,
-            orderId: failedContext.orderId,
-            orderNumber: failedContext.orderNumber,
-            purchaseDate: failedContext.purchaseDate,
-            amount: transaction.amount,
-            paymentMethod: 'paystack',
-            retryPaymentLink: failedContext.links.order,
-            expiresInMinutes: paymentHoldMinutes(),
-          });
-        }
-        await eventPublisher.publishWebsocketOrderUpdate({ orderId: transaction.orderId.toString(), status: 'failed' });
-      }
-    }
-
-    return { message: 'Payment reference verified successfully', data: transaction, code: 200 };
+    const current = await Transaction.findById(transaction._id);
+    return { message: 'Payment reference verified successfully', data: current ?? transaction, code: 200 };
   } catch (error) {
-    console.error('Error verifying payment:', error);
+    logger.error('Error verifying payment:', error);
     return { message: 'Failed to verify payment', data: null, code: 500 };
   }
 };
 
+const CHARGE_EVENTS = new Set(['charge.success', 'charge.failed']);
+const REFUND_EVENTS = new Set(['refund.pending', 'refund.processing', 'refund.processed', 'refund.failed']);
+
+/** Constant-time comparison of two hex digests. */
+const signaturesMatch = (expected: string, received: string): boolean => {
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(received ?? '', 'utf8');
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
+
 /**
- * Handle Paystack webhook (raw buffer)
+ * Handles a Paystack webhook (raw body, for the signature).
+ *
+ * Charge events are re-verified against Paystack's API before anything is applied, so the order
+ * is settled from the same authoritative data as every other path. Answers 500 only when that
+ * lookup fails, which makes Paystack retry; anything else is acknowledged so it is not redelivered.
  */
 const handleWebhook = async (rawBody: Buffer, signature: string): Promise<CustomResponseType<string>> => {
   try {
-    logger.info(
-      `Paystack webhook: received (rawBytes=${rawBody?.length ?? 0}, signaturePrefix=${
-        signature ? signature.slice(0, 8) + '…' : 'none'
-      })`
-    );
     const secret = process.env.PAYSTACK_SECRET_KEY || process.env.PAYSTACK_WEBHOOK_SECRET;
     if (!secret) {
       logger.error('Paystack webhook: missing webhook secret');
       return { message: 'Missing webhook secret', data: null, code: 500 };
     }
 
-    // Use Uint8Array view to satisfy BinaryLike typing while preserving raw bytes
     const hash = crypto.createHmac('sha512', secret).update(new Uint8Array(rawBody)).digest('hex');
-    logger.debug(`Paystack webhook: computed HMAC (hashPrefix=${hash.slice(0, 8)}…)`);
-    if (hash !== signature) {
+    if (!signaturesMatch(hash, signature)) {
       logger.warn('Paystack webhook: signature mismatch');
       return { message: 'Invalid signature', data: null, code: 401 };
     }
 
-    const event = JSON.parse(rawBody.toString()) as {
-      event: string;
-      data: PaystackWebhookData;
-    };
-    logger.info(`Paystack webhook: event parsed (type=${event.event})`);
+    const event = JSON.parse(rawBody.toString()) as { event: string; data: Record<string, unknown> };
+    logger.info(`Paystack webhook: ${event.event}`);
 
-    if (event.event === 'charge.success' || event.event === 'charge.failed') {
-      const data = event.data;
-      const reference = data.reference;
-      const isSuccess = event.event === 'charge.success';
-      logger.debug(
-        `Paystack webhook: processing charge event (reference=${reference}, success=${isSuccess}, id=${data.id})`
-      );
-
-      // Map to our update flow via verify response-like object
-      const transaction = await Transaction.findOne({ reference: reference });
-      if (!transaction) {
-        logger.warn(`Paystack webhook: transaction not found (reference=${reference})`);
-        return { message: 'Transaction record not found', data: null, code: 404 };
+    if (CHARGE_EVENTS.has(event.event)) {
+      const reference = (event.data as PaystackWebhookData).reference;
+      let verification: Awaited<ReturnType<typeof verifyTransaction>>;
+      try {
+        verification = await verifyTransaction(reference);
+      } catch (error) {
+        logger.error(`Paystack webhook: could not verify ${reference}; asking Paystack to retry`, error);
+        return { message: 'Verification unavailable', data: null, code: 500 };
       }
-
-      if (transaction.status === 'completed' || transaction.status === 'failed') {
-        logger.info(
-          `Paystack webhook: transaction already processed (transactionId=${transaction.id}, status=${transaction.status})`
-        );
-        return { message: 'Already processed', data: 'OK', code: 200 };
+      if (!verification.status) {
+        logger.warn(`Paystack webhook: Paystack could not verify ${reference}: ${verification.message}`);
+        return { message: 'Unverifiable charge ignored', data: 'OK', code: 200 };
       }
-
-      logger.debug(
-        `Paystack webhook: updating transaction status (transactionId=${transaction.id}) → ${
-          isSuccess ? 'completed' : 'failed'
-        }`
-      );
-      transaction.status = isSuccess ? 'completed' : 'failed';
-      transaction.gatewayResponse = {
-        ...transaction.gatewayResponse,
-        gatewayTransactionId: data.id,
-        responseCode: data.gateway_response,
-        responseMessage: data.status,
-        metadata: data,
-      };
-      if (typeof data.fees === 'number') {
-        transaction.fees = { gatewayFee: data.fees / 100, processingFee: 0, totalFees: data.fees / 100 };
-      }
-      transaction.paidAt = isSuccess ? new Date(data.paid_at || Date.now()) : undefined;
-      transaction.channel = data.channel;
-      await transaction.save();
-      logger.debug(
-        `Paystack webhook: transaction saved (transactionId=${(
-          transaction._id as mongoose.Types.ObjectId
-        ).toString()}, status=${transaction.status})`
-      );
-
-      if (isSuccess && transaction.orderId) {
-        logger.info(`Paystack webhook: marking order as paid (orderId=${transaction.orderId.toString()})`);
-
-        // Update order to paid
-        const order = await Order.findByIdAndUpdate(
-          transaction.orderId,
-          { isPaid: true, paidAt: new Date() },
-          { new: true }
-        ).populate([
-          {
-            path: 'user',
-            select: 'email firstName lastName',
-          },
-          {
-            path: 'products.product',
-            select: 'name description_images category price',
-          },
-          {
-            path: 'shipmentId',
-            select: 'courier _id',
-          },
-        ]);
-
-        // Update order status to Processing
-        await Order.findByIdAndUpdate(transaction.orderId, { status: 'Processing' });
-
-        // Create shipment if delivery type is shipping
-        if (order && order.deliveryType === 'shipping') {
-          try {
-            const shipmentResult = await ShipmentService.createShipmentForOrder(transaction.orderId.toString());
-            if (shipmentResult) {
-              logger.info(
-                `Paystack webhook: Shipment created for order ${transaction.orderId.toString()} - Tracking: ${
-                  shipmentResult.trackingNumber
-                }`
-              );
-            }
-          } catch (shipmentError) {
-            logger.error(
-              `Paystack webhook: Failed to create shipment for order ${transaction.orderId.toString()}: ${
-                (shipmentError as Error).message
-              }`
-            );
-            // Don't fail webhook processing if shipment creation fails
-          }
-        }
-
-        // Publish ORDER_SUCCESSFUL event to trigger email confirmation
-        await publishOrderSuccessfulEvent(transaction.orderId.toString());
-
-        // Publish PAYMENT_SUCCESSFUL event (match verifyPayment behavior)
-        await eventPublisher.publishPaymentSuccessful({
-          orderId: transaction.orderId.toString(),
-          userId: transaction.userId.toString(),
-          paymentId: (transaction._id as mongoose.Types.ObjectId).toString(),
-          amount: transaction.amount,
-          paymentMethod: 'paystack',
-        });
-
-        await eventPublisher.publishWebsocketOrderUpdate({ orderId: transaction.orderId.toString(), status: 'paid' });
-        logger.debug(
-          `Paystack webhook: published websocket update (orderId=${transaction.orderId.toString()}, status=paid)`
-        );
-      } else if (!isSuccess && transaction.orderId) {
-        // Restore stock when payment fails via webhook
-        const order = await Order.findById(transaction.orderId);
-        if (order && order.products && order.products.length > 0) {
-          logger.info(`Paystack webhook: payment failed - restoring stock for order ${transaction.orderId.toString()}`);
-
-          const bulkUpdates = order.products.map((item) => ({
-            updateOne: {
-              filter: { _id: item.product },
-              update: { $inc: { stock: item.qty || 0 } },
-            },
-          }));
-
-          await Product.bulkWrite(bulkUpdates);
-          logger.info(
-            `Paystack webhook: stock restored for ${
-              order.products.length
-            } products in order ${transaction.orderId.toString()}`
-          );
-
-          // Update order status to Cancelled
-          await Order.findByIdAndUpdate(transaction.orderId, orderStatusUpdate('Cancelled'));
-        }
-
-        await eventPublisher.publish(EventType.PAYMENT_FAILED, {
-          orderId: transaction.orderId.toString(),
-          userId: transaction.userId.toString(),
-          reference: transaction.reference,
-        });
-        logger.info(`Paystack webhook: published payment failed event (orderId=${transaction.orderId.toString()})`);
-        await eventPublisher.publishWebsocketOrderUpdate({ orderId: transaction.orderId.toString(), status: 'failed' });
-        logger.debug(
-          `Paystack webhook: published websocket update (orderId=${transaction.orderId.toString()}, status=failed)`
-        );
-      }
+      const { action } = await applyChargeOutcome(reference, toChargeReport(verification.data), 'webhook');
+      logger.info(`Paystack webhook: ${event.event} for ${reference} -> ${action}`);
+    } else if (REFUND_EVENTS.has(event.event)) {
+      await applyRefundWebhook(event.event, event.data as unknown as PaystackRefundWebhookData);
     }
 
-    logger.info('Paystack webhook: processed successfully');
     return { message: 'Webhook processed successfully', data: 'OK', code: 200 };
   } catch (error) {
     logger.error(`Paystack webhook: error processing webhook: ${(error as Error).message}`);
@@ -517,14 +201,32 @@ const handleWebhook = async (rawBody: Buffer, signature: string): Promise<Custom
   }
 };
 
+/** Who is asking for a payment record. */
+type PaymentViewer = { userId: string; role?: string };
+
+/**
+ * A customer may read only their own transactions; staff may read any. Both lookups below used to
+ * return any transaction, with the payer's name and email, to any signed-in user who had its id.
+ */
+const canViewPayment = (payment: ITransaction, viewer: PaymentViewer): boolean => {
+  if (['owner', 'manager', 'employee'].includes(viewer.role ?? '')) return true;
+  const owner = payment.userId as unknown as { _id?: { toString(): string } } | { toString(): string } | null;
+  const ownerId = owner && '_id' in owner && owner._id ? owner._id.toString() : owner?.toString();
+  return !!ownerId && ownerId === viewer.userId;
+};
+
 // Restore service methods used by export object
-const getPaymentById = async (paymentId: string): Promise<CustomResponseType<ITransaction>> => {
+const getPaymentById = async (
+  paymentId: string,
+  viewer: PaymentViewer
+): Promise<CustomResponseType<ITransaction>> => {
   try {
     const payment = await Transaction.findById(paymentId)
       .populate('orderId', 'orderNumber totalAmount items')
       .populate('userId', 'firstName lastName email');
 
-    if (!payment) {
+    // Someone else's payment answers exactly like a missing one, so ids cannot be probed.
+    if (!payment || !canViewPayment(payment, viewer)) {
       return { message: 'Payment not found', data: null, code: 404 };
     }
 
@@ -563,13 +265,18 @@ const getUserPayments = async (
   }
 };
 
-const getPaymentByReference = async (reference: string): Promise<CustomResponseType<ITransaction>> => {
+const getPaymentByReference = async (
+  reference: string,
+  viewer: PaymentViewer
+): Promise<CustomResponseType<ITransaction>> => {
   try {
-    const transaction = await Transaction.findOne({ transactionId: reference })
+    // `reference` is the field the schema stores; this used to query a `transactionId` field that
+    // does not exist, so the lookup never found anything.
+    const transaction = await Transaction.findOne({ reference })
       .populate('orderId', 'orderNumber totalAmount items')
       .populate('userId', 'firstName lastName email');
 
-    if (!transaction) {
+    if (!transaction || !canViewPayment(transaction, viewer)) {
       return { message: 'Transaction not found', data: null, code: 404 };
     }
 
@@ -580,86 +287,17 @@ const getPaymentByReference = async (reference: string): Promise<CustomResponseT
   }
 };
 
+/** Refunds a payment through Paystack. See refundTransaction for how the refund is settled. */
 const refundPayment = async (
   transactionId: string,
-  refundData: { amount?: number; reason: string }
-): Promise<CustomResponseType<ITransaction>> => {
-  try {
-    const transaction = await Transaction.findById(transactionId);
-    if (!transaction) {
-      return { message: 'Transaction not found', data: null, code: 404 };
-    }
-
-    if (transaction.status !== 'completed') {
-      return { message: 'Cannot refund non-completed transaction', data: null, code: 400 };
-    }
-
-    const refundAmount = refundData.amount || transaction.amount;
-    const refundAmountInKobo = refundAmount * 100;
-
-    const paystackResponse = await fetch('https://api.paystack.co/refund', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        transaction: transaction.reference,
-        amount: refundAmountInKobo,
-        currency: transaction.currency,
-        customer_note: refundData.reason,
-        merchant_note: refundData.reason,
-      }),
-    });
-
-    const result = (await paystackResponse.json()) as PaystackCreateRefundResponse;
-
-    if (!result.status) {
-      return { message: result.message || 'Refund failed', data: null, code: 400 };
-    }
-
-    const refundId = `REF_${randomUUID()}`;
-    transaction.refunds.push({
-      refundId,
-      amount: refundAmount,
-      reason: refundData.reason,
-      status: 'completed',
-      refundDate: new Date(),
-      gatewayRefundId: toString(result.data.id),
-    });
-
-    const totalRefunded = transaction.refunds.reduce((sum: number, r: ITransaction['refunds'][0]) => sum + r.amount, 0);
-    transaction.status = totalRefunded >= transaction.amount ? 'refunded' : 'partially_refunded';
-
-    await transaction.save();
-
-    return { message: 'Transaction refunded successfully', data: transaction, code: 200 };
-  } catch (error) {
-    console.error('Error refunding transaction:', error);
-    return { message: 'Failed to refund transaction', data: null, code: 500 };
-  }
-};
-
-/**
- * Publishes ORDER_SUCCESSFUL with the full order-email payload.
- *
- * The ~90 lines of populate-and-reshape that used to live here (and again, differently, in
- * `routes/internal/serviceRoutes`) now come from `loadOrderEmailContext`, which is the single
- * builder every order email draws on.
- */
-const publishOrderSuccessfulEvent = async (orderId: string): Promise<void> => {
-  try {
-    const context = await loadOrderEmailContext(orderId);
-    if (!context) return;
-
-    await eventPublisher.publishOrderSuccessful(toOrderConfirmation(context));
-
-    logger.info(`publishOrderSuccessfulEvent: ORDER_SUCCESSFUL event published for order ${orderId}`);
-  } catch (error) {
-    logger.error(`publishOrderSuccessfulEvent: Failed to publish ORDER_SUCCESSFUL event for order ${orderId}:`, error);
-    // Don't throw - we don't want to fail payment verification if event publishing fails
-  }
-};
+  refundData: { amount?: number; reason: string; initiatedBy?: string }
+): Promise<CustomResponseType<ITransaction>> =>
+  refundTransaction({
+    transactionId,
+    amount: refundData.amount,
+    reason: refundData.reason,
+    initiatedBy: refundData.initiatedBy ?? 'unknown',
+  });
 
 const TransactionService = {
   initializePayment,

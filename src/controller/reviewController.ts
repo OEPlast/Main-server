@@ -65,8 +65,9 @@ const createReview = async (req: Request, res: Response) => {
 const updateReview = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { review, rating, title } = req.body;
-    const { data, message, code } = await ReviewService.updateReview(id, { review, rating, title });
+    const { review, rating, title, images } = req.body;
+    const userId = (req as AuthenticatedRequest).userId!;
+    const { data, message, code } = await ReviewService.updateReview(id, userId, { review, rating, title, images });
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in updateReview:', error);

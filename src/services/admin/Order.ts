@@ -1,14 +1,10 @@
 import mongoose from 'mongoose';
+import { escapeRegex } from '@/helpers/regex';
 import Order, { OrderType } from '../../models/Order';
 import { TransactionStatus } from '../../models/Transaction';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
-import AnalyticsService from '../MainAnalyticsService';
 import { orderStatusUpdate, type OrderStatusValue } from '@/utils/orderStatusTimestamps';
-import { loadOrderEmailContext } from '@/services/email/orderEmailPayload';
-import { eventPublisher } from '@/events';
-
-/** Business days a card refund typically takes to land. Quoted in cancellation emails. */
-const REFUND_ETA_DAYS = 7;
+import { canTransition, cancelOrder as cancelOrderLifecycle } from '@/services/orders/orderLifecycle';
 
 /**
  * Enriched order response type with all details
@@ -153,7 +149,7 @@ const getOrders = async (
     pipeline.push({ $match: matchStage });
 
     if (filters?.search) {
-      const searchRegex = new RegExp(filters.search, 'i');
+      const searchRegex = new RegExp(escapeRegex(filters.search), 'i');
 
       // Check if search string is a valid ObjectId
       let objectIdMatch = null;
@@ -534,14 +530,33 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<Enriche
 };
 /**
  * Updates order details for admin.
+ *
+ * Status changes are limited to the transitions an order can really make (see canTransition), and
+ * a cancellation goes through the shared cancel path so stock is released and a paid order refunded.
+ * Line items cannot be edited: changing them after checkout would desync stock, coupons and the
+ * amount the customer was charged.
+ *
  * @param orderId - The ID of the order to update.
  * @param updates - The fields to update.
+ * @param adminId - The staff member making the change.
  */
 const updateOrderDetails = async (
   orderId: string,
-  updates: Partial<Pick<OrderType, 'status' | 'products' | 'shippingAddress' | 'deliveredAt'>>
+  updates: Partial<Pick<OrderType, 'status' | 'products' | 'shippingAddress' | 'deliveredAt'>>,
+  adminId?: string
 ): Promise<CustomResponseType<null>> => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      return { message: 'Order not found', data: null, code: 404 };
+    }
+    if (updates.products !== undefined) {
+      return {
+        message: "Order items can't be edited after checkout. Cancel the order and place a new one instead.",
+        data: null,
+        code: 400,
+      };
+    }
+
     const previousOrder = await Order.findById(orderId);
     if (!previousOrder) {
       return {
@@ -551,22 +566,40 @@ const updateOrderDetails = async (
       };
     }
 
-    // Stamp the event timestamp when an admin edit changes status, so an
-    // admin-driven cancellation is bucketed by when it happened like any other.
-    const statusChanged = updates.status && previousOrder.status !== updates.status;
-    const payload = statusChanged
-      ? { ...updates, ...orderStatusUpdate(updates.status as OrderStatusValue) }
-      : updates;
+    const { status, ...otherUpdates } = updates;
+    const statusChanged = !!status && previousOrder.status !== status;
 
-    await Order.findByIdAndUpdate(orderId, payload, { new: true });
+    if (statusChanged && !canTransition(previousOrder.status, status as OrderStatusValue)) {
+      return {
+        message: `An order can't move from ${previousOrder.status} to ${status}`,
+        data: null,
+        code: 400,
+      };
+    }
 
-    // Track analytics for status changes
-    if (updates.status && previousOrder.status !== updates.status) {
-      // If the order was completed, track it as a successful sale
-      if (updates.status === 'Completed') {
-        AnalyticsService.trackOrderCompleted(orderId, previousOrder.total).catch((err) =>
-          console.error('Failed to track order completion analytics:', err)
-        );
+    if (Object.keys(otherUpdates).length > 0) {
+      await Order.findByIdAndUpdate(orderId, otherUpdates);
+    }
+
+    if (statusChanged && status === 'Cancelled') {
+      const result = await cancelOrderLifecycle({
+        orderId,
+        by: 'admin',
+        adminId,
+        refund: 'refund_now',
+        notifyCustomer: true,
+      });
+      return { message: result.message, data: null, code: result.code };
+    }
+
+    if (statusChanged) {
+      // Compare-and-set, so a payment or cancellation landing at the same moment is not overwritten.
+      const updated = await Order.findOneAndUpdate(
+        { _id: orderId, status: previousOrder.status },
+        { $set: orderStatusUpdate(status as OrderStatusValue) }
+      );
+      if (!updated) {
+        return { message: 'This order changed while it was being updated. Please try again.', data: null, code: 409 };
       }
     }
 
@@ -586,65 +619,22 @@ const updateOrderDetails = async (
 };
 
 /**
- * Cancels an order by its ID.
+ * Cancels an order on behalf of staff. The order is kept (it used to be deleted outright), its stock
+ * is released, and a paid order is refunded through Paystack as part of the same action.
  * @param orderId - The ID of the order to cancel.
  * @param reason - Optional explanation, shown to the customer in the cancellation email.
+ * @param adminId - The staff member cancelling, recorded on the refund.
  */
-const cancelOrder = async (orderId: string, reason?: string): Promise<CustomResponseType<null>> => {
-  try {
-    // Read the order for the email BEFORE it is removed. This is a hard ordering
-    // requirement, not a preference: cancellation deletes the document outright, so once
-    // `findByIdAndDelete` has run there is no user, no line items and no total left to write
-    // an email from — which is a large part of why the cancellation email was never sent.
-    const emailContext = await loadOrderEmailContext(orderId);
-
-    const order = await Order.findByIdAndDelete(orderId);
-    if (!order) {
-      return {
-        message: 'Order not found',
-        data: null,
-        code: 404,
-      };
-    }
-    // Track order cancellation analytics
-    AnalyticsService.trackOrderReturned(orderId).catch((err) =>
-      console.error('Failed to track order cancellation analytics:', err)
-    );
-
-    if (emailContext) {
-      await eventPublisher
-        .publishOrderCancelled({
-          userId: order.user.toString(),
-          email: emailContext.email,
-          firstName: emailContext.firstName,
-          lastName: emailContext.lastName,
-          orderId: emailContext.orderId,
-          orderNumber: emailContext.orderNumber,
-          purchaseDate: emailContext.purchaseDate,
-          cancelledAt: new Date(),
-          reason,
-          products: emailContext.products,
-          // Only promise a refund when money was actually taken.
-          refundAmount: order.isPaid ? emailContext.payment.subtotal : undefined,
-          refundEtaDays: order.isPaid ? REFUND_ETA_DAYS : undefined,
-          shopLink: emailContext.links.shop,
-        })
-        .catch((err) => console.error('Failed to publish order cancellation event:', err));
-    }
-
-    return {
-      message: 'Order canceled successfully',
-      data: null,
-      code: 200,
-    };
-  } catch (error) {
-    console.error('Error canceling order:', error);
-    return {
-      message: 'Failed to cancel order',
-      data: null,
-      code: 500,
-    };
-  }
+const cancelOrder = async (orderId: string, reason?: string, adminId?: string): Promise<CustomResponseType<null>> => {
+  const result = await cancelOrderLifecycle({
+    orderId,
+    by: 'admin',
+    adminId,
+    reason,
+    refund: 'refund_now',
+    notifyCustomer: true,
+  });
+  return { message: result.message, data: null, code: result.code };
 };
 
 /**
@@ -678,59 +668,21 @@ const updateDeliveryTimeline = async (orderId: string, timeline: string): Promis
 };
 
 /**
- * Rejects an order by its ID.
+ * Rejects an order: a staff cancellation with a default reason for the customer.
  * @param orderId - The ID of the order to reject.
+ * @param reason - Optional explanation, shown to the customer.
+ * @param adminId - The staff member rejecting, recorded on the refund.
  */
-const rejectOrder = async (orderId: string, reason?: string): Promise<CustomResponseType<null>> => {
-  try {
-    // Was writing 'Not Processed', which is not in the status enum — findByIdAndUpdate
-    // skips validators by default, so it wrote silently and no report ever matched
-    // those orders. A rejected order is a cancellation.
-    const order = await Order.findByIdAndUpdate(orderId, orderStatusUpdate('Cancelled'));
-    if (!order) {
-      return {
-        message: 'Order not found',
-        data: null,
-        code: 404,
-      };
-    }
-
-    // Rejection is a cancellation from the customer's point of view, so it gets the same
-    // email. Unlike `cancelOrder` the document survives, so the context can be loaded after.
-    const emailContext = await loadOrderEmailContext(orderId);
-    if (emailContext) {
-      await eventPublisher
-        .publishOrderCancelled({
-          userId: order.user.toString(),
-          email: emailContext.email,
-          firstName: emailContext.firstName,
-          lastName: emailContext.lastName,
-          orderId: emailContext.orderId,
-          orderNumber: emailContext.orderNumber,
-          purchaseDate: emailContext.purchaseDate,
-          cancelledAt: new Date(),
-          reason: reason ?? 'We were unable to fulfil this order',
-          products: emailContext.products,
-          refundAmount: order.isPaid ? emailContext.payment.subtotal : undefined,
-          refundEtaDays: order.isPaid ? REFUND_ETA_DAYS : undefined,
-          shopLink: emailContext.links.shop,
-        })
-        .catch((err) => console.error('Failed to publish order rejection event:', err));
-    }
-
-    return {
-      message: 'Order rejected successfully',
-      data: null,
-      code: 200,
-    };
-  } catch (error) {
-    console.error('Error rejecting order:', error);
-    return {
-      message: 'Failed to reject order',
-      data: null,
-      code: 500,
-    };
-  }
+const rejectOrder = async (orderId: string, reason?: string, adminId?: string): Promise<CustomResponseType<null>> => {
+  const result = await cancelOrderLifecycle({
+    orderId,
+    by: 'admin',
+    adminId,
+    reason: reason ?? 'We were unable to fulfil this order',
+    refund: 'refund_now',
+    notifyCustomer: true,
+  });
+  return { message: result.message, data: null, code: result.code };
 };
 
 /**

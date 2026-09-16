@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
+import Product from '@/models/Product';
 import ProductController from '../../controller/productController';
 import ProductValidator, { validateProductSlug } from '../../validators/ProductValidator';
 
@@ -30,6 +31,22 @@ router.get('/compare', ProductController.getProductsForComparison);
 
 router.get('/category/:slug', ...ProductValidator.validateCategorySlug, ProductController.getByCategorySlug);
 router.get('/by-slug/:slug', ...validateProductSlug, ProductController.getProductBySlugOrIdController);
+
+/**
+ * GET /products/slug-redirect/:slug → { slug } when `slug` is a former slug of a product.
+ * The storefront calls this only after /by-slug found nothing, then 301s to the current URL.
+ */
+router.get('/slug-redirect/:slug', ...validateProductSlug, async (req: Request, res: Response) => {
+  try {
+    const product = await Product.findOne({ slugHistory: req.params.slug, slug: { $ne: req.params.slug } })
+      .select('slug')
+      .lean();
+    if (!product) return res.status(404).json({ message: 'No redirect', data: null, code: 404 });
+    return res.status(200).json({ message: 'Product moved', data: { slug: product.slug }, code: 200 });
+  } catch {
+    return res.status(500).json({ message: 'Could not look up redirect', data: null, code: 500 });
+  }
+});
 router.get('/by-id/:id', ...ProductValidator.validateProductId, ProductController.getProductById);
 
 // Related products and popular products

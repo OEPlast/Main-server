@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { AuthenticatedRequest } from '@/types';
 import OrderService from '../../services/admin/Order';
 
 // Get all orders
@@ -48,8 +49,11 @@ const getOrderById = async (req: Request, res: Response) => {
 // Cancel an order
 const cancelOrder = async (req: Request, res: Response) => {
   try {
-    const { orderId } = req.params;
-    const { message, code } = await OrderService.cancelOrder(orderId);
+    // The route parameter is `:id`. These handlers read `orderId`, which was always undefined, so
+    // cancel, reject, update and delivery-timeline all answered "Order not found".
+    const { id } = req.params;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+    const { message, code } = await OrderService.cancelOrder(id, reason, (req as AuthenticatedRequest).userId);
     return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in cancelOrder:', error);
@@ -60,9 +64,9 @@ const cancelOrder = async (req: Request, res: Response) => {
 // Update delivery timeline
 const updateDeliveryTimeline = async (req: Request, res: Response) => {
   try {
-    const { orderId } = req.params;
+    const { id } = req.params;
     const { timeline } = req.body;
-    const { message, code, data } = await OrderService.updateDeliveryTimeline(orderId, timeline);
+    const { message, code, data } = await OrderService.updateDeliveryTimeline(id, timeline);
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in updateDeliveryTimeline:', error);
@@ -73,8 +77,9 @@ const updateDeliveryTimeline = async (req: Request, res: Response) => {
 // Reject an order
 const rejectOrder = async (req: Request, res: Response) => {
   try {
-    const { orderId } = req.params;
-    const { message, code } = await OrderService.rejectOrder(orderId);
+    const { id } = req.params;
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+    const { message, code } = await OrderService.rejectOrder(id, reason, (req as AuthenticatedRequest).userId);
     return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in rejectOrder:', error);
@@ -85,9 +90,9 @@ const rejectOrder = async (req: Request, res: Response) => {
 // Update order details
 const updateOrderDetails = async (req: Request, res: Response) => {
   try {
-    const { orderId } = req.params;
+    const { id } = req.params;
     const updates = req.body;
-    const { message, code, data } = await OrderService.updateOrderDetails(orderId, updates);
+    const { message, code, data } = await OrderService.updateOrderDetails(id, updates, (req as AuthenticatedRequest).userId);
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in updateOrderDetails:', error);

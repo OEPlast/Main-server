@@ -1,4 +1,5 @@
 import { duplicateMessage, isDuplicateKeyError } from '@/middleware/mongodb';
+import { escapeRegex } from '@/helpers/regex';
 import Attribute, { AttributeType } from '@/models/Attributes';
 import { CustomResponseType } from '@/types';
 
@@ -77,7 +78,7 @@ const oneAttribute = async (id: string): Promise<CustomResponseType<AttributeTyp
  */
 const oneAttributeByName = async (name: string): Promise<CustomResponseType<AttributeType>> => {
   try {
-    const attribute = await Attribute.findOne({ name: { $regex: `^${name}$`, $options: 'i' } });
+    const attribute = await Attribute.findOne({ name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' } });
     if (!attribute) {
       return { message: 'Attribute not found', data: null, code: 404 };
     }

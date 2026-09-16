@@ -1,4 +1,3 @@
-import Order from '@/models/Order';
 import ShipmentService from '@/services/ShipmentService';
 
 /**

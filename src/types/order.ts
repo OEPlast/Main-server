@@ -21,8 +21,18 @@ export type SecureCheckoutItemInput = FrontendCartItemInput & {
   };
 };
 
+/** Contact details a signed-out shopper gives at checkout. Ignored when a valid token is sent. */
+export type GuestCheckoutContact = {
+  email: string;
+  firstName: string;
+  lastName: string;
+  phoneNumber: string;
+};
+
 export type SecureCheckoutPayload = {
   items: SecureCheckoutItemInput[];
+  /** Required when the request is unauthenticated. */
+  guest?: GuestCheckoutContact;
   shippingAddress?: OrderType['shippingAddress'];
   /** Only read when `billingSameAsShipping` is explicitly false. */
   billingAddress?: OrderType['billingAddress'];

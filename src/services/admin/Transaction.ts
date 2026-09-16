@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { refundTransaction, resolveTransactionReview } from '@/services/payments/refunds';
 import Transaction, {
   ITransaction,
   TransactionStatus,
@@ -17,6 +18,8 @@ interface TransactionFilters {
   dateRange?: { start: Date; end: Date };
   amountRange?: { min: number; max: number };
   search?: string;
+  /** Only payments flagged for staff attention (late payments, refund approvals, failed refunds). */
+  needsReview?: boolean;
 }
 
 interface PaginationMeta {
@@ -50,6 +53,7 @@ const getTransactions = async (
     if (filters.transactionType) matchStage.transactionType = filters.transactionType;
     if (filters.userId) matchStage.userId = new mongoose.Types.ObjectId(filters.userId);
     if (filters.orderId) matchStage.orderId = new mongoose.Types.ObjectId(filters.orderId);
+    if (filters.needsReview) matchStage['review.required'] = true;
 
     if (filters.search) {
       const searchTerm = filters.search.trim();
@@ -499,82 +503,25 @@ const getStatistics = async (): Promise<CustomResponseType<any>> => {
 };
 
 /**
- * Process refund for a transaction
+ * Refunds a payment through Paystack on an admin's authority.
+ *
+ * This used to record a `completed` refund without calling Paystack, so the dashboard showed money
+ * returned that never left the account. It also clears a "refund awaits approval" review flag,
+ * since authorizing the refund is how staff resolve it.
  */
 const processRefund = async (
   transactionId: string,
-  amount: number,
+  amount: number | undefined,
   reason: string,
   adminId: string
 ): Promise<CustomResponseType<ITransaction>> => {
   try {
-    const transaction = await Transaction.findById(transactionId);
-
-    if (!transaction) {
-      return {
-        message: 'Transaction not found',
-        data: null,
-        code: 404,
-      };
+    const refund = await refundTransaction({ transactionId, amount, reason, initiatedBy: adminId });
+    if (refund.code !== 200 || !refund.data) {
+      return { message: refund.message, data: null, code: refund.code };
     }
-
-    // Validate transaction status
-    if (transaction.status !== 'completed') {
-      return {
-        message: 'Only completed transactions can be refunded',
-        data: null,
-        code: 400,
-      };
-    }
-
-    // Calculate total already refunded
-    const totalRefunded = transaction.refunds.reduce((sum, refund) => {
-      if (refund.status === 'completed') {
-        return sum + refund.amount;
-      }
-      return sum;
-    }, 0);
-
-    // Validate refund amount
-    const availableForRefund = transaction.amount - totalRefunded;
-    if (amount > availableForRefund) {
-      return {
-        message: `Refund amount exceeds available amount. Available: ${availableForRefund}`,
-        data: null,
-        code: 400,
-      };
-    }
-
-    if (amount <= 0) {
-      return {
-        message: 'Refund amount must be greater than 0',
-        data: null,
-        code: 400,
-      };
-    }
-
-    // Create refund entry
-    const refundId = new mongoose.Types.ObjectId().toString();
-    const newRefund = {
-      refundId,
-      amount,
-      reason,
-      status: 'completed' as const,
-      refundDate: new Date(),
-    };
-
-    // Update transaction
-    transaction.refunds.push(newRefund);
-
-    // Update status
-    const newTotalRefunded = totalRefunded + amount;
-    if (newTotalRefunded >= transaction.amount) {
-      transaction.status = 'refunded';
-    } else {
-      transaction.status = 'partially_refunded';
-    }
-
-    await transaction.save();
+    const transaction = refund.data;
+    await resolveTransactionReview(transaction._id as mongoose.Types.ObjectId);
 
     // Populate and return
     const populatedTransaction = await Transaction.aggregate([
@@ -620,7 +567,7 @@ const processRefund = async (
     ]);
 
     return {
-      message: 'Refund processed successfully',
+      message: 'Refund requested from Paystack. It completes when Paystack confirms it.',
       data: populatedTransaction[0],
       code: 200,
     };

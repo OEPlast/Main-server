@@ -10,6 +10,14 @@ const { ObjectId } = mongoose.Schema;
  */
 export const OTP_EXPIRY_MINUTES = 6;
 
+/**
+ * Wrong guesses allowed against one code before it is thrown away.
+ *
+ * A 6-digit code has 900,000 values. With no limit it could simply be brute-forced within its
+ * lifetime; with 5 tries per code, and a new code rate-limited, guessing stops being viable.
+ */
+export const OTP_MAX_ATTEMPTS = 5;
+
 const otpSchema = new mongoose.Schema(
   {
     user: {
@@ -27,6 +35,7 @@ const otpSchema = new mongoose.Schema(
       required: true,
       match: /^\d{6}$/, // Ensures the code is a 6-digit number
     },
+    attempts: { type: Number, default: 0 },
     createdAt: { type: Date, default: Date.now, expires: OTP_EXPIRY_MINUTES * 60 },
   },
   {

@@ -9,6 +9,21 @@ import EmailProcessor from './processor/EmailProcessor';
 import Account from '@/models/Account';
 import { OTP_EXPIRY_MINUTES } from '@/models/OTP';
 import { getBrand, shopUrl, supportUrl } from './brand';
+import { verifyGoogleIdToken } from '@/lib/googleIdToken';
+
+/**
+ * Marks a signup/login response for an email that belongs to a guest-checkout record. The
+ * storefront reads it to send the shopper to the emailed-code flow instead of showing a dead end.
+ */
+export const GUEST_ACCOUNT_REASON = 'GUEST_ACCOUNT';
+export type GuestAccountData = { reason: typeof GUEST_ACCOUNT_REASON };
+
+// Case-insensitive email lookups. User.email's unique index is case-sensitive and older accounts
+// were stored as typed, while guest checkout stores lowercase — exact matching would treat
+// "Ada@x.com" and "ada@x.com" as two different people.
+const EMAIL_COLLATION = { locale: 'en', strength: 2 } as const;
+
+const SUSPENDED_MESSAGE = 'This account has been suspended. Please contact support.';
 
 /**
  * Best-effort request context attached to security notifications, so a customer can tell a
@@ -61,20 +76,35 @@ const signup = async (userData: {
   firstName: string;
   lastName: string;
   country: string;
-}): CustomResponsePromise<{ newUser: UserType; token: string; otpCode: number }> => {
+}): CustomResponsePromise<{ newUser: UserType; token: string } | GuestAccountData> => {
+  // Checked before the transaction starts: returning early from inside it used to leave the
+  // session open. Case-insensitive so "Ada@x.com" cannot register beside an existing "ada@x.com".
+  const existingUser = await User.findOne({ email: userData.email })
+    .collation(EMAIL_COLLATION)
+    .select('_id isGuest');
+  if (existingUser?.isGuest) {
+    // A guest has ordered with this email. Signup must not take the record over: it returns a
+    // token before the email is verified, which would hand that customer's orders and addresses
+    // to whoever typed the address. The owner claims it through the emailed reset code instead.
+    return {
+      message:
+        "You've ordered with this email before. Verify it's you with a code we'll email you, then set a password.",
+      data: { reason: GUEST_ACCOUNT_REASON },
+      code: 409,
+    };
+  }
+  if (existingUser) {
+    return {
+      message: 'User already exists',
+      data: null,
+      code: 400,
+    };
+  }
+
   const session = await mongoose.startSession();
   session.startTransaction();
 
   try {
-    const existingUser = await User.findOne({ email: userData.email });
-    if (existingUser) {
-      return {
-        message: 'User already exists',
-        data: null,
-        code: 400,
-      };
-    }
-
     const hashedPassword = await passwordLib.hashPassword(userData.password!);
     const newUser = new User({ ...userData, password: hashedPassword });
     await newUser.save({ session });
@@ -88,7 +118,7 @@ const signup = async (userData: {
     await session.commitTransaction();
     session.endSession();
 
-    const token = tokenizer.SignData({ userId: newUser._id, role: newUser.role });
+    const token = tokenizer.SignSession(newUser);
 
     eventPublisher.publishUserSignup({
       firstName: newUser.firstName!,
@@ -99,7 +129,9 @@ const signup = async (userData: {
 
     return {
       message: 'User created successfully. Please verify your account using the OTP sent to your email.',
-      data: { newUser, token, otpCode: createOTP.data }, // Remove `otpCode` in production
+      // The code goes out by email only. It used to be echoed here, which let anyone "verify"
+      // an address they do not own.
+      data: { newUser, token },
       code: 201,
     };
   } catch (error) {
@@ -127,11 +159,12 @@ const login = async ({
 }: {
   email: string;
   password: string;
-}): Promise<CustomResponseType<TMiniUser & { token: string }>> => {
+}): Promise<CustomResponseType<(TMiniUser & { token: string }) | GuestAccountData>> => {
   try {
     const user = await User.findOne(
       { email },
       {
+        isGuest: true,
         emailVerified: true,
         email: true,
         password: true,
@@ -140,13 +173,23 @@ const login = async ({
         image: true,
         suspended: true,
         role: true,
+        tokenVersion: true,
       }
-    );
+    ).collation(EMAIL_COLLATION);
     if (!user) {
       return {
         message: 'User not found',
         data: null,
         code: 401,
+      };
+    }
+    if (user.isGuest && !user.password) {
+      // Guest checkout created this record. There is no password to check; the owner sets one
+      // through the emailed reset code, which is what proves the email is theirs.
+      return {
+        message: "You've checked out with this email before but haven't set a password yet.",
+        data: { reason: GUEST_ACCOUNT_REASON },
+        code: 400,
       };
     }
     if (!user.password) {
@@ -164,7 +207,16 @@ const login = async ({
         code: 401,
       };
     }
-    const token = tokenizer.SignData({ userId: user._id, role: user.role });
+    // Checked after the password, so the suspension notice does not tell a stranger that an
+    // email is registered.
+    if (user.suspended) {
+      return {
+        message: SUSPENDED_MESSAGE,
+        data: null,
+        code: 403,
+      };
+    }
+    const token = tokenizer.SignSession(user);
     return {
       message: 'Login successful',
       data: {
@@ -192,13 +244,31 @@ const login = async ({
 const loginWithProvider = async (providerData: {
   provider: string;
   providerAccountId: string;
+  idToken: string;
 }): Promise<CustomResponseType<TMiniUser & { token: string }>> => {
   try {
-    const account = await Account.findOne(providerData).populate({
+    const { provider, providerAccountId, idToken } = providerData;
+    if (provider !== 'google') {
+      return { code: 400, message: 'Unsupported provider', data: null };
+    }
+
+    // Proof of identity. The account id in the body used to be trusted on its own, which let
+    // anyone who knew (or guessed) a Google account id log in as that user.
+    let payload: Awaited<ReturnType<typeof verifyGoogleIdToken>>;
+    try {
+      payload = await verifyGoogleIdToken(idToken);
+    } catch (error) {
+      console.error('Google ID token verification failed:', error instanceof Error ? error.message : error);
+      return { code: 401, message: 'Could not verify Google sign-in', data: null };
+    }
+    if (payload.sub !== providerAccountId || payload.email_verified !== true) {
+      return { code: 401, message: 'Could not verify Google sign-in', data: null };
+    }
+
+    const account = await Account.findOne({ provider, providerAccountId }).populate({
       path: 'userId',
-      select: '_id role suspended name image email',
+      select: '_id role suspended name image email isGuest tokenVersion',
     });
-    console.log(providerData);
 
     if (!account) {
       return {
@@ -208,7 +278,7 @@ const loginWithProvider = async (providerData: {
       };
     }
 
-    const user = account.userId as unknown as TMiniUser;
+    const user = account.userId as unknown as TMiniUser & { isGuest?: boolean; tokenVersion?: number };
 
     if (!user) {
       return {
@@ -218,8 +288,22 @@ const loginWithProvider = async (providerData: {
       };
     }
 
-    // Generate JWT token
-    const token = tokenizer.SignData({ userId: user._id, role: user.role });
+    if (user.suspended) {
+      return {
+        message: SUSPENDED_MESSAGE,
+        data: null,
+        code: 403,
+      };
+    }
+
+    // The storefront's auth adapter links a Google account to an existing user by email. When
+    // that user was a guest-checkout record, the provider has just verified the email is theirs,
+    // so it becomes a normal account.
+    if (user.isGuest) {
+      await User.updateOne({ _id: user._id }, { $set: { isGuest: false } });
+    }
+
+    const token = tokenizer.SignSession(user);
 
     return {
       message: 'Login successful',
@@ -275,6 +359,8 @@ const resetPassword = async (email: string, newPassword: string): Promise<Custom
       };
     }
     user.password = await passwordLib.hashPassword(newPassword);
+    // A new password ends every existing session.
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     await user.save();
     return {
       message: 'Password reset successful',
@@ -308,11 +394,18 @@ const changePassword = async ({
   currentPassword: string;
   newPassword: string;
   context?: RequestContext;
-}): Promise<CustomResponseType<null>> => {
+}): Promise<CustomResponseType<{ token: string }>> => {
   try {
     // `email` and `firstName` are needed for the change notification; the original
     // projection asked for the password alone.
-    const user = await User.findById(userId, { password: true, email: true, firstName: true, lastName: true });
+    const user = await User.findById(userId, {
+      password: true,
+      email: true,
+      firstName: true,
+      lastName: true,
+      role: true,
+      tokenVersion: true,
+    });
     if (!user) {
       return {
         message: 'User not found',
@@ -320,13 +413,16 @@ const changePassword = async ({
         code: 404,
       };
     }
+    // A password change signs out every other session. The caller gets a fresh token back so
+    // the session that made the change stays signed in.
     if (!user.password) {
       user.password = await passwordLib.hashPassword(newPassword);
+      user.tokenVersion = (user.tokenVersion ?? 0) + 1;
       await user.save();
       await notifyPasswordChanged(user, context);
       return {
         message: 'Password changed successfully',
-        data: null,
+        data: { token: tokenizer.SignSession(user) },
         code: 200,
       };
     }
@@ -339,11 +435,12 @@ const changePassword = async ({
       };
     }
     user.password = await passwordLib.hashPassword(newPassword);
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     await user.save();
     await notifyPasswordChanged(user, context);
     return {
       message: 'Password changed successfully',
-      data: null,
+      data: { token: tokenizer.SignSession(user) },
       code: 200,
     };
   } catch (error) {
@@ -365,7 +462,7 @@ const changePassword = async ({
 const requestResetCode = async (email: string): Promise<CustomResponseType<null>> => {
   try {
     //check if the user exist
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).collation(EMAIL_COLLATION);
     // if (!user) {
     //   return {
     //     message: 'User does not exist',
@@ -421,7 +518,7 @@ const resetPasswordWithCode = async ({
 }) => {
   try {
     // Find the user by email
-    const user = await User.findOne({ email });
+    const user = await User.findOne({ email }).collation(EMAIL_COLLATION);
     if (!user) {
       return {
         message: 'User not found',
@@ -442,7 +539,16 @@ const resetPasswordWithCode = async ({
 
     // Reset the password
     const newPasswordHash = await passwordLib.hashPassword(newPassword);
-    await User.updateOne({ _id: user._id }, { $set: { password: newPasswordHash } });
+    // The code was emailed to this address, so a correct code proves ownership. That is what
+    // lets a guest-checkout record become a real account here, and marks the email verified.
+    const claimedGuest = user.isGuest
+      ? { isGuest: false, ...(user.emailVerified ? {} : { emailVerified: new Date() }) }
+      : {};
+    // A reset ends every existing session: whoever triggered it may be recovering from a takeover.
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { password: newPasswordHash, ...claimedGuest }, $inc: { tokenVersion: 1 } }
+    );
 
     await notifyPasswordChanged(user, context);
 

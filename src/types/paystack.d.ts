@@ -131,6 +131,7 @@ export type PaystackWebhookData = {
   status: string;
   id: string;
   amount: number;
+  currency?: string;
   fees?: number;
   gateway_response: string;
   channel?: string;
@@ -159,3 +160,14 @@ export interface PaystackResponse {
     reference: string;
   };
 }
+
+/** `data` of a `refund.pending` / `refund.processing` / `refund.processed` / `refund.failed` webhook. */
+export type PaystackRefundWebhookData = {
+  status: string;
+  transaction_reference: string;
+  refund_reference?: string | null;
+  /** Kobo, sent as a string. */
+  amount: string | number;
+  currency?: string;
+  id?: string | number;
+};

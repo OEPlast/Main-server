@@ -1,13 +1,14 @@
 import express from 'express';
 import SettingsController from '../../controller/SettingsController';
 import SettingsValidator from '../../validators/SettingsValidator';
-import { authenticateUser, requirePermission } from '@/middleware/auth';
+import { authenticateUser, authenticateUser_No_Force, requirePermission } from '@/middleware/auth';
 import { getBrand } from '@/services/brand';
 
 const router = express.Router();
 
 // Public route - Get store settings (everyone has read access)
-router.get('/', SettingsController.getSettings);
+// Optional auth: staff also get the tax fields (see SettingsController.getSettings).
+router.get('/', authenticateUser_No_Force, SettingsController.getSettings);
 
 /**
  * GET /settings/branding

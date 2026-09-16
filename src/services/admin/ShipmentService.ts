@@ -1,10 +1,9 @@
 import mongoose from 'mongoose';
 import Shipment, { IShipment } from '../../models/Shipment';
 import { CustomResponseType } from '@/types';
-import Order from '@/models/Order';
 import { eventPublisher } from '@/events';
-import { orderStatusUpdate } from '@/utils/orderStatusTimestamps';
-import { loadOrderEmailContext, RETURN_WINDOW_DAYS } from '@/services/email/orderEmailPayload';
+import { loadOrderEmailContext } from '@/services/email/orderEmailPayload';
+import { markOrderDelivered, type DeliveredShipment } from '@/services/orders/delivery';
 import EmailProcessor from '@/services/processor/EmailProcessor';
 
 // Define shipment status union based on updated model enum
@@ -485,34 +484,12 @@ const updateShipmentStatus = async (
     shipment.status = status as IShipment['status'];
     if (shipment.status === 'Delivered' && !shipment.deliveredOn) {
       shipment.deliveredOn = new Date();
-      await Order.findByIdAndUpdate(shipment.orderId._id, orderStatusUpdate('Completed'));
-
-      // `populatedOrder.orderNumber` used to be read here against a schema that had no such
-      // field, so every delivery email was subject-lined "…has been delivered - undefined";
-      // and `description_images?.[0]` was indexed as a string against an array of objects,
-      // so none of the product images resolved either.
-      const deliveredContext = await loadOrderEmailContext(populatedOrder._id.toString());
-      if (deliveredContext) {
-        await eventPublisher.publishOrderDelivered({
-          email: deliveredContext.email,
-          firstName: deliveredContext.firstName,
-          lastName: deliveredContext.lastName,
-          orderId: deliveredContext.orderId,
-          orderNumber: deliveredContext.orderNumber,
-          purchaseDate: deliveredContext.purchaseDate,
-          products: deliveredContext.products,
-          deliveredAt: shipment.deliveredOn.toISOString(),
-          courierName: shipment.courier || undefined,
-          deliveryAddress: shipment.shippingAddress?.address1 || deliveredContext.shipping.address,
-          trackingNumber: shipment.trackingNumber || undefined,
-          viewOrderLink: deliveredContext.links.order,
-          returnWindowDays: RETURN_WINDOW_DAYS,
-          startReturnLink: deliveredContext.links.returns,
-          shipmentId: shipment._id.toString(),
-        });
-      }
     }
     await shipment.save();
+    if (shipment.status === 'Delivered') {
+      // Stamps deliveredAt, completes the order and fires ORDER_DELIVERED, exactly once.
+      await markOrderDelivered(shipment as unknown as DeliveredShipment, { source: 'admin' });
+    }
     await shipment.populate('orderId');
 
     return {

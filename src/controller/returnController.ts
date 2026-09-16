@@ -42,11 +42,12 @@ export const initiateReturn = async (req: Request, res: Response) => {
 export const getMyReturns = async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthenticatedRequest).userId!;
-    const { page = 1, limit = 10, status } = req.query;
+    const { page = 1, limit = 10, status, orderId } = req.query;
 
     const searchParams = {
       userId,
       status: status as string,
+      orderId: orderId as string | undefined,
       page: Number(page),
       limit: Number(limit),
     };

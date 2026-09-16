@@ -1,4 +1,5 @@
-import OTP, { OtpType } from '../models/OTP';
+import { randomInt } from 'crypto';
+import OTP, { OTP_EXPIRY_MINUTES, OTP_MAX_ATTEMPTS, OtpType } from '../models/OTP';
 import { CustomResponseType } from '@/types';
 
 /**
@@ -18,7 +19,8 @@ const createOtp = async ({
     //delete all pre-exiting otp of this type
     await OTP.deleteMany({ user, type });
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString(); // Generate a 6-digit OTP
+    // Math.random is predictable; a login code needs a cryptographic source.
+    const code = randomInt(100000, 1000000).toString();
     const otp = new OTP({ user, type, code });
     await otp.save();
     return {
@@ -83,9 +85,29 @@ const verifyOtp = async ({
   code: OtpType['code'];
 }): Promise<CustomResponseType<null>> => {
   try {
-    const otp = await OTP.findOne({ user, type, code });
+    // Looked up by owner and type, never by the submitted code. Querying on the code let every
+    // wrong guess go uncounted, and passed a JSON operator such as `{ "$gt": 0 }` straight into
+    // the query, where it matched any code.
+    //
+    // Every submission spends one attempt BEFORE the code is compared, in a single atomic update
+    // that refuses once the limit is reached. Counting only after a wrong comparison would let a
+    // burst of parallel requests all be checked against the real code before any count landed.
+    const otp = await OTP.findOneAndUpdate(
+      { user, type, attempts: { $lt: OTP_MAX_ATTEMPTS } },
+      { $inc: { attempts: 1 } },
+      { new: true }
+    );
 
     if (!otp) {
+      const exhausted = await OTP.exists({ user, type });
+      if (exhausted) {
+        await OTP.deleteMany({ user, type });
+        return {
+          message: 'Too many incorrect attempts. Please request a new code.',
+          data: null,
+          code: 429,
+        };
+      }
       return {
         message: 'Invalid or expired OTP',
         data: null,
@@ -93,13 +115,8 @@ const verifyOtp = async ({
       };
     }
 
-    // Check if OTP is expired (10 minutes)
-    const now = new Date();
-    const otpCreatedAt = new Date(otp.createdAt);
-    const tenMinutesInMs = 10.1 * 60 * 1000; // 10 minutes in milliseconds
-
-    if (now.getTime() - otpCreatedAt.getTime() > tenMinutesInMs) {
-      // Delete expired OTP
+    // The TTL index only sweeps about once a minute, so expiry is checked here as well.
+    if (Date.now() - new Date(otp.createdAt).getTime() > OTP_EXPIRY_MINUTES * 60 * 1000) {
       await OTP.deleteOne({ _id: otp._id });
       return {
         message: 'OTP has expired',
@@ -108,8 +125,24 @@ const verifyOtp = async ({
       };
     }
 
-    // OTP is valid, delete it after verification
-    await OTP.deleteOne({ _id: otp._id });
+    if (String(otp.code) !== String(code).trim()) {
+      return {
+        message: 'Invalid or expired OTP',
+        data: null,
+        code: 400,
+      };
+    }
+
+    // Single use. deleteOne reports whether this request is the one that consumed it, so two
+    // simultaneous correct submissions cannot both succeed.
+    const { deletedCount } = await OTP.deleteOne({ _id: otp._id });
+    if (deletedCount === 0) {
+      return {
+        message: 'Invalid or expired OTP',
+        data: null,
+        code: 400,
+      };
+    }
 
     return {
       message: 'OTP verified successfully',

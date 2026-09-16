@@ -1,3 +1,5 @@
+import { getCdnUrl } from '@rawura/emails';
+import { REFUND_ETA_DAYS, RETURN_WINDOW_DAYS } from '@/config/storePolicies';
 import type { BrandAddress, BrandInput, BrandSocialLinks, ResolvedSocialLink, StoreBrand } from './types';
 
 /**
@@ -92,7 +94,10 @@ export function resolveBrand(input: BrandInput = {}): StoreBrand {
   return {
     storeName,
     companyName: firstNonEmpty(input.companyName, env.COMPANY_NAME, storeName),
-    logoUrl: firstNonEmpty(input.logoUrl, env.STORE_LOGO_URL),
+    // Settings stores the uploaded logo as a bare CDN path (`settings/logo.png`). Email clients
+    // have no host to resolve that against, so the logo rendered as a broken image. getCdnUrl
+    // leaves absolute URLs alone and returns '' for empty, which keeps the store-name fallback.
+    logoUrl: getCdnUrl(firstNonEmpty(input.logoUrl, env.STORE_LOGO_URL)),
     storefrontUrl: normalizeBaseUrl(
       firstNonEmpty(input.storefrontUrl, env.STOREFRONT_URL, env.FRONTEND_URL, 'https://www.rawura.com')
     ),
@@ -101,6 +106,8 @@ export function resolveBrand(input: BrandInput = {}): StoreBrand {
     supportPhone: firstNonEmpty(input.supportPhone, env.SUPPORT_PHONE, env.STORE_PHONE),
     // Settings document only — deliberately no env fallback.
     whatsappNumber: firstNonEmpty(input.whatsappNumber),
+    supportHours: firstNonEmpty(input.supportHours, env.SUPPORT_HOURS),
+    policies: { returnWindowDays: RETURN_WINDOW_DAYS, refundEtaDays: REFUND_ETA_DAYS },
     socialLinks: input.social ?? {},
     address,
     addressLine: formatAddress(address),

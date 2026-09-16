@@ -32,7 +32,6 @@ const STORE_URL =
   process.env.STOREFRONT_URL || process.env.FRONTEND_URL || 'https://www.rawura.com';
 const CDN_BASE_URL = process.env.CDN_BASE_URL || 'https://oeptest.b-cdn.net/';
 const CURRENCY = 'NGN';
-const COUNTRY = 'NG';
 const FEED_LABEL = process.env.GOOGLE_MERCHANT_FEED_LABEL || 'NG';
 const CONTENT_LANGUAGE = 'en';
 
@@ -146,7 +145,8 @@ class MerchantApiService {
       condition: p.condition || 'new',
       brand: p.brand || storeName,
       identifierExists: hasIdentifier,
-      shipping: [{ country: COUNTRY, price: priceMicros(0) }],
+      // No per-product shipping price: delivery varies by destination and is free only above the
+      // configured order value. It is set once in Merchant Center's account shipping settings.
     };
     if (additionalImageLinks.length) attributes.additionalImageLinks = additionalImageLinks;
     if (p.gtin) attributes.gtin = p.gtin;

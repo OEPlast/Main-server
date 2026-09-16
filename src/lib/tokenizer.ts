@@ -1,5 +1,13 @@
 import jwt, { SignOptions } from 'jsonwebtoken';
-const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
+
+// No fallback: a guessable default secret would let anyone forge a token for any user.
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error('Set JWT secret');
+}
+
+/** The claims every session token carries. `tv` is the user's tokenVersion when it was issued. */
+export type SessionClaims = { userId: string; role: string; tv?: number };
 
 /**
  * Signs any object using JWT.
@@ -18,6 +26,17 @@ const SignData = (data: object, expires: SignOptions['expiresIn'] = '7d') => {
     throw new Error('Something went wrong when signing data');
   }
 };
+
+/**
+ * Signs a login session for a user. Use this, not SignData, for anything that authenticates:
+ * it stamps the user's tokenVersion so the session can be revoked.
+ */
+const SignSession = (user: {
+  _id: { toString(): string };
+  role?: string | null;
+  tokenVersion?: number | null;
+}) =>
+  SignData({ userId: user._id.toString(), role: user.role ?? 'user', tv: user.tokenVersion ?? 0 });
 
 /**
  * Verify any object using JWT.
@@ -42,5 +61,6 @@ const VerifyData = <T>(data: string): T => {
 
 export default {
   SignData,
+  SignSession,
   VerifyData,
 };

@@ -34,6 +34,8 @@ const settingsSchema = new Schema(
     supportEmail: { type: String, default: '' },
     supportPhone: { type: String, default: '' },
     whatsappNumber: { type: String, default: '' },
+    // Free text shown on the contact page, product page and FAQ, e.g. "Mon–Sat, 9am–6pm WAT".
+    supportHours: { type: String, default: '' },
     address: { type: addressSchema, default: {} },
     taxId: { type: String, default: '' },
     taxRate: { type: Number, default: 0, min: 0, max: 100 },

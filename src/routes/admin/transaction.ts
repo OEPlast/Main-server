@@ -2,7 +2,6 @@ import express from 'express';
 import Admin_TransactionController from '../../controller/admin/TransactionController';
 import Admin_TransactionValidator from '../../validators/admin/TransactionValidator';
 import { authenticateUser, isAdmin, requirePermission } from '../../middleware/auth';
-import TransactionController from '@/controller/TransactionController';
 
 const router = express.Router();
 

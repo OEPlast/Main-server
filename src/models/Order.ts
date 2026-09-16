@@ -44,6 +44,22 @@ const addressSchema = new mongoose.Schema(
   { _id: false }
 );
 
+/**
+ * Who to contact about a guest order, as typed at checkout. A signed-in customer's details live
+ * on their account; a guest's user record is created from these same values, but a pickup order
+ * has no shipping address, so without this snapshot the order carries no phone number at all.
+ * Absent on orders placed while signed in.
+ */
+const guestContactSchema = new mongoose.Schema(
+  {
+    email: { type: String },
+    firstName: { type: String },
+    lastName: { type: String },
+    phoneNumber: { type: String },
+  },
+  { _id: false }
+);
+
 const orderSchema = new mongoose.Schema(
   {
     // Human-readable reference (e.g. RW-2608-00417) quoted in emails, the admin panel and by
@@ -126,6 +142,7 @@ const orderSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    guestContact: { type: guestContactSchema, default: undefined },
     paymentMethod: {
       type: String,
     },
@@ -212,6 +229,17 @@ const orderSchema = new mongoose.Schema(
     refundedAt: {
       type: Date,
     },
+    // Stamped when this order's stock, sale allocation and coupon usage are handed back. Set in
+    // the same atomic update that performs the release, so every path that frees an order (payment
+    // failure, expiry, customer or admin cancel) can run without ever restoring stock twice.
+    inventoryReleasedAt: {
+      type: Date,
+    },
+    // When the post-delivery review request went out (or was skipped because every item was
+    // already reviewed). Set once by cron/reviewRequests, so a customer is asked at most once.
+    reviewRequestSentAt: {
+      type: Date,
+    },
     flashSaleApplied: [
       {
         flashSale: {
@@ -251,6 +279,14 @@ const orderSchema = new mongoose.Schema(
 // Added indexes for efficient filtering and searching
 orderSchema.index({ createdAt: 1 });
 orderSchema.index({ user: 1 });
+// Admin list (status + newest first), a customer's order history, the payment reconciliation
+// job's scan of expired unpaid orders, the GIG tracking job, and the transaction/shipment joins.
+orderSchema.index({ status: 1, createdAt: -1 });
+orderSchema.index({ user: 1, createdAt: -1 });
+orderSchema.index({ isPaid: 1, status: 1, createdAt: 1 });
+orderSchema.index({ deliveryType: 1, status: 1 });
+orderSchema.index({ transactionId: 1 }, { sparse: true });
+orderSchema.index({ shipmentId: 1 }, { sparse: true });
 
 // Event-timestamp indexes. The analytics engine ranges on whichever of these a
 // metric is measured on — revenue on `paidAt`, cancellations on `cancelledAt` —

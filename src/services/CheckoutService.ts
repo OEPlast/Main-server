@@ -1,5 +1,4 @@
 import { Types } from 'mongoose';
-import mongoose from 'mongoose';
 import Cart from '@/models/Cart';
 import User from '@/models/User';
 import Product from '@/models/Product';
@@ -9,11 +8,11 @@ import GIGService from '@/services/GIGService';
 import OrderService from '@/services/orderService';
 import PaymentService from '@/services/TransactionService';
 import { FrontendCartData, validateAndCorrectCart, CorrectedCart } from '@/services/CartValidationService';
-import Order, { OrderType } from '@/models/Order';
+import { applyFreeDelivery, priceCart } from '@/services/pricing';
+import type { OrderType } from '@/models/Order';
 import { CustomResponseType } from '@/types';
-import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
 import eventPublisher from '@/events/eventPublisher';
-import { orderStatusUpdate } from '@/utils/orderStatusTimestamps';
+import { cancelOrder } from '@/services/orders/orderLifecycle';
 import type {
   CheckoutDeliveryType,
   SecureCheckoutItemInput,
@@ -127,7 +126,7 @@ class CheckoutService {
     }
 
     const checkoutConfigResult = await GIGService.getPublicCheckoutConfig();
-    const { enabledDeliveryMethods, shippingDiscountAmountOff } = checkoutConfigResult.data;
+    const { enabledDeliveryMethods, shippingDiscountAmountOff, freeShippingThreshold } = checkoutConfigResult.data;
 
     if (!enabledDeliveryMethods.includes(deliveryType)) {
       return {
@@ -176,7 +175,12 @@ class CheckoutService {
       const discountedShipping = GIGService.applyDeliveryDiscount(rawShippingCost, shippingDiscountAmountOff);
       shippingCost = Math.round(discountedShipping.finalAmount * 100) / 100;
     } else if (deliveryType === 'gig' && shippingAddress) {
-      // GIG shipping: calculate via GIG API
+      // GIG shipping: calculate via GIG API. Declared value = the line total from the shared
+      // pricing module, the same value the storefront's quote (GIGController) declared.
+      const pricedForQuote = await priceCart(items.map((i) => ({ product: i.product, qty: i.qty, selectedAttributes: i.selectedAttributes })));
+      const lineTotalByIndex = new Map(
+        pricedForQuote.missingProductIds.length ? [] : pricedForQuote.lines.map((line, index) => [index, line.lineTotal])
+      );
       const products = await Product.find({
         _id: { $in: items.map((i) => i.product) },
       })
@@ -185,7 +189,7 @@ class CheckoutService {
 
       const productMap = new Map(products.map((p) => [p._id.toString(), p]));
 
-      const gigItems = items.map((item) => {
+      const gigItems = items.map((item, index) => {
         const prod = productMap.get(item.product.toString());
         return {
           name: prod?.name || 'Product',
@@ -195,7 +199,7 @@ class CheckoutService {
           width: prod?.width ?? 10,
           length: prod?.length ?? 10,
           isVolumetric: prod?.isVolumetric ?? false,
-          value: item.unitPrice || 0,
+          value: lineTotalByIndex.get(index) ?? (item.unitPrice || 0) * item.qty,
           imageUrl: prod?.description_images?.find((img: { cover_image?: boolean }) => img.cover_image)?.url || '',
         };
       });
@@ -227,12 +231,13 @@ class CheckoutService {
       items,
       couponCodes: couponCodes || [],
       subtotal,
-      total: total - shippingCost,
+      // `total` from the storefront includes the delivery cost it was shown; take that same figure off.
+      total: total - (frontendShippingCost ?? shippingCost),
       totalDiscount,
       estimatedShipping: estimatedShipping || { cost: shippingCost, days: 0 },
     };
 
-    const validationResult = await validateAndCorrectCart(frontendCartData, couponCodes);
+    const validationResult = await validateAndCorrectCart(frontendCartData, couponCodes, userId);
     if (!validationResult.data) {
       return {
         message: 'Failed to validate cart data',
@@ -242,6 +247,11 @@ class CheckoutService {
     }
 
     const correctedCart = validationResult.data.correctedCart;
+
+    // Free delivery over the threshold, for every delivery method, on the validated items subtotal.
+    if (deliveryType !== 'pickup') {
+      shippingCost = applyFreeDelivery(shippingCost, correctedCart.subtotal, freeShippingThreshold).amount;
+    }
 
     // Get checkoutErrors from validation result (includes products and coupons)
     const checkoutErrors = validationResult.data.checkoutErrors || {};
@@ -356,9 +366,8 @@ class CheckoutService {
             name: attr.name,
             value: attr.value,
           })) || [],
-        sale: correctedItem.sale,
-        saleType: undefined,
-        saleDiscount: correctedItem.appliedDiscount || 0,
+        // Sale fields (sale, saleType, saleVariantIndex, saleDiscount) are set by order creation
+        // from its own pricing pass, inside the transaction.
       })),
       // `!== 'pickup'` rather than `=== 'shipping'`: GIG orders were previously saved with no
       // address at all, which left ShipmentService unable to create their shipment and their
@@ -380,6 +389,15 @@ class CheckoutService {
       isPaid: false,
       status: 'Pending' as OrderType['status'],
       notes: payload.notes,
+      // Only present for guest checkout (the controller strips it for signed-in shoppers).
+      guestContact: payload.guest
+        ? {
+            email: payload.guest.email,
+            firstName: payload.guest.firstName,
+            lastName: payload.guest.lastName,
+            phoneNumber: payload.guest.phoneNumber,
+          }
+        : undefined,
     } as unknown as OrderDataInput;
 
     const userDoc = await User.findById(userId).select('email');
@@ -391,7 +409,8 @@ class CheckoutService {
       };
     }
 
-    const placed = await OrderService.placeOrderWithStockValidation(orderInput);
+    // `expectedTotal` is what the shopper confirmed; order creation refuses to charge anything else.
+    const placed = await OrderService.placeOrderWithStockValidation(orderInput, { expectedTotal: finalTotal });
     if (!placed.data) {
       return {
         message: placed.message,
@@ -422,10 +441,14 @@ class CheckoutService {
     });
 
     if (paymentInit.code !== 200) {
-      await Order.findByIdAndUpdate(orderId, orderStatusUpdate('Cancelled'));
-
-      // Restore stock and reverse sale counters when payment initialization fails
-      await CheckoutService.restoreStockOnPaymentFailure(orderId);
+      // Cancels and hands back stock, sale allocation and coupon usage in one step.
+      await cancelOrder({
+        orderId,
+        by: 'system',
+        refund: 'await_staff',
+        notifyCustomer: false,
+        reason: 'Payment could not be started',
+      });
 
       return {
         message: paymentInit.message,
@@ -444,57 +467,8 @@ class CheckoutService {
       // Don't fail checkout if event publishing fails
     }
 
-    // For GIG orders: attempt preshipment creation (non-blocking)
-    if (deliveryType === 'gig' && shippingAddress) {
-      try {
-        const products = await Product.find({
-          _id: { $in: items.map((i) => i.product) },
-        })
-          .select('name weight height width length isVolumetric description_images')
-          .lean();
-
-        const productMap = new Map(products.map((p) => [p._id.toString(), p]));
-
-        const gigItems = items.map((item) => {
-          const prod = productMap.get(item.product.toString());
-          return {
-            name: prod?.name || 'Product',
-            quantity: item.qty,
-            weight: prod?.weight ?? 1,
-            height: prod?.height ?? 10,
-            width: prod?.width ?? 10,
-            length: prod?.length ?? 10,
-            isVolumetric: prod?.isVolumetric ?? false,
-            value: item.unitPrice || 0,
-            imageUrl: prod?.description_images?.find((img: { cover_image?: boolean }) => img.cover_image)?.url || '',
-          };
-        });
-
-        const gigShipment = await GIGService.createShipmentForOrder({
-          items: gigItems,
-          receiverAddress: shippingAddress.address1 || '',
-          receiverState: shippingAddress.state || '',
-          receiverCity: shippingAddress.city || undefined,
-          receiverLatitude: (shippingAddress as Record<string, unknown>).latitude as number | undefined,
-          receiverLongitude: (shippingAddress as Record<string, unknown>).longitude as number | undefined,
-          receiverName: `${shippingAddress.firstName || ''} ${shippingAddress.lastName || ''}`.trim(),
-          receiverPhoneNumber: shippingAddress.phoneNumber || '',
-          receiverEmail: userDoc.email,
-        });
-
-        if (gigShipment.data?.waybillNumber) {
-          await Order.findByIdAndUpdate(orderId, { gigWaybill: gigShipment.data.waybillNumber });
-          console.log(
-            `[CheckoutService] GIG preshipment created: ${gigShipment.data.waybillNumber} for order ${orderId}`
-          );
-        } else {
-          console.warn(`[CheckoutService] GIG preshipment failed for order ${orderId}: ${gigShipment.message}`);
-        }
-      } catch (gigError) {
-        // Don't fail checkout if GIG preshipment fails - admin can retry manually
-        console.error('[CheckoutService] GIG preshipment creation failed (non-blocking):', gigError);
-      }
-    }
+    // GIG preshipments are booked once the order is paid (orderLifecycle.fulfilPaidOrder), not here:
+    // booking at checkout left a courier shipment behind for every abandoned GIG checkout.
 
     const paymentData = paymentInit.data;
     const transaction = paymentData?.transaction as ITransaction | undefined;
@@ -523,82 +497,6 @@ class CheckoutService {
       },
       code: 200,
     };
-  }
-
-  /**
-   * Restore stock and reverse sale counters when payment initialization fails
-   * This is called immediately when payment gateway initialization fails,
-   * before the order timeout mechanism kicks in
-   */
-  private static async restoreStockOnPaymentFailure(orderId: string): Promise<void> {
-    try {
-      // 1. Get the order with all product details
-      const order = await Order.findById(orderId);
-      if (!order || !order.products) {
-        console.error(`[CheckoutService] Order ${orderId} not found for stock restoration`);
-        return;
-      }
-
-      // 2. Extract items for bulk stock update
-      const items = order.products
-        .filter((item) => item.product && item.qty)
-        .map((item) => ({
-          productId: item.product!.toString(),
-          quantity: item.qty!,
-        }));
-
-      if (items.length === 0) {
-        console.warn(`[CheckoutService] No items to restore for order ${orderId}`);
-        return;
-      }
-
-      // 3. Restore stock using bulk write
-      const bulkUpdates = items.map((item) => ({
-        updateOne: {
-          filter: { _id: item.productId },
-          update: { $inc: { stock: item.quantity } },
-        },
-      }));
-
-      await Product.bulkWrite(bulkUpdates);
-      console.log(`[CheckoutService] Stock restored for ${items.length} products in order ${orderId}`);
-
-      // 4. Reverse sale counters if order has sale snapshots
-      const session = await mongoose.startSession();
-      session.startTransaction();
-      try {
-        await reverseSaleCountersOnCancel(
-          order.products
-            .filter((item) => item.product && item.qty)
-            .map((item) => ({
-              product: item.product!,
-              qty: item.qty!,
-              sale: item.sale || undefined,
-              saleSnapshot: item.saleSnapshot
-                ? {
-                    type: item.saleSnapshot.type!,
-                    variantIndex: item.saleSnapshot.variantIndex!,
-                    maxBuys: item.saleSnapshot.maxBuys!,
-                    boughtCount: item.saleSnapshot.boughtCount!,
-                    attributeName: item.saleSnapshot.attributeName || undefined,
-                    attributeValue: item.saleSnapshot.attributeValue || undefined,
-                  }
-                : undefined,
-            })),
-          session
-        );
-        await session.commitTransaction();
-        console.log(`[CheckoutService] Sale counters reversed for order ${orderId}`);
-      } catch (err) {
-        await session.abortTransaction();
-        console.error(`[CheckoutService] Failed to reverse sale counters for order ${orderId}:`, err);
-      } finally {
-        session.endSession();
-      }
-    } catch (error) {
-      console.error(`[CheckoutService] Failed to restore stock for order ${orderId}:`, error);
-      // Don't throw - we already have a payment initialization error to report
-    }
   }
 
   private static async syncServerCart(

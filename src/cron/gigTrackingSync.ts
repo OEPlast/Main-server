@@ -13,7 +13,9 @@ async function syncTrackingForProvider(deliveryType: string): Promise<void> {
   let skip = 0;
 
   while (true) {
-    const orders = await Order.find({ deliveryType })
+    // Only orders still in flight: every completed or cancelled order used to be re-polled
+    // against the courier every four minutes, for ever.
+    const orders = await Order.find({ deliveryType, status: 'Processing', deliveredAt: { $exists: false } })
       .select('_id deliveryType gigWaybill')
       .skip(skip)
       .limit(BATCH_SIZE)

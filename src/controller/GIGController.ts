@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 import GIGService from '@/services/GIGService';
 import { GIGCalculateShippingInput, GIGShippingRequest } from '@/types/gig';
 import Product from '@/models/Product';
-import { applyPricingTier, resolveBestVariant } from '@/helpers/pricingUtils';
+import { applyFreeDelivery, priceCart } from '@/services/pricing';
 
 /**
  * POST /gig/calculate-shipping
@@ -18,55 +18,38 @@ const calculateShipping = async (req: Request, res: Response) => {
       return res.status(400).json({ message: 'No items provided', data: null, code: 400 });
     }
 
-    // Fetch all products in one query
-    const productIds = body.items.map((i) => i.productId).filter((id) => mongoose.isValidObjectId(id));
-
-    const products = await Product.find({ _id: { $in: productIds } })
-      .select('name price weight height width length isVolumetric pricingTiers attributes')
-      .lean();
-
-    const productMap = new Map(products.map((p) => [String(p._id), p]));
-
-    const resolvedItems: GIGCalculateShippingInput['items'] = [];
-
-    for (const item of body.items) {
-      const product = productMap.get(item.productId);
-      if (!product) {
-        return res.status(400).json({
-          message: `Product not found: ${item.productId}`,
-          data: null,
-          code: 400,
-        });
-      }
-
-      // Resolve base unit price (variant price if applicable, else product price)
-      const variant = resolveBestVariant(
-        product as unknown as Parameters<typeof resolveBestVariant>[0],
-        item.selectedAttributes ?? []
-      );
-      const basePrice = typeof variant?.price === 'number' ? variant.price : product.price;
-
-      // Apply tier pricing (variant tiers first, then product tiers)
-      let unitPrice = applyPricingTier(basePrice, item.quantity, variant?.pricingTiers);
-      if (unitPrice === basePrice) {
-        unitPrice = applyPricingTier(
-          basePrice,
-          item.quantity,
-          product.pricingTiers as Parameters<typeof applyPricingTier>[2]
-        );
-      }
-
-      resolvedItems.push({
-        name: product.name,
-        quantity: item.quantity,
-        weight: product.weight ?? 0.01,
-        height: product.height ?? 1,
-        width: product.width ?? 1,
-        length: product.length ?? 1,
-        isVolumetric: product.isVolumetric ?? false,
-        value: unitPrice * item.quantity,
+    const validItems = body.items.filter((i) => mongoose.isValidObjectId(i.productId));
+    const priced = await priceCart(
+      validItems.map((i) => ({ product: i.productId, qty: i.quantity, selectedAttributes: i.selectedAttributes ?? [] }))
+    );
+    if (priced.missingProductIds.length > 0 || validItems.length !== body.items.length) {
+      return res.status(400).json({
+        message: `Product not found: ${priced.missingProductIds[0] ?? body.items.find((i) => !mongoose.isValidObjectId(i.productId))?.productId}`,
+        data: null,
+        code: 400,
       });
     }
+
+    const products = await Product.find({ _id: { $in: validItems.map((i) => i.productId) } })
+      .select('name weight height width length isVolumetric')
+      .lean();
+    const productMap = new Map(products.map((p) => [String(p._id), p]));
+
+    // Declared value per line = the line total from the shared pricing module (tiers and sales
+    // included), the same value checkout declares when it re-quotes.
+    const resolvedItems: GIGCalculateShippingInput['items'] = priced.lines.map((line) => {
+      const product = productMap.get(line.productId);
+      return {
+        name: product?.name ?? line.name,
+        quantity: line.qty,
+        weight: product?.weight ?? 0.01,
+        height: product?.height ?? 1,
+        width: product?.width ?? 1,
+        length: product?.length ?? 1,
+        isVolumetric: product?.isVolumetric ?? false,
+        value: line.lineTotal,
+      };
+    });
 
     const input: GIGCalculateShippingInput = {
       items: resolvedItems,
@@ -79,9 +62,17 @@ const calculateShipping = async (req: Request, res: Response) => {
       receiverPhoneNumber: body.receiverPhoneNumber,
       receiverCountryCode: 'NG',
     };
-    console.log(input);
-
     const result = await GIGService.calculateShipping(input);
+    if (result.data) {
+      // Free delivery over the threshold applies to GIG too; checkout applies the same rule.
+      const { freeShippingThreshold } = (await GIGService.getPublicCheckoutConfig()).data;
+      const free = applyFreeDelivery(result.data.shippingCost, priced.itemsSubtotal, freeShippingThreshold);
+      return res.status(result.code).json({
+        message: result.message,
+        data: { ...result.data, shippingCost: free.amount, freeShippingApplied: free.freeDeliveryApplied, freeShippingThreshold },
+        code: result.code,
+      });
+    }
     return res.status(result.code).json({ message: result.message, data: result.data, code: result.code });
   } catch (error) {
     console.error('Error calculating GIG shipping:', error);

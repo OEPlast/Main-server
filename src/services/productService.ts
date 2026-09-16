@@ -1,15 +1,12 @@
 import Order from '@/models/Order';
+import { escapeRegex } from '@/helpers/regex';
 import Product, { ProductType } from '../models/Product';
 import { SalesType } from '../models/Sales';
 import Category from '@/models/Category';
 import mongoose, { PipelineStage } from 'mongoose';
 import { buildPriceFilter, buildTagsFilter } from './aggregation';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
-import AnalyticsService from './MainAnalyticsService';
 
-function escapeRegex(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /**
  * Adds sale lookup stages to aggregation pipeline.
@@ -133,13 +130,13 @@ const getAllProducts = async (
       }
     }
     if (params.search) {
-      const rx = new RegExp(params.search, 'i');
+      const rx = new RegExp(escapeRegex(params.search), 'i');
       and.push({
         $or: [{ name: rx }],
       });
     }
     if (params.brand) {
-      and.push({ brand: { $regex: params.brand, $options: 'i' } });
+      and.push({ brand: { $regex: escapeRegex(params.brand), $options: 'i' } });
     }
     if (typeof params.minPrice === 'number' || typeof params.maxPrice === 'number') {
       const priceCond: Record<string, number> = {};
@@ -308,11 +305,6 @@ const getProductById = async (
       };
     }
 
-    // Track product view for analytics
-    // This runs independently and won't affect the response time
-    AnalyticsService.trackProductView(productId).catch((err) =>
-      console.error('Failed to track product view analytics:', err)
-    );
 
     return {
       message: 'Product retrieved successfully',
@@ -390,10 +382,10 @@ const searchProducts = async (
       $and: [
         {
           $or: [
-            { name: { $regex: query, $options: 'i' } },
-            { description: { $regex: query, $options: 'i' } },
-            { brand: { $regex: query, $options: 'i' } },
-            { tags: { $elemMatch: { $regex: query, $options: 'i' } } },
+            { name: { $regex: escapeRegex(query), $options: 'i' } },
+            { description: { $regex: escapeRegex(query), $options: 'i' } },
+            { brand: { $regex: escapeRegex(query), $options: 'i' } },
+            { tags: { $elemMatch: { $regex: escapeRegex(query), $options: 'i' } } },
           ],
         },
       ],
@@ -411,7 +403,7 @@ const searchProducts = async (
     }
 
     if (brand) {
-      filterConditions.$and.push({ brand: { $regex: brand, $options: 'i' } });
+      filterConditions.$and.push({ brand: { $regex: escapeRegex(brand), $options: 'i' } });
     }
 
     if (attributes && Object.keys(attributes).length) {
@@ -1217,7 +1209,6 @@ async function getByCategorySlug(
     // Process each sort option in the array to determine which aggregation stages are needed
     const needsOrderFrequency = sortOptions.includes('order_frequency');
     const needsPopular = sortOptions.includes('popular');
-    const needsRating = sortOptions.includes('rating');
 
     // Add aggregation stages for advanced sorting options
     if (needsOrderFrequency) {
@@ -1508,10 +1499,6 @@ async function getProductBySlug(slug: string): Promise<CustomResponseType<Produc
       return { message: 'Product not found', data: null, code: 404 };
     }
 
-    // Track product view for analytics (non-blocking)
-    AnalyticsService.trackProductView(String(product._id)).catch((err) =>
-      console.error('Failed to track product view analytics:', err)
-    );
 
     return { message: 'Product retrieved successfully', data: product, code: 200 };
   } catch (error) {
@@ -1978,7 +1965,6 @@ const getDealsOfTheDay = async (
 > => {
   try {
     const skip = (page - 1) * limit;
-    const now = new Date();
 
     // Single aggregation pipeline that:
     // 1. Looks up the active campaign
@@ -2937,10 +2923,10 @@ const searchProductsWithFilters = async (params: {
     if (query) {
       filterConditions.$and.push({
         $or: [
-          { name: { $regex: query, $options: 'i' } },
-          { description: { $regex: query, $options: 'i' } },
-          { brand: { $regex: query, $options: 'i' } },
-          { tags: { $elemMatch: { $regex: query, $options: 'i' } } },
+          { name: { $regex: escapeRegex(query), $options: 'i' } },
+          { description: { $regex: escapeRegex(query), $options: 'i' } },
+          { brand: { $regex: escapeRegex(query), $options: 'i' } },
+          { tags: { $elemMatch: { $regex: escapeRegex(query), $options: 'i' } } },
         ],
       });
     }
@@ -3090,10 +3076,10 @@ const getSearchFilters = async (
     if (query) {
       matchCondition.$and.push({
         $or: [
-          { name: { $regex: query, $options: 'i' } },
-          { description: { $regex: query, $options: 'i' } },
-          { brand: { $regex: query, $options: 'i' } },
-          { tags: { $elemMatch: { $regex: query, $options: 'i' } } },
+          { name: { $regex: escapeRegex(query), $options: 'i' } },
+          { description: { $regex: escapeRegex(query), $options: 'i' } },
+          { brand: { $regex: escapeRegex(query), $options: 'i' } },
+          { tags: { $elemMatch: { $regex: escapeRegex(query), $options: 'i' } } },
         ],
       });
     }
@@ -3333,10 +3319,6 @@ const getProductBySlugOrId = async (
       };
     }
 
-    // Track product view for analytics (non-blocking)
-    AnalyticsService.trackProductView(String(product._id)).catch((err) =>
-      console.error('Failed to track product view analytics:', err)
-    );
 
     return {
       message: 'Product retrieved successfully',

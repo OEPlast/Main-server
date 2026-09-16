@@ -84,13 +84,14 @@ const updateUserPassword = async (req: Request, res: Response) => {
       return res.status(401).json({ error: 'Unauthenticated' });
     }
     const { currentPassword, newPassword } = req.body;
-    const { message, code } = await AuthService.changePassword({
+    const { message, code, data } = await AuthService.changePassword({
       userId: req.userId,
       currentPassword,
       newPassword,
       context: requestContext(req),
     });
-    return res.status(code).json({ message });
+    // `data.token` replaces the caller's session token: the change revoked every older token.
+    return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in changePassword:', error);
     return res.status(500).json({ error: 'Something went wrong' });
@@ -126,8 +127,8 @@ const resendVerifyAccountOtp = async (req: Request, res: Response) => {
 
 const providerLogin = async (req: Request, res: Response) => {
   try {
-    const { provider, providerAccountId } = req.body;
-    const { data, code, message } = await AuthService.loginWithProvider({ provider, providerAccountId });
+    const { provider, providerAccountId, idToken } = req.body;
+    const { data, code, message } = await AuthService.loginWithProvider({ provider, providerAccountId, idToken });
     return res.status(code).json({ message, data });
   } catch {
     return res.status(500).json({ error: 'Something went wrong' });

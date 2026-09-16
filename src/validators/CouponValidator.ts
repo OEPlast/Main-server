@@ -56,6 +56,14 @@ export const validateCouponValidators = (): RequestHandler[] => [
         errorMessage: 'Category IDs must be an array',
       },
     },
+    items: {
+      in: ['body'],
+      optional: true,
+      isArray: { options: { max: 100 }, errorMessage: 'items must be an array of up to 100 lines' },
+    },
+    'items.*.product': { in: ['body'], isMongoId: true, errorMessage: 'Each item needs a valid product id' },
+    'items.*.qty': { in: ['body'], isInt: { options: { min: 1, max: 10000 } }, toInt: true, errorMessage: 'Each item needs a quantity' },
+    'items.*.selectedAttributes': { in: ['body'], optional: true, isArray: true },
   }) as unknown as RequestHandler,
   (req: Request, res: Response, next: NextFunction) => {
     const errors = validationResult(req);

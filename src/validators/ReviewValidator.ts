@@ -1,6 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 import { checkSchema, validationResult } from 'express-validator';
 
+/** Photos a customer can attach to one review. */
+export const MAX_REVIEW_PHOTOS = 4;
+
 const validateCreateReview = [
   checkSchema({
     product: {
@@ -71,8 +74,16 @@ const validateCreateReview = [
     images: {
       in: ['body'],
       optional: true,
-      isArray: true,
-      errorMessage: 'Images must be an array',
+      isArray: { options: { max: MAX_REVIEW_PHOTOS }, errorMessage: `Add up to ${MAX_REVIEW_PHOTOS} photos` },
+    },
+    'images.*': {
+      in: ['body'],
+      isString: true,
+      custom: {
+        // Only paths from our own upload endpoint's reviews folder: no outside URLs, no other folders.
+        options: (value: string) => /^reviews\/[A-Za-z0-9._-]+$/.test(value),
+      },
+      errorMessage: 'Invalid photo',
     },
   }),
   (req: Request, res: Response, next: NextFunction) => {
@@ -118,6 +129,20 @@ const validateUpdateReview = [
         options: { max: 100 },
       },
       errorMessage: 'Title must be less than 100 characters',
+    },
+    images: {
+      in: ['body'],
+      optional: true,
+      isArray: { options: { max: MAX_REVIEW_PHOTOS }, errorMessage: `Add up to ${MAX_REVIEW_PHOTOS} photos` },
+    },
+    'images.*': {
+      in: ['body'],
+      isString: true,
+      custom: {
+        // Only paths from our own upload endpoint's reviews folder: no outside URLs, no other folders.
+        options: (value: string) => /^reviews\/[A-Za-z0-9._-]+$/.test(value),
+      },
+      errorMessage: 'Invalid photo',
     },
   }),
   (req: Request, res: Response, next: NextFunction) => {

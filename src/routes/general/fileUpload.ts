@@ -1,7 +1,7 @@
 import express from 'express';
 import FileUploadController from '../../controller/FileUploadController';
 import FileUploadValidator from '../../validators/FileUploadValidator';
-import { authenticateUser } from '../../middleware/auth';
+import { authenticateUser, isAdmin } from '../../middleware/auth';
 
 const router = express.Router();
 
@@ -9,20 +9,22 @@ const router = express.Router();
 router.post(
   '/upload/single',
   authenticateUser,
-  FileUploadValidator.categoryBodyValidator,
   FileUploadController.upload.single('file'),
+  FileUploadValidator.categoryBodyValidator,
   FileUploadController.uploadSingle
 );
 router.post(
   '/upload/multiple',
   authenticateUser,
-  FileUploadValidator.categoryBodyValidator,
   FileUploadController.upload.array('files', 10),
+  FileUploadValidator.categoryBodyValidator,
   FileUploadController.uploadMultiple
 );
 router.get(
   '/category/:category',
   authenticateUser,
+  // Staff only: a folder listing includes other customers' return and review photos.
+  isAdmin,
   FileUploadValidator.categoryParamValidator,
   FileUploadController.getFilesByCategory
 );

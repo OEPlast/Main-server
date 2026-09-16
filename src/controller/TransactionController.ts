@@ -110,7 +110,7 @@ const getTransactionById = async (req: Request, res: Response): Promise<void> =>
 
     const { transactionId } = req.params;
 
-    const result = await TransactionService.getPaymentById(transactionId);
+    const result = await TransactionService.getPaymentById(transactionId, { userId: req.userId, role: req.role });
     res.status(result.code).json(result);
   } catch (error) {
     console.error('Error in getTransactionById controller:', error);
@@ -168,7 +168,7 @@ const getPaymentByReference = async (req: Request, res: Response): Promise<void>
 
     const { reference } = req.params;
 
-    const result = await TransactionService.getPaymentByReference(reference);
+    const result = await TransactionService.getPaymentByReference(reference, { userId: req.userId, role: req.role });
     res.status(result.code).json(result);
   } catch (error) {
     console.error('Error in getPaymentByReference controller:', error);

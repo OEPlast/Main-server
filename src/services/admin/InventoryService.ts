@@ -1,10 +1,22 @@
 import Product, { ProductType } from '@/models/Product';
+import { escapeRegex } from '@/helpers/regex';
 import { CustomResponseType } from '@/types';
 import eventPublisher from '@/events/eventPublisher';
 
 type InventoryChild = { name: string; stock: number };
 type InventoryAttribute = { name: string; children: InventoryChild[] };
-type InventoryListItem = { _id: string; stock: number; lowStockThreshold: number; attributes?: InventoryAttribute[] };
+type InventoryListItem = {
+  _id: string;
+  name: string;
+  slug: string;
+  sku?: string;
+  status: string;
+  image?: string;
+  stock: number;
+  lowStockThreshold: number;
+  updatedAt?: Date;
+  attributes?: InventoryAttribute[];
+};
 
 const list = async (
   page = 1,
@@ -14,10 +26,11 @@ const list = async (
   try {
     const query: Record<string, unknown> = {};
     if (filters?.q) {
+      const safeQuery = escapeRegex(filters.q);
       query.$or = [
-        { name: { $regex: filters.q, $options: 'i' } },
-        { brand: { $regex: filters.q, $options: 'i' } },
-        { tags: { $elemMatch: { $regex: filters.q, $options: 'i' } } },
+        { name: { $regex: safeQuery, $options: 'i' } },
+        { brand: { $regex: safeQuery, $options: 'i' } },
+        { tags: { $elemMatch: { $regex: safeQuery, $options: 'i' } } },
       ];
     }
     if (filters?.status) query.status = filters.status;
@@ -28,14 +41,25 @@ const list = async (
         .skip((page - 1) * limit)
         .limit(limit)
         .sort({ updatedAt: -1 })
-        .select('stock lowStockThreshold attributes.name attributes.children.name attributes.children.stock'),
+        .select(
+          'name slug sku status description_images stock lowStockThreshold updatedAt attributes.name attributes.children.name attributes.children.stock'
+        ),
       Product.countDocuments(query),
     ]);
 
+    // The list used to carry only ids and counts: no name, so no screen could be built on it.
     const mapped: InventoryListItem[] = products.map((p) => ({
       _id: (p as unknown as { _id: string })._id,
+      name: p.name,
+      slug: p.slug,
+      sku: (p as unknown as { sku?: string }).sku,
+      status: p.status,
+      image:
+        (p.description_images as Array<{ url?: string; cover_image?: boolean }> | undefined)?.find((i) => i.cover_image)
+          ?.url ?? (p.description_images as Array<{ url?: string }> | undefined)?.[0]?.url,
       stock: p.stock,
       lowStockThreshold: p.lowStockThreshold,
+      updatedAt: (p as unknown as { updatedAt?: Date }).updatedAt,
       attributes:
         p.attributes && p.attributes.length > 0
           ? p.attributes.map((a) => ({

@@ -1,4 +1,5 @@
 import LogisticsConfigModel, { LogisticsConfigType } from '@/models/LogisticsConfig';
+import { escapeRegex } from '@/helpers/regex';
 import Product from '@/models/Product';
 import { QuoteInput, QuoteResult, LocationTree } from '@/types/logistics';
 import { CustomResponsePromise } from '@/types';
@@ -245,7 +246,7 @@ const getLocationsByCountry = async (
     const pipeline: PipelineStage[] = [
       {
         $match: {
-          countryName: { $regex: new RegExp(`^${countryName}$`, 'i') }, // Case-insensitive match
+          countryName: { $regex: new RegExp(`^${escapeRegex(countryName)}$`, 'i') }, // Case-insensitive match
         },
       },
       {

@@ -1,10 +1,8 @@
 import Review, { ReviewType } from '../models/Review';
-import Reply from '@/models/Reply';
 import Order from '@/models/Order';
 import Product from '@/models/Product';
 import Transaction from '@/models/Transaction';
 import { ObjectId } from 'mongodb';
-import AnalyticsService from './MainAnalyticsService';
 
 /**
  * Only moderated-in reviews are ever visible to shoppers, counted in a product's
@@ -514,12 +512,6 @@ const createReview = async (reviewData: IReview): Promise<CustomResponseType<Rev
     // Keep denormalized product rating stats in sync (fire-and-forget).
     syncProductRatingStats(product).catch(() => {});
 
-    // Track review creation for analytics
-    if (newReview._id && product && reviewBy) {
-      AnalyticsService.trackReviewCreated(newReview._id.toString(), product, reviewBy).catch((err) =>
-        console.error('Failed to track review analytics:', err)
-      );
-    }
 
     return {
       message: 'Review created successfully',
@@ -543,15 +535,15 @@ const createReview = async (reviewData: IReview): Promise<CustomResponseType<Rev
  */
 const updateReview = async (
   reviewId: string,
-  reviewData: Pick<IReview, 'review' | 'rating' | 'title'>
+  reviewBy: string,
+  reviewData: Partial<Pick<IReview, 'review' | 'rating' | 'title'>> & { images?: string[] }
 ): Promise<CustomResponseType<IReview | null>> => {
   try {
-    const updatedReview = await Review.findByIdAndUpdate(
-      reviewId,
-      {
-        ...reviewData,
-        updatedAt: new Date(),
-      },
+    const changes = Object.fromEntries(Object.entries(reviewData).filter(([, value]) => value !== undefined));
+    // Scoped to the author: the id alone let any signed-in customer rewrite someone else's review.
+    const updatedReview = await Review.findOneAndUpdate(
+      { _id: reviewId, reviewBy: new ObjectId(reviewBy) },
+      { ...changes, updatedAt: new Date() },
       { new: true }
     ).populate([
       { path: 'reviewBy', select: 'firstName lastName email' },
@@ -608,7 +600,6 @@ const deleteReview = async ({
         code: 404,
       };
     }
-    await Reply.deleteMany({ review: reviewId });
 
     if (existing?.product) {
       syncProductRatingStats(existing.product.toString()).catch(() => {});
@@ -725,6 +716,14 @@ const allReviews = async (
           isLikedByUser: 1,
           title: 1,
           transactionId: 1,
+          // Staff replies are shown as the store's response, without the staff member's name.
+          replies: {
+            $map: {
+              input: { $ifNull: ['$replies', []] },
+              as: 'r',
+              in: { _id: '$$r._id', reply: '$$r.reply', createdAt: '$$r.createdAt', updatedAt: '$$r.updatedAt' },
+            },
+          },
         },
       },
     ]);

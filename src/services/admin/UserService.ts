@@ -1,27 +1,61 @@
 import mongoose, { PipelineStage } from 'mongoose';
+import { escapeRegex } from '@/helpers/regex';
+import { anonymiseUser } from '@/services/users/accountDeletion';
 import User, { UserType } from '@/models/User';
 import { CustomResponsePromise, CustomResponseTypeWithMeta } from '@/types';
 import Order, { OrderType } from '@/models/Order';
 import Review, { ReviewType } from '@/models/Review';
 import Wishlist from '@/models/wishlist';
 
+/** The staff member performing an admin action on a user. */
+export type StaffActor = { id: string; role?: UserType['role'] | string };
+
+/**
+ * Returns a 403 response when `actor` may not change `target`, or null when the action is allowed.
+ *
+ * Owners bypass every permission check, so the owner role is the keys to the store. A staff member
+ * with `users:update` could previously make themselves owner, and could suspend or delete the real
+ * owner (which now actually locks them out, since suspended tokens are refused).
+ */
+const staffActionDenied = (
+  actor: StaffActor,
+  target: { _id: { toString(): string }; role?: string | null },
+  action: string
+): { message: string; data: null; code: number } | null => {
+  if (target._id.toString() === actor.id) {
+    return { message: `You cannot ${action} your own account`, data: null, code: 403 };
+  }
+  if (target.role === 'owner' && actor.role !== 'owner') {
+    return { message: `Only an owner can ${action} an owner`, data: null, code: 403 };
+  }
+  return null;
+};
+
 /**
  * Updates the role of a user.
  * @param userId - The ID of the user to update.
  * @param role - The new role to assign to the user.
+ * @param actor - The staff member making the change.
  * @returns A promise that resolves to a custom response indicating success or failure.
  */
 const updateUserRole = async ({
   userId,
   role,
+  actor,
 }: {
   userId: string;
   role: UserType['role'];
+  actor: StaffActor;
 }): CustomResponsePromise<null> => {
   try {
     const user = await User.findById(userId);
     if (!user) {
       return { message: 'User not found', data: null, code: 404 };
+    }
+    const denied = staffActionDenied(actor, user, 'change the role of');
+    if (denied) return denied;
+    if (role === 'owner' && actor.role !== 'owner') {
+      return { message: 'Only an owner can grant the owner role', data: null, code: 403 };
     }
     user.role = role;
     await user.save();
@@ -36,14 +70,17 @@ const updateUserRole = async ({
  * Updates the suspension status of a user.
  * @param userId - The ID of the user to update.
  * @param suspend - A boolean indicating whether to suspend or unsuspend the user.
+ * @param actor - The staff member making the change.
  * @returns A promise that resolves to a custom response indicating success or failure.
  */
 const suspendedStatus = async ({
   userId,
   suspend,
+  actor,
 }: {
   userId: string;
   suspend: boolean;
+  actor: StaffActor;
 }): CustomResponsePromise<null> => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -53,7 +90,16 @@ const suspendedStatus = async ({
       await session.abortTransaction();
       return { message: 'User not found', data: null, code: 404 };
     }
+    const denied = staffActionDenied(actor, user, suspend ? 'suspend' : 'unsuspend');
+    if (denied) {
+      await session.abortTransaction();
+      return denied;
+    }
     user.suspended = suspend;
+    if (suspend) {
+      // Revoke every session now, and keep them revoked if the account is later unsuspended.
+      user.tokenVersion = (user.tokenVersion ?? 0) + 1;
+    }
     await user.save({ session });
     await session.commitTransaction();
     return { message: `User ${suspend ? 'suspended' : 'unsuspended'} successfully`, data: null, code: 200 };
@@ -69,26 +115,27 @@ const suspendedStatus = async ({
 /**
  * Deletes a user by their ID.
  * @param userId - The ID of the user to delete.
+ * @param actor - The staff member making the change.
  * @returns A promise that resolves to a custom response indicating success or failure.
  */
-const deleteUser = async (userId: string): CustomResponsePromise<null> => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
+const deleteUser = async (userId: string, actor: StaffActor): CustomResponsePromise<null> => {
   try {
-    const user = await User.findById(userId).session(session);
+    const user = await User.findById(userId);
     if (!user) {
-      await session.abortTransaction();
       return { message: 'User not found', data: null, code: 404 };
     }
-    await user.deleteOne({ session });
-    await session.commitTransaction();
-    return { message: 'User deleted successfully', data: null, code: 200 };
+    const denied = staffActionDenied(actor, user, 'delete');
+    if (denied) {
+      return denied;
+    }
+    // Anonymise instead of removing the document: a hard delete left orders, payments, returns
+    // and reviews pointing at a user that no longer existed, and kept their addresses on file.
+    const result = await anonymiseUser(userId, { by: 'staff' });
+    if (result.code !== 200) return { message: result.message, data: null, code: result.code };
+    return { message: 'User deleted: personal data removed, order records kept', data: null, code: 200 };
   } catch (error) {
-    await session.abortTransaction();
     console.error('Error deleting user:', error);
     return { message: 'Internal server error', data: null, code: 500 };
-  } finally {
-    session.endSession();
   }
 };
 
@@ -119,10 +166,11 @@ const getAllUsersWithPaginationAndSearch = async ({
     const match: Record<string, unknown> = {};
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       match.$or = [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
+        { firstName: { $regex: safeSearch, $options: 'i' } },
+        { lastName: { $regex: safeSearch, $options: 'i' } },
+        { email: { $regex: safeSearch, $options: 'i' } },
       ];
     }
 
@@ -375,10 +423,11 @@ const getStaff = async ({
     };
 
     if (search) {
+      const safeSearch = escapeRegex(search);
       match.$or = [
-        { firstName: { $regex: search, $options: 'i' } },
-        { lastName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
+        { firstName: { $regex: safeSearch, $options: 'i' } },
+        { lastName: { $regex: safeSearch, $options: 'i' } },
+        { email: { $regex: safeSearch, $options: 'i' } },
       ];
     }
 
@@ -475,9 +524,6 @@ const getStaff = async ({
     return { message: 'Internal server error', data: null, code: 500 };
   }
 };
-function escapeRegex(input: string): string {
-  return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 /**
  * Search users by email or name (lightweight for autocomplete/selectors)
  * @param query - Search query string
@@ -547,7 +593,7 @@ const listCouriers = async ({
       role: { $in: ['owner', 'employee'] },
     };
     if (search) {
-      const regex = new RegExp(search.trim(), 'i');
+      const regex = new RegExp(escapeRegex(search.trim()), 'i');
       query.$or = [{ name: regex }, { email: regex }, { firstName: regex }, { lastName: regex }];
     }
 

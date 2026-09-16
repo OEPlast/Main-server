@@ -292,5 +292,19 @@ const productSchema = new mongoose.Schema(
 );
 
 export type ProductType = InferSchemaType<typeof productSchema>;
+
+// Storefront listings filter on status and sort on one of these; the catalogue query was a
+// collection scan sorted in memory before. Category, brand and stock back the category pages,
+// brand filter and the low-stock report.
+productSchema.index({ status: 1, createdAt: -1 });
+productSchema.index({ status: 1, price: 1 });
+productSchema.index({ status: 1, ratingAverage: -1 });
+productSchema.index({ status: 1, name: 1 });
+productSchema.index({ status: 1, category: 1 });
+productSchema.index({ brand: 1 });
+// Old-URL redirects look products up by a former slug.
+productSchema.index({ slugHistory: 1 });
+productSchema.index({ status: 1, stock: 1 });
+
 const Product = mongoose.model('Product', productSchema);
 export default Product;

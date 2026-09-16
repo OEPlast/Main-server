@@ -2,11 +2,15 @@ import ShipmentService from '@/services/admin/ShipmentService';
 import LogisticsService from '@/services/LogisticsService';
 import GIGService from '@/services/GIGService';
 import { Request, Response } from 'express';
+import { toPublicShipment } from '@/utils/publicShipment';
 const trackOrder = async (req: Request, res: Response) => {
   try {
     const { trackingNumber } = req.params;
     const result = await ShipmentService.trackShipment(trackingNumber);
-    return res.status(result.code).json({ message: result.message, data: result.data, code: result.code });
+    // Public endpoint: anyone with a tracking number gets status and history, not the customer's
+    // phone, street address or contact details.
+    const data = result.data ? toPublicShipment(result.data) : null;
+    return res.status(result.code).json({ message: result.message, data, code: result.code });
   } catch (error) {
     console.error('Error tracking shipment:', error);
     return res.status(500).json({ message: 'Internal server error', data: null, code: 500 });

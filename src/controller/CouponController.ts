@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import User from '@/models/User';
+import type { AuthenticatedRequest } from '@/types';
 import CouponService from '@/services/CouponService';
 
 const CouponController = {
@@ -51,16 +53,24 @@ const CouponController = {
    */
   async validateCoupon(req: Request, res: Response) {
     try {
-      const { code, orderTotal, productIds, categoryIds } = req.body;
+      const { code, orderTotal, items, email } = req.body;
 
-      // Get userId from session if available
-      const userId = (req as Request & { user?: { userId: string } }).user?.userId;
+      // The auth middleware sets `req.userId`; this used to read `req.user.userId`, which is never
+      // set, so every once-per-customer coupon answered "You must be logged in". A guest at checkout
+      // is identified by the email they entered, the same way order creation resolves them.
+      let userId = (req as AuthenticatedRequest).userId as string | undefined;
+      if (!userId && typeof email === 'string' && email.includes('@')) {
+        const guest = await User.findOne({ email: email.trim().toLowerCase() })
+          .collation({ locale: 'en', strength: 2 })
+          .select('_id')
+          .lean();
+        userId = guest?._id.toString();
+      }
 
       const result = await CouponService.validateCoupon({
         code,
         orderTotal,
-        productIds,
-        categoryIds,
+        items,
         userId,
       });
 

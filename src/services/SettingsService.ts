@@ -38,6 +38,7 @@ interface UpdateSettingsInput {
   supportEmail?: string;
   supportPhone?: string;
   whatsappNumber?: string;
+  supportHours?: string;
   address?: {
     line1?: string;
     line2?: string;

@@ -1,5 +1,6 @@
 import { ObjectId } from 'mongodb';
 import Review, { ReviewType } from '../../models/Review';
+import ReviewService from '@/services/reviewService';
 // import User from '../../models/User';
 // import Product from '../../models/Product';
 import mongoose from 'mongoose';
@@ -231,6 +232,12 @@ const getReviewsByUserId = async (
 /**
  * Moderates a review (approve/reject)
  */
+/** Recomputes the product's stored rating average and count from its public reviews. */
+const resyncProductRating = async (product: unknown): Promise<void> => {
+  const id = (product as { _id?: unknown } | null)?._id ?? product;
+  if (id) await ReviewService.syncProductRatingStats(String(id));
+};
+
 const moderateReview = async (
   reviewId: string,
   adminId: string,
@@ -259,6 +266,9 @@ const moderateReview = async (
         code: 404,
       };
     }
+
+    // Removing or restoring a review changes the product's stored rating.
+    await resyncProductRating(review.product);
 
     return {
       message: `Review ${isApproved ? 'approved' : 'rejected'} successfully`,
@@ -310,6 +320,8 @@ const updateReview = async (
         code: 404,
       };
     }
+
+    await resyncProductRating(review.product);
 
     return {
       message: 'Review updated successfully',
@@ -542,20 +554,21 @@ const getRepliesByReviewId = async (
  * @param replyText - The reply text.
  * @param adminId - The ID of the admin adding the reply.
  */
-const addReply = async (reviewId: string, replyText: string, adminId?: string): Promise<CustomResponseType<void>> => {
+const addReply = async (reviewId: string, replyText: string, adminId: string): Promise<CustomResponseType<void>> => {
   try {
-    const replyBy = adminId || new ObjectId(); // Use admin ID if provided, otherwise generate new ObjectId
-
-    await Review.findByIdAndUpdate(reviewId, {
+    const updated = await Review.findByIdAndUpdate(reviewId, {
       $push: {
         replies: {
           reply: replyText,
-          replyBy: new ObjectId(replyBy),
+          replyBy: new ObjectId(adminId),
           createdAt: new Date(),
           updatedAt: new Date(),
         },
       },
     });
+    if (!updated) {
+      return { message: 'Review not found', data: null, code: 404 };
+    }
 
     return {
       message: 'Reply added successfully',
@@ -667,7 +680,9 @@ const updateReply = async ({
  */
 const deleteReview = async ({ reviewId }: { reviewId: string }): Promise<CustomResponseType<void>> => {
   try {
+    const existing = await Review.findById(reviewId).select('product').lean();
     const deleteResult = await Review.deleteOne({ _id: reviewId });
+    if (existing) await resyncProductRating(existing.product);
 
     if (deleteResult.deletedCount === 0) {
       return {

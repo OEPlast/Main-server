@@ -1,4 +1,5 @@
 import Campaign, { ICampaign } from '@/models/Campaign';
+import { escapeRegex } from '@/helpers/regex';
 import { CustomResponseType } from '@/types';
 import mongoose, { FilterQuery } from 'mongoose';
 
@@ -16,7 +17,7 @@ const getAllActiveCampaigns = async ({
 }: ListInput): Promise<CustomResponseType<{ campaigns: ICampaign[]; total: number; page: number; limit: number }>> => {
   try {
     const filter: FilterQuery<ICampaign> = { status: 'active' } as FilterQuery<ICampaign>;
-    if (q) filter.title = new RegExp(q, 'i');
+    if (q) filter.title = new RegExp(escapeRegex(q), 'i');
 
     const [campaigns, total] = await Promise.all([
       Campaign.find(filter)

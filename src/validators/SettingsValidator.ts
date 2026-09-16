@@ -53,6 +53,14 @@ const validateUpdateSettings = async (req: Request, res: Response, next: NextFun
       trim: true,
       errorMessage: 'WhatsApp number must be a string',
     },
+    supportHours: {
+      in: ['body'],
+      optional: true,
+      isString: true,
+      trim: true,
+      isLength: { options: { max: 120 } },
+      errorMessage: 'Support hours must be text of at most 120 characters',
+    },
     'address.line1': {
       in: ['body'],
       optional: true,

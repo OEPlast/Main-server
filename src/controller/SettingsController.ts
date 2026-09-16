@@ -1,5 +1,9 @@
 import { Request, Response } from 'express';
+import type { AuthenticatedRequest } from '@/types';
 import SettingsService from '../services/SettingsService';
+
+/** Tax registration details are for staff; the storefront reads this endpoint too. */
+const STAFF_ONLY_FIELDS = ['taxId'] as const;
 
 /**
  * Get store settings (public endpoint).
@@ -7,6 +11,16 @@ import SettingsService from '../services/SettingsService';
 const getSettings = async (req: Request, res: Response) => {
   try {
     const { data, code, message } = await SettingsService.getSettings();
+    // Public route: the tax registration id and rate are for staff only.
+    const isStaff = ['owner', 'manager', 'employee'].includes((req as AuthenticatedRequest).role ?? '');
+    if (data && !isStaff) {
+      const raw =
+        (data as unknown as { toObject?: () => Record<string, unknown> }).toObject?.() ??
+        (data as unknown as Record<string, unknown>);
+      const publicSettings = { ...raw };
+      for (const field of STAFF_ONLY_FIELDS) delete publicSettings[field];
+      return res.status(code).json({ data: publicSettings, message });
+    }
     return res.status(code).json({ data, message });
   } catch (error) {
     console.error('Error in getSettings:', error);

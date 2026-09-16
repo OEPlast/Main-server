@@ -1,6 +1,13 @@
 import { Request, Response } from 'express';
 import Admin_UserService from '@/services/admin/UserService';
 import { UserType } from '@/models/User';
+import { AuthenticatedRequest } from '@/types';
+
+/** The signed-in staff member, set by authenticateUser. */
+const actorOf = (req: Request) => ({
+  id: (req as AuthenticatedRequest).userId,
+  role: (req as AuthenticatedRequest).role,
+});
 
 // Get all users with pagination and search
 const getAllUsers = async (req: Request, res: Response) => {
@@ -45,7 +52,7 @@ const updateUserRole = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { role } = req.body;
-    const { message, code } = await Admin_UserService.updateUserRole({ userId: id, role });
+    const { message, code } = await Admin_UserService.updateUserRole({ userId: id, role, actor: actorOf(req) });
     return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in updateUserRole:', error);
@@ -58,7 +65,7 @@ const updateUserSuspension = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { suspend } = req.body;
-    const { message, code } = await Admin_UserService.suspendedStatus({ userId: id, suspend });
+    const { message, code } = await Admin_UserService.suspendedStatus({ userId: id, suspend, actor: actorOf(req) });
     return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in updateUserSuspension:', error);
@@ -70,7 +77,7 @@ const updateUserSuspension = async (req: Request, res: Response) => {
 const deleteUser = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { message, code } = await Admin_UserService.deleteUser(id);
+    const { message, code } = await Admin_UserService.deleteUser(id, actorOf(req));
     return res.status(code).json({ message });
   } catch (error) {
     console.error('Error in deleteUser:', error);

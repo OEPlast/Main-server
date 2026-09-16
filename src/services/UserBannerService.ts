@@ -1,5 +1,5 @@
 import Banner, { BannerType } from '@/models/Banner';
-import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
+import { CustomResponseType } from '@/types';
 
 interface GetUserBannersParams {
   category?: 'A' | 'B' | 'C' | 'D' | 'E';
@@ -70,8 +70,6 @@ interface GetUserBannersParams {
           groupedBanners[banner.category].push(banner as BannerType);
         }
       });
-
-      const total = banners.length;
 
       return {
         message: 'Banners grouped by category retrieved successfully',

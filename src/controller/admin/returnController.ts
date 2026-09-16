@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
+import { AuthenticatedRequest } from '@/types';
 import returnService from '../../services/returnService';
+import { OVERRIDABLE_RETURN_STATUSES, REFUNDABLE_RETURN_STATUSES } from '@/services/returnService';
 import ReturnTransactionService from '../../services/returnTransactionService';
 
 /**
@@ -79,7 +81,7 @@ const updateReturnStatus = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { status, adminNotes } = req.body;
-    const adminId = (req as any).userId; // From auth middleware
+    const adminId = (req as AuthenticatedRequest).userId;
 
     if (!status) {
       return res.status(400).json({
@@ -89,10 +91,11 @@ const updateReturnStatus = async (req: Request, res: Response) => {
       });
     }
 
-    const response = await returnService.updateReturnStatus(id, {
-      status,
-      adminNotes,
-    });
+    const response = await returnService.updateReturnStatus(
+      id,
+      { status, adminNotes },
+      { kind: 'admin', id: adminId }
+    );
 
     res.status(response.code).json(response);
   } catch (error) {
@@ -112,7 +115,7 @@ const updateReturnStatus = async (req: Request, res: Response) => {
 const processRefund = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { refundAmount, refundMethod, adminNotes } = req.body;
+    const { refundAmount, refundMethod, adminNotes, override, overrideReason } = req.body;
 
     if (!refundAmount || !refundMethod) {
       return res.status(400).json({
@@ -130,12 +133,26 @@ const processRefund = async (req: Request, res: Response) => {
 
     const returnData = returnResponse.data;
 
-    // Check if return is in a refundable state
-    // Refund can only be processed after return is approved (which comes after inspection)
-    const refundableStatuses = ['approved'];
-    if (!refundableStatuses.includes(returnData.status)) {
+    // Money goes back only for goods that came back and passed inspection. The gate used to be
+    // `approved`, which is the second status, before the items are even received: approve, refund,
+    // and the goods never had to arrive. Waiving the goods (e.g. a damaged item not worth shipping)
+    // needs an explicit override with a reason, which is kept on the return.
+    const isOverride = override === true && typeof overrideReason === 'string' && overrideReason.trim().length >= 10;
+    if (
+      !REFUNDABLE_RETURN_STATUSES.includes(returnData.status) &&
+      !(isOverride && OVERRIDABLE_RETURN_STATUSES.includes(returnData.status))
+    ) {
       return res.status(400).json({
-        message: `Return must be approved before refund can be processed. Current status: ${returnData.status}`,
+        message: `A refund needs the returned items to pass inspection first (current status: ${returnData.status}). To refund without the goods, send an override with a reason.`,
+        data: null,
+        code: 400,
+      });
+    }
+
+    const orderTotal = (returnData.order as { total?: number } | undefined)?.total;
+    if (typeof orderTotal === 'number' && Number(refundAmount) > orderTotal) {
+      return res.status(400).json({
+        message: `Refund amount can't exceed the order total of ${orderTotal}`,
         data: null,
         code: 400,
       });
@@ -156,6 +173,7 @@ const processRefund = async (req: Request, res: Response) => {
       userId: returnData.user._id.toString(), // user is populated, need _id
       amount: refundAmount,
       refundMethod,
+      adminId: (req as AuthenticatedRequest).userId,
       customerInfo: {
         email: returnData.user.email || 'customer@example.com',
         name: `${returnData.user.firstName || ''} ${returnData.user.lastName || ''}`.trim() || 'Customer',
@@ -170,8 +188,10 @@ const processRefund = async (req: Request, res: Response) => {
     // Update return status to completed
     const updateResponse = await returnService.updateReturnStatus(id, {
       status: 'completed',
-      adminNotes: adminNotes || 'Refund processed successfully',
-    });
+      adminNotes: [adminNotes || 'Refund processed', isOverride ? `Refund override: ${overrideReason.trim()}` : null]
+        .filter(Boolean)
+        .join('\n'),
+    }, { kind: 'admin', id: (req as AuthenticatedRequest).userId });
 
     if (updateResponse.code !== 200) {
       return res.status(updateResponse.code).json(updateResponse);
@@ -206,7 +226,7 @@ const deleteReturn = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const response = await returnService.deleteReturn(id);
+    const response = await returnService.deleteReturn(id, { kind: 'admin', id: (req as AuthenticatedRequest).userId });
 
     res.status(response.code).json(response);
   } catch (error) {

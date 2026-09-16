@@ -1,6 +1,15 @@
 import type { NextFunction, Request, Response } from 'express';
 import { checkSchema, validationResult, checkExact } from 'express-validator';
 
+/** GTIN-8/12/13/14: digits only, with the GS1 mod-10 check digit. */
+export const isValidGtin = (value: string): boolean => {
+  if (!/^(\d{8}|\d{12}|\d{13}|\d{14})$/.test(value)) return false;
+  const digits = value.split('').map(Number);
+  const check = digits.pop()!;
+  const sum = digits.reverse().reduce((total, digit, index) => total + digit * (index % 2 === 0 ? 3 : 1), 0);
+  return (10 - (sum % 10)) % 10 === check;
+};
+
 // products api validator
 
 // Validator for creating a product (aligned with Product model)
@@ -88,6 +97,17 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
       stock: { isNumeric: true, errorMessage: 'stock must be a number' },
       lowStockThreshold: { optional: true, isNumeric: true },
       status: { optional: true, isIn: { options: [['active', 'inactive', 'archived']] } },
+      // Google Shopping identity. GTIN must be a real barcode number (valid check digit).
+      brand: { optional: true, isString: true, trim: true, isLength: { options: { max: 70 } }, errorMessage: 'brand must be at most 70 characters' },
+      gtin: {
+        optional: { options: { values: 'falsy' } },
+        isString: true,
+        trim: true,
+        custom: { options: (value: string) => isValidGtin(value) },
+        errorMessage: 'GTIN must be the 8, 12, 13 or 14 digit barcode number with a valid check digit',
+      },
+      mpn: { optional: true, isString: true, trim: true, isLength: { options: { max: 70 } }, errorMessage: 'mpn must be at most 70 characters' },
+      condition: { optional: true, isIn: { options: [['new', 'used', 'refurbished']] }, errorMessage: 'condition must be new, used or refurbished' },
     })
   ).run(req);
 
@@ -174,6 +194,17 @@ const updateProductValidator = async (req: Request, res: Response, next: NextFun
       lowStockThreshold: { optional: true, isNumeric: true },
       status: { optional: true, isIn: { options: [['active', 'inactive', 'archived']] } },
       slug: { optional: true, isString: true },
+      // Google Shopping identity. GTIN must be a real barcode number (valid check digit).
+      brand: { optional: true, isString: true, trim: true, isLength: { options: { max: 70 } }, errorMessage: 'brand must be at most 70 characters' },
+      gtin: {
+        optional: { options: { values: 'falsy' } },
+        isString: true,
+        trim: true,
+        custom: { options: (value: string) => isValidGtin(value) },
+        errorMessage: 'GTIN must be the 8, 12, 13 or 14 digit barcode number with a valid check digit',
+      },
+      mpn: { optional: true, isString: true, trim: true, isLength: { options: { max: 70 } }, errorMessage: 'mpn must be at most 70 characters' },
+      condition: { optional: true, isIn: { options: [['new', 'used', 'refurbished']] }, errorMessage: 'condition must be new, used or refurbished' },
     })
   ).run(req);
 

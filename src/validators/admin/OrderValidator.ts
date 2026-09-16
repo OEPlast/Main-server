@@ -3,8 +3,10 @@ import { checkSchema, validationResult } from 'express-validator';
 
 //order validator for admin
 
-const updateOrderDetails = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
+// These validators used to build `checkSchema(...)` without running it, and checked an `orderId`
+// parameter the routes do not have (they use `:id`), so nothing was validated.
+const updateOrderDetails = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
     status: {
       optional: true,
       isString: {
@@ -61,7 +63,7 @@ const updateOrderDetails = (req: Request, res: Response, next: NextFunction) => 
         },
       },
     },
-  });
+  }).run(req);
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -70,18 +72,21 @@ const updateOrderDetails = (req: Request, res: Response, next: NextFunction) => 
   next();
 };
 
-const validateRejectOrder = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    orderId: {
+const validateRejectOrder = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
+    id: {
       in: ['params'],
-      isString: {
-        errorMessage: 'Order ID must be a string',
-      },
-      notEmpty: {
-        errorMessage: 'Order ID is required',
+      isMongoId: {
+        errorMessage: 'Order ID must be a valid id',
       },
     },
-  });
+    reason: {
+      in: ['body'],
+      optional: true,
+      isString: { errorMessage: 'Reason must be a string' },
+      isLength: { options: { max: 500 }, errorMessage: 'Reason must be at most 500 characters' },
+    },
+  }).run(req);
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -90,15 +95,12 @@ const validateRejectOrder = (req: Request, res: Response, next: NextFunction) =>
   next();
 };
 
-const updateDeliveryTimeline = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
-    orderId: {
+const updateDeliveryTimeline = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
+    id: {
       in: ['params'],
-      isString: {
-        errorMessage: 'Order ID must be a string',
-      },
-      notEmpty: {
-        errorMessage: 'Order ID is required',
+      isMongoId: {
+        errorMessage: 'Order ID must be a valid id',
       },
     },
     timeline: {
@@ -110,7 +112,7 @@ const updateDeliveryTimeline = (req: Request, res: Response, next: NextFunction)
         errorMessage: 'Timeline is required',
       },
     },
-  });
+  }).run(req);
 
   const errors = validationResult(req);
   if (!errors.isEmpty()) {

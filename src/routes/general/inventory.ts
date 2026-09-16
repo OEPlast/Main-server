@@ -2,7 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { validationResult } from 'express-validator';
 import { productIdParam, adjustStockValidator, reserveValidator } from '@/validators/inventoryValidator';
 import InventoryController from '@/controller/inventoryController';
-import { authenticateUser, isAdmin } from '@/middleware/auth';
+import { authenticateUser, isAdmin, requirePermission } from '@/middleware/auth';
 
 const router = Router();
 
@@ -22,6 +22,7 @@ router.post(
   '/:productId/stock',
   authenticateUser,
   isAdmin,
+  requirePermission('inventory', 'update'),
   adjustStockValidator,
   validate,
   InventoryController.adjustStock

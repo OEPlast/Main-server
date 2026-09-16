@@ -1,20 +1,23 @@
 import type { NextFunction, Request, Response } from 'express';
 import { checkExact, checkSchema, validationResult } from 'express-validator';
 
-const loginValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
+// These validators used to build `checkSchema(...)` and never `.run(req)` it, so nothing was
+// validated: a JSON object such as `{ "$gt": "" }` reached the Mongo query as an operator.
+const loginValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
     email: {
       in: ['body'],
       isEmail: true,
       errorMessage: 'Valid email is required',
     },
+    // No length rule here: it belongs to choosing a password, not to typing an existing one.
     password: {
       in: ['body'],
       isString: true,
-      isLength: { options: { min: 6 } },
-      errorMessage: 'Password must be at least 6 characters',
+      notEmpty: true,
+      errorMessage: 'Password is required',
     },
-  });
+  }).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -25,15 +28,23 @@ const loginValidator = (req: Request, res: Response, next: NextFunction) => {
 const providerLoginValidator = async (req: Request, res: Response, next: NextFunction) => {
   await checkExact(
     checkSchema({
+      // Google is the only provider whose login can be verified (see verifyGoogleIdToken).
       provider: {
         in: ['body'],
-        isString: true,
-        errorMessage: 'provider type is required (google, reddit, github...)',
+        isIn: { options: [['google']] },
+        errorMessage: 'provider must be google',
       },
       providerAccountId: {
         in: ['body'],
         isString: true,
+        notEmpty: true,
         errorMessage: 'providerAccountId is required',
+      },
+      idToken: {
+        in: ['body'],
+        isString: true,
+        notEmpty: true,
+        errorMessage: 'idToken is required',
       },
     })
   ).run(req);
@@ -44,8 +55,8 @@ const providerLoginValidator = async (req: Request, res: Response, next: NextFun
   next();
 };
 
-const registerValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
+const registerValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
     email: {
       in: ['body'],
       isEmail: true,
@@ -67,7 +78,7 @@ const registerValidator = (req: Request, res: Response, next: NextFunction) => {
       isString: true,
       errorMessage: 'lastName must be a string',
     },
-  });
+  }).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
@@ -148,14 +159,15 @@ const resetPasswordByCodeValidator = async (req: Request, res: Response, next: N
   next();
 };
 
-const verifyAccountOtpValidator = (req: Request, res: Response, next: NextFunction) => {
-  checkSchema({
+const verifyAccountOtpValidator = async (req: Request, res: Response, next: NextFunction) => {
+  await checkSchema({
     code: {
       in: ['body'],
+      isNumeric: true,
       notEmpty: true,
       errorMessage: 'code is required',
     },
-  });
+  }).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });

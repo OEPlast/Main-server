@@ -5,9 +5,9 @@ import { authenticateUser } from '@/middleware/auth';
 import RateLimits from '@/middleware/rate';
 const router = express.Router();
 
-router.post('/login', AuthValidator.loginValidator, AuthController.userLogin);
+router.post('/login', RateLimits.Login_Limiter, AuthValidator.loginValidator, AuthController.userLogin);
 router.post('/login/provider', AuthValidator.providerLoginValidator, AuthController.providerLogin);
-router.post('/register', AuthValidator.registerValidator, AuthController.userRegister);
+router.post('/register', RateLimits.Register_Limiter, AuthValidator.registerValidator, AuthController.userRegister);
 router.post(
   '/changePassword',
   authenticateUser,
@@ -31,12 +31,19 @@ router.post(
   AuthValidator.requestResetPasswordCodeValidator,
   AuthController.requestResetPasswordCode
 );
-router.post('/resetPasswordByCode', AuthValidator.resetPasswordByCodeValidator, AuthController.resetUserPasswordByCode);
+router.post(
+  '/resetPasswordByCode',
+  RateLimits.CodeCheck_Limiter,
+  AuthValidator.resetPasswordByCodeValidator,
+  AuthController.resetUserPasswordByCode
+);
 
 router.post(
   '/verifyAccount',
   AuthValidator.verifyAccountOtpValidator,
   authenticateUser,
+  // After authenticateUser, so the limit is keyed on the signed-in account.
+  RateLimits.CodeCheck_Limiter,
   AuthController.verifyAccountOtp
 );
 

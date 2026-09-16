@@ -2,7 +2,6 @@ import passwordLib from '@/lib/password';
 import User, { UserType } from '../models/User';
 import { CustomResponsePromise, CustomResponseType } from '@/types';
 import Coupon, { CouponType } from '@/models/Coupon';
-import AnalyticsService from './MainAnalyticsService';
 import mongoose from 'mongoose';
 
 /**
@@ -133,7 +132,7 @@ const changePassword = async (
   newPassword: string
 ): Promise<CustomResponseType<null>> => {
   try {
-    const user = await User.findById(userId).select('password');
+    const user = await User.findById(userId).select('password tokenVersion');
     if (!user) {
       return {
         message: 'User not found',
@@ -157,6 +156,8 @@ const changePassword = async (
       };
     }
     user.password = await passwordLib.hashPassword(newPassword);
+    // A new password ends every existing session (see User.tokenVersion).
+    user.tokenVersion = (user.tokenVersion ?? 0) + 1;
     await user.save();
     return {
       message: 'Password changed successfully',
@@ -219,10 +220,6 @@ const applyCoupon = async (userId: string, couponCode: string): CustomResponsePr
       }
     }
 
-    // Track coupon usage for analytics (async)
-    AnalyticsService.trackCouponUsed(coupon._id.toString(), userId).catch((err) =>
-      console.error('Failed to track coupon usage analytics:', err)
-    );
 
     return {
       message: 'Coupon applied successfully',

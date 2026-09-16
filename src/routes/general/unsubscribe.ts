@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import User from '@/models/User';
+import { unsubscribeEverywhere } from '@/services/email/newsletter';
 import { logger } from '@/lib/logger';
 import { verifyUnsubscribeToken } from '@/utils/unsubscribeToken';
 import { getBrand } from '@/services/brand';
@@ -47,10 +47,8 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const brand = await getBrand();
 
-    await User.updateOne(
-      { email: email.toLowerCase() },
-      { $set: { 'emailPreferences.marketing': false, 'emailPreferences.unsubscribedAt': new Date() } }
-    );
+    // Accounts and newsletter-only subscribers alike, matched case-insensitively.
+    await unsubscribeEverywhere(email);
 
     // Always report success, even when no account matched. Reporting "no such user" here
     // would turn this open endpoint into an account-enumeration oracle.
@@ -85,10 +83,8 @@ router.post('/', async (req: Request, res: Response) => {
   if (!verifyUnsubscribeToken(email, token)) return res.status(400).json({ message: 'Invalid link' });
 
   try {
-    await User.updateOne(
-      { email: email.toLowerCase() },
-      { $set: { 'emailPreferences.marketing': false, 'emailPreferences.unsubscribedAt': new Date() } }
-    );
+    // Accounts and newsletter-only subscribers alike, matched case-insensitively.
+    await unsubscribeEverywhere(email);
     logger.info(`[email] one-click marketing opt-out recorded for ${email}`);
     return res.status(200).json({ message: 'Unsubscribed' });
   } catch (error) {

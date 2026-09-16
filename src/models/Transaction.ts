@@ -34,6 +34,8 @@ export interface ITransaction extends Document {
     status: 'pending' | 'completed' | 'failed';
     refundDate: Date;
     gatewayRefundId?: string;
+    /** The admin's user id, or 'system' for automatic refunds. */
+    initiatedBy?: string;
   }>;
   fees: {
     gatewayFee: number;
@@ -53,6 +55,17 @@ export interface ITransaction extends Document {
     postalCode: string;
   };
   metadata?: Record<string, unknown>;
+  /**
+   * Set when money moved in a way staff must look at: a payment that arrived after its order was
+   * cancelled, a charge that did not match the order, a paid order the customer cancelled (refund
+   * awaits approval), or a refund Paystack rejected. `resolvedAt` is stamped when it is dealt with.
+   */
+  review?: {
+    required: boolean;
+    reason: string;
+    flaggedAt: Date;
+    resolvedAt?: Date;
+  };
   createdAt: Date;
   updatedAt: Date;
 }
@@ -124,6 +137,7 @@ const TransactionSchema = new Schema<ITransaction>(
           default: Date.now,
         },
         gatewayRefundId: String,
+        initiatedBy: String,
       },
     ],
     fees: {
@@ -162,6 +176,12 @@ const TransactionSchema = new Schema<ITransaction>(
       postalCode: String,
     },
     metadata: Schema.Types.Mixed,
+    review: {
+      required: { type: Boolean, default: false },
+      reason: String,
+      flaggedAt: Date,
+      resolvedAt: Date,
+    },
   },
   { timestamps: true }
 );
@@ -173,6 +193,7 @@ TransactionSchema.index({ reference: 1 }, { unique: true });
 TransactionSchema.index({ status: 1 });
 TransactionSchema.index({ paymentDate: -1 });
 TransactionSchema.index({ transactionType: 1, status: 1 });
+TransactionSchema.index({ 'review.required': 1 }, { partialFilterExpression: { 'review.required': true } });
 
 // Validation: orderId and returnId are mutually exclusive
 TransactionSchema.pre('save', function (next) {

@@ -2,12 +2,18 @@ import type { Request, Response, NextFunction } from 'express';
 import { checkSchema, checkExact, validationResult } from 'express-validator';
 
 // Return reason options
+// Must match the enum on models/Return.ts; four of the model's reasons were missing here, so the
+// storefront could never send them.
 const RETURN_REASONS = [
   'defective',
   'wrong_item',
+  'damaged',
   'not_as_described',
   'size_issue',
+  'color_issue',
   'quality_issue',
+  'changed_mind',
+  'late_delivery',
   'other',
 ] as const;
 
@@ -25,6 +31,7 @@ const RETURN_STATUSES = [
 ] as const;
 
 // Return types
+// Exchanges are rejected by the service until a replacement-order flow exists.
 const RETURN_TYPES = ['refund', 'exchange'] as const;
 
 // Refund methods
@@ -202,6 +209,19 @@ const processRefundValidator = async (req: Request, res: Response, next: NextFun
         isLength: { options: { max: 1000 } },
         errorMessage: 'Admin notes must not exceed 1000 characters',
       },
+      override: {
+        in: ['body'],
+        optional: true,
+        isBoolean: { options: { strict: true } },
+        errorMessage: 'override must be true or false',
+      },
+      overrideReason: {
+        in: ['body'],
+        optional: true,
+        isString: true,
+        isLength: { options: { min: 10, max: 500 } },
+        errorMessage: 'overrideReason must be 10-500 characters',
+      },
     })
   ).run(req);
 
@@ -329,6 +349,12 @@ const getMyReturnsValidator = async (req: Request, res: Response, next: NextFunc
         optional: true,
         isIn: { options: [RETURN_STATUSES] },
         errorMessage: `Status must be one of: ${RETURN_STATUSES.join(', ')}`,
+      },
+      orderId: {
+        in: ['query'],
+        optional: true,
+        isMongoId: true,
+        errorMessage: 'Valid order ID is required',
       },
       page: {
         in: ['query'],

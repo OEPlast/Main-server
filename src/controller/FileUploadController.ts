@@ -50,9 +50,8 @@ const uploadSingle = async (req: Request, res: Response) => {
       return res.status(401).json({ message: 'User not authenticated' });
     }
 
-    // Category already sanitized by validator (if provided) - read from body or query with fallback to 'general'
-    type BodyWithCategory = { category?: string };
-    const category = (req.body as BodyWithCategory).category ?? (req.query?.category as unknown as string) ?? 'general';
+    // Normalised and permission-checked by categoryBodyValidator, which runs after multer.
+    const category = (req.body as { category: string }).category;
     const uploadedBy = (req as AuthenticatedRequest).userId;
 
     const result = await FileUploadService.uploadFile(req.file, category, uploadedBy);
@@ -93,8 +92,8 @@ const uploadMultiple = async (req: Request, res: Response) => {
       }
     }
 
-    type BodyWithCategory = { category?: string };
-    const category = (req.body as BodyWithCategory).category ?? (req.query?.category as unknown as string) ?? 'general';
+    // Normalised and permission-checked by categoryBodyValidator, which runs after multer.
+    const category = (req.body as { category: string }).category;
     const uploadedBy = req.userId;
 
     const result = await FileUploadService.uploadMultipleFiles(req.files, category, uploadedBy);

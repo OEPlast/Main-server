@@ -1,4 +1,5 @@
 import mongoose, { Document, InferSchemaType, Schema } from 'mongoose';
+import { randomBytes } from 'crypto';
 
 export interface IReturnItem {
   product: mongoose.Types.ObjectId;
@@ -30,6 +31,12 @@ export interface IReturn extends Document {
   customerNotes?: string;
   adminNotes?: string;
   requestedAt: Date;
+  /** Every status the return has been through, who moved it and why. */
+  statusHistory: Array<{ status: IReturn['status']; at: Date; by: string; note?: string }>;
+  /** Soft delete: hidden from every list, kept for the refund audit trail. */
+  deleted: boolean;
+  deletedAt?: Date;
+  deletedBy?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -142,6 +149,20 @@ const ReturnSchema = new Schema<IReturn>(
       default: Date.now,
       index: true,
     },
+    statusHistory: {
+      type: [
+        {
+          status: { type: String, required: true },
+          at: { type: Date, required: true },
+          by: { type: String, required: true },
+          note: { type: String },
+        },
+      ],
+      default: [],
+    },
+    deleted: { type: Boolean, default: false, index: true },
+    deletedAt: { type: Date },
+    deletedBy: { type: String },
   },
   {
     timestamps: true,
@@ -158,15 +179,6 @@ ReturnSchema.virtual('formattedReturnNumber').get(function () {
   return `RET-${this.returnNumber}`;
 });
 
-// Method to check if return is within 7-day window
-ReturnSchema.methods.isWithinReturnWindow = function (deliveryDate: Date): boolean {
-  const RETURN_WINDOW_DAYS = 7;
-  const now = new Date();
-  const windowEndDate = new Date(deliveryDate);
-  windowEndDate.setDate(windowEndDate.getDate() + RETURN_WINDOW_DAYS);
-
-  return now <= windowEndDate;
-};
 
 // Method to calculate total refund amount
 ReturnSchema.methods.calculateTotalRefund = function (): number {
@@ -175,11 +187,15 @@ ReturnSchema.methods.calculateTotalRefund = function (): number {
   }, 0);
 };
 
-// Pre-save hook to generate return number if not exists
-ReturnSchema.pre('save', async function (next) {
+/**
+ * Return numbers are RET-YYYYMMDD-XXXXXX with a random suffix. The old `${Date.now()}-${count+1}`
+ * form was built from a document count, so two returns filed in the same moment collided, and a
+ * delete shifted every later number.
+ */
+ReturnSchema.pre('save', function (next) {
   if (!this.returnNumber) {
-    const count = await mongoose.model('Return').countDocuments();
-    this.returnNumber = `${Date.now()}-${count + 1}`;
+    const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    this.returnNumber = `RET-${day}-${randomBytes(3).toString('hex').toUpperCase()}`;
   }
   next();
 });

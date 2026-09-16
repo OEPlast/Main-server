@@ -1,11 +1,13 @@
 import Coupon from '@/models/Coupon';
 import { Types } from 'mongoose';
+import { validateCouponCodes } from '@/helpers/couponUtils';
+import { priceCart, toCouponLines } from '@/services/pricing';
 
 interface ValidateCouponParams {
   code: string;
   orderTotal: number;
-  productIds?: string[];
-  categoryIds?: string[];
+  /** Cart lines; priced on the server. */
+  items?: Array<{ product: string; qty: number; selectedAttributes?: Array<{ name: string; value: string }> }>;
   userId?: string;
 }
 
@@ -93,150 +95,41 @@ class CouponService {
   }
 
   /**
-   * Validate if coupon can be applied to an order
+   * Checks a coupon for the storefront's "apply coupon" button and returns the discount it will
+   * give. Uses the same eligibility checks and discount formula as checkout validation and order
+   * creation (`helpers/couponUtils.validateCouponCodes` → `services/pricing`), so the amount shown
+   * here is the amount charged.
+   *
+   * `items` are priced on the server. Without them (older clients) only `orderTotal` is known, so
+   * the coupon is evaluated as if the whole order were one line: product- and category-scoped
+   * coupons then report that they don't apply rather than showing a discount checkout won't give.
    */
   async validateCoupon(params: ValidateCouponParams): Promise<CouponValidationResult> {
-    const { code, orderTotal, productIds = [], categoryIds = [], userId } = params;
+    const { code, orderTotal, items, userId } = params;
 
-    // Find the coupon
-    const coupon = await Coupon.findOne({
-      coupon: code.toUpperCase(),
-      deleted: false,
-    });
+    const lines =
+      items && items.length > 0
+        ? toCouponLines(
+            (
+              await priceCart(
+                items.map((item) => ({ product: item.product, qty: item.qty, selectedAttributes: item.selectedAttributes }))
+              )
+            ).lines
+          )
+        : [{ productId: '', categoryId: null, lineTotal: Math.max(0, Number(orderTotal) || 0) }];
 
-    if (!coupon) {
-      return {
-        valid: false,
-        message: 'Coupon code not found',
-      };
+    const result = await validateCouponCodes({ couponCodes: [code], lines, userId: userId ?? null });
+    const applied = result.validCoupons[0];
+    if (!applied) {
+      return { valid: false, message: result.invalidCoupons[0]?.reason ?? 'This coupon cannot be used' };
     }
 
-    // Check if coupon is active
-    if (!coupon.active) {
-      return {
-        valid: false,
-        message: 'This coupon is currently inactive',
-      };
-    }
-
-    // Check date validity
-    const now = new Date();
-    if (coupon.startDate && now < coupon.startDate) {
-      return {
-        valid: false,
-        message: `This coupon is not valid until ${coupon.startDate.toLocaleDateString()}`,
-      };
-    }
-
-    if (coupon.endDate && now > coupon.endDate) {
-      return {
-        valid: false,
-        message: 'This coupon has expired',
-      };
-    }
-
-    // Check maximum usage
-    if (coupon.maxUsage && coupon.timesUsed >= coupon.maxUsage) {
-      return {
-        valid: false,
-        message: 'This coupon has reached its maximum usage limit',
-      };
-    }
-
-    // Check minimum order value
-    if (coupon.minOrderValue && orderTotal < coupon.minOrderValue) {
-      return {
-        valid: false,
-        message: `Minimum order value of $${coupon.minOrderValue} required`,
-      };
-    }
-
-    // Check coupon type restrictions
-    if (coupon.couponType === 'one-off' && coupon.timesUsed > 0) {
-      return {
-        valid: false,
-        message: 'This coupon can only be used once and has already been redeemed',
-      };
-    }
-
-    if (coupon.couponType === 'one-off-for-one-person') {
-      if (!userId) {
-        return {
-          valid: false,
-          message: 'You must be logged in to use this coupon',
-        };
-      }
-      if (!coupon.allowedUser || coupon.allowedUser.toString() !== userId) {
-        return {
-          valid: false,
-          message: 'This coupon is not available for your account',
-        };
-      }
-      if (coupon.usedBy && coupon.usedBy.some((id) => id.toString() === userId)) {
-        return {
-          valid: false,
-          message: 'You have already used this coupon',
-        };
-      }
-    }
-
-    if (coupon.couponType === 'one-off-user') {
-      if (!userId) {
-        return {
-          valid: false,
-          message: 'You must be logged in to use this coupon',
-        };
-      }
-      if (coupon.usedBy && coupon.usedBy.some((id) => id.toString() === userId)) {
-        return {
-          valid: false,
-          message: 'You have already used this coupon',
-        };
-      }
-      if (coupon.maxUsagePerUser && coupon.usedBy) {
-        const userUsageCount = coupon.usedBy.filter((id) => id.toString() === userId).length;
-        if (userUsageCount >= coupon.maxUsagePerUser) {
-          return {
-            valid: false,
-            message: 'You have reached the maximum usage limit for this coupon',
-          };
-        }
-      }
-    }
-
-    // Check appliesTo scope
-    if (coupon.appliesTo.scope === 'product' && coupon.appliesTo.productIds?.length) {
-      const hasMatchingProduct = productIds.some(
-        (pid) => coupon.appliesTo.productIds?.some((cpid) => cpid.toString() === pid)
-      );
-      if (!hasMatchingProduct) {
-        return {
-          valid: false,
-          message: 'This coupon does not apply to the products in your cart',
-        };
-      }
-    }
-
-    if (coupon.appliesTo.scope === 'category' && coupon.appliesTo.categoryIds?.length) {
-      const hasMatchingCategory = categoryIds.some(
-        (cid) => coupon.appliesTo.categoryIds?.some((ccid) => ccid.toString() === cid)
-      );
-      if (!hasMatchingCategory) {
-        return {
-          valid: false,
-          message: 'This coupon does not apply to the categories in your cart',
-        };
-      }
-    }
-
-    // Calculate discount
-    let discount = 0;
-    if (coupon.discountType === 'percentage') {
-      discount = (orderTotal * coupon.discount) / 100;
-    } else {
-      discount = Math.min(coupon.discount, orderTotal);
-    }
-
+    const coupon = applied.couponDoc;
+    const appliesTo = {
+      scope: coupon.appliesTo?.scope ?? 'order',
+      productIds: coupon.appliesTo?.productIds?.map((id) => id.toString()),
+      categoryIds: coupon.appliesTo?.categoryIds?.map((id) => id.toString()),
+    };
     return {
       valid: true,
       coupon: {
@@ -245,21 +138,13 @@ class CouponService {
         discount: coupon.discount,
         discountType: coupon.discountType,
         minOrderValue: coupon.minOrderValue || 0,
-        appliesTo: {
-          scope: coupon.appliesTo.scope,
-          productIds: coupon.appliesTo.productIds?.map((id) => id.toString()),
-          categoryIds: coupon.appliesTo.categoryIds?.map((id) => id.toString()),
-        },
-        stackable: coupon.stackable,
+        appliesTo,
+        stackable: Boolean(coupon.stackable),
       },
-      discount,
+      discount: applied.discount,
       discountType: coupon.discountType,
       message: 'Coupon is valid',
-      appliesTo: {
-        scope: coupon.appliesTo.scope,
-        productIds: coupon.appliesTo.productIds?.map((id) => id.toString()),
-        categoryIds: coupon.appliesTo.categoryIds?.map((id) => id.toString()),
-      },
+      appliesTo,
     };
   }
 

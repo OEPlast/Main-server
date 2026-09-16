@@ -26,6 +26,7 @@ const getTransactions = async (req: Request, res: Response) => {
     if (transactionType) filters.transactionType = transactionType;
     if (userId) filters.userId = userId;
     if (orderId) filters.orderId = orderId;
+    if (req.query.needsReview === 'true') filters.needsReview = true;
     if (search) filters.search = search;
 
     if (startDate && endDate) {

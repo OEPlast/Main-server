@@ -1,165 +1,118 @@
 import mongoose from 'mongoose';
 import Coupon from '@/models/Coupon';
 import CouponRedemption from '@/models/CouponRedemption';
-import type { CouponDoc, PricedItem } from '@/types/order';
+import type { CouponDoc } from '@/types/order';
+import { applyCoupons, type CouponLine } from '@/services/pricing/couponPricing';
 
+type CouponCheckResult = { ok: true; couponDoc: CouponDoc } | { ok: false; reason: string };
+
+/**
+ * Whether one coupon may be used by this customer right now, ignoring the cart contents (dates,
+ * usage limits, who it belongs to, minimum spend). The discount itself is worked out afterwards
+ * by `applyCoupons`, the formula every checkout step shares.
+ */
+async function checkCouponEligibility(input: {
+  code: string;
+  itemsSubtotal: number;
+  userId?: mongoose.Types.ObjectId | string | null;
+  session?: mongoose.ClientSession;
+  now: Date;
+}): Promise<CouponCheckResult> {
+  const { code, itemsSubtotal, session, now } = input;
+  const userId = input.userId ? String(input.userId) : null;
+
+  const query = Coupon.findOne({ coupon: code.toUpperCase(), deleted: { $ne: true } });
+  if (session) query.session(session);
+  const couponDoc = (await query) as CouponDoc | null;
+
+  if (!couponDoc) return { ok: false, reason: 'Coupon not found' };
+  if (!couponDoc.active) return { ok: false, reason: 'Coupon is inactive' };
+  if (now < couponDoc.startDate || now > couponDoc.endDate) {
+    return { ok: false, reason: 'Coupon has expired or not yet active' };
+  }
+  if (typeof couponDoc.maxUsage === 'number' && couponDoc.maxUsage > 0 && (couponDoc.timesUsed ?? 0) >= couponDoc.maxUsage) {
+    return { ok: false, reason: 'This coupon has reached its usage limit' };
+  }
+  if (couponDoc.couponType === 'one-off' && (couponDoc.timesUsed ?? 0) > 0) {
+    return { ok: false, reason: 'This coupon has already been used' };
+  }
+
+  const countRedemptions = (filter: Record<string, unknown>) => {
+    const count = CouponRedemption.countDocuments({ coupon: couponDoc._id, ...filter });
+    if (session) count.session(session);
+    return count;
+  };
+
+  if (couponDoc.couponType === 'one-off-user') {
+    if (!userId) return { ok: false, reason: 'Sign in to use this coupon' };
+    if ((await countRedemptions({ user: userId })) > 0) return { ok: false, reason: 'Coupon already used by this user' };
+  }
+
+  if (couponDoc.couponType === 'one-off-for-one-person') {
+    if (!userId || !couponDoc.allowedUser || couponDoc.allowedUser.toString() !== userId) {
+      return { ok: false, reason: 'Coupon not allowed for this user' };
+    }
+    if ((await countRedemptions({})) >= 1) return { ok: false, reason: 'Coupon already used' };
+  }
+
+  if (typeof couponDoc.maxUsagePerUser === 'number' && couponDoc.maxUsagePerUser > 0 && userId) {
+    if ((await countRedemptions({ user: userId })) >= couponDoc.maxUsagePerUser) {
+      return { ok: false, reason: 'User usage limit reached' };
+    }
+  }
+
+  if (typeof couponDoc.minOrderValue === 'number' && itemsSubtotal < couponDoc.minOrderValue) {
+    return { ok: false, reason: `Minimum order value of ₦${couponDoc.minOrderValue.toLocaleString('en-NG')} required` };
+  }
+
+  return { ok: true, couponDoc };
+}
+
+/**
+ * Checks each code and works out its discount on `lines` (priced by `services/pricing`). Used by
+ * cart validation at checkout and by order creation, so both reach the same amount per coupon.
+ */
 export async function validateCouponCodes({
   couponCodes,
-  items,
-  itemsSubtotal,
+  lines,
   userId,
   session,
 }: {
   couponCodes: string[];
-  items: PricedItem[];
-  itemsSubtotal: number;
-  userId: mongoose.Types.ObjectId;
-  session: mongoose.ClientSession;
+  lines: CouponLine[];
+  userId?: mongoose.Types.ObjectId | string | null;
+  session?: mongoose.ClientSession;
 }): Promise<{
   validCoupons: Array<{ code: string; couponDoc: CouponDoc; discount: number }>;
   invalidCoupons: Array<{ code: string; reason: string }>;
   totalDiscount: number;
 }> {
-  const validCoupons: Array<{ code: string; couponDoc: CouponDoc; discount: number }> = [];
-  const invalidCoupons: Array<{ code: string; reason: string }> = [];
-  let totalDiscount = 0;
-
   const now = new Date();
-  const userIdStr = userId.toString();
+  const itemsSubtotal = lines.reduce((sum, line) => sum + line.lineTotal, 0);
+  const uniqueCodes = [...new Set(couponCodes.map((code) => code.trim().toUpperCase()).filter(Boolean))];
 
-  // Process each coupon code
-  for (const code of couponCodes) {
+  const eligible: CouponDoc[] = [];
+  const invalidCoupons: Array<{ code: string; reason: string }> = [];
+
+  for (const code of uniqueCodes) {
     try {
-      // Find coupon by code
-      const couponDoc = (await Coupon.findOne({
-        coupon: code.toUpperCase(),
-        deleted: { $ne: true },
-      }).session(session)) as CouponDoc | null;
-
-      if (!couponDoc) {
-        invalidCoupons.push({ code, reason: 'Coupon not found' });
-        continue;
-      }
-
-      // Check if coupon is active
-      if (!couponDoc.active) {
-        invalidCoupons.push({ code, reason: 'Coupon is inactive' });
-        continue;
-      }
-
-      // Check date validity
-      if (now < couponDoc.startDate || now > couponDoc.endDate) {
-        invalidCoupons.push({ code, reason: 'Coupon has expired or not yet active' });
-        continue;
-      }
-
-      // Check coupon type constraints
-      if (couponDoc.couponType === 'one-off-user') {
-        const alreadyUsed = await CouponRedemption.countDocuments({
-          coupon: couponDoc._id,
-          user: userId,
-        }).session(session);
-        if (alreadyUsed > 0) {
-          invalidCoupons.push({ code, reason: 'Coupon already used by this user' });
-          continue;
-        }
-      }
-
-      if (couponDoc.couponType === 'one-off-for-one-person') {
-        if (!couponDoc.allowedUser || couponDoc.allowedUser.toString() !== userIdStr) {
-          invalidCoupons.push({ code, reason: 'Coupon not allowed for this user' });
-          continue;
-        }
-        const totalRedemptions = await CouponRedemption.countDocuments({
-          coupon: couponDoc._id,
-        }).session(session);
-        if (totalRedemptions >= 1) {
-          invalidCoupons.push({ code, reason: 'Coupon already used' });
-          continue;
-        }
-      }
-
-      if (typeof couponDoc.maxUsagePerUser === 'number' && couponDoc.maxUsagePerUser > 0) {
-        const userUsageCount = await CouponRedemption.countDocuments({
-          coupon: couponDoc._id,
-          user: userId,
-        }).session(session);
-        if (userUsageCount >= couponDoc.maxUsagePerUser) {
-          invalidCoupons.push({ code, reason: 'User usage limit reached' });
-          continue;
-        }
-      }
-      // Check minimum order value
-      if (typeof couponDoc.minOrderValue === 'number' && itemsSubtotal < couponDoc.minOrderValue) {
-        invalidCoupons.push({
-          code,
-          reason: `Minimum order value of ₦${couponDoc.minOrderValue.toLocaleString()} required`,
-        });
-        continue;
-      }
-
-      // Calculate discount for this coupon
-      const { discount } = computeCouponDiscount({
-        coupon: couponDoc,
-        items,
-        itemsSubtotal: Math.max(0, itemsSubtotal - totalDiscount), // Apply on remaining amount
-      });
-
-      if (discount > 0) {
-        const roundedDiscount = Math.round(discount * 100) / 100;
-        validCoupons.push({ code, couponDoc, discount: roundedDiscount });
-        totalDiscount += roundedDiscount;
-      } else {
-        invalidCoupons.push({ code, reason: 'No discount applicable' });
-      }
+      const result = await checkCouponEligibility({ code, itemsSubtotal, userId, session, now });
+      if (result.ok) eligible.push(result.couponDoc);
+      else invalidCoupons.push({ code, reason: result.reason });
     } catch (error) {
       console.error(`Error validating coupon ${code}:`, error);
       invalidCoupons.push({ code, reason: 'Error validating coupon' });
     }
   }
 
-  return { validCoupons, invalidCoupons, totalDiscount: Math.round(totalDiscount * 100) / 100 };
-}
-
-export function computeCouponDiscount({
-  coupon,
-  items,
-  itemsSubtotal,
-}: {
-  coupon: CouponDoc;
-  items: PricedItem[];
-  itemsSubtotal: number;
-}): { discount: number } {
-  const type = (coupon.discountType || 'percentage') as 'percentage' | 'fixed';
-  const appliesTo = coupon.appliesTo || { scope: 'order' };
-
-  if (type === 'fixed') {
-    // Fixed amount on eligible scope
-    if (appliesTo.scope === 'order') {
-      return { discount: Math.round(Math.min(coupon.discount || 0, itemsSubtotal) * 100) / 100 };
-    }
-    let eligibleSum = 0;
-    if (appliesTo.scope === 'product' && Array.isArray(appliesTo.productIds)) {
-      const set = new Set(appliesTo.productIds.map((id) => id.toString()));
-      for (const it of items) if (set.has(it.product.toString())) eligibleSum += it.price * it.qty;
-    }
-    if (appliesTo.scope === 'category' && Array.isArray(appliesTo.categoryIds)) {
-      // Requires item categories; fallback to whole order for now
-      eligibleSum = itemsSubtotal;
-    }
-    return { discount: Math.round(Math.min(coupon.discount || 0, eligibleSum) * 100) / 100 };
-  } else {
-    // percentage
-    let base = itemsSubtotal;
-    if (appliesTo.scope === 'product' && Array.isArray(appliesTo.productIds)) {
-      base = 0;
-      const set = new Set(appliesTo.productIds.map((id) => id.toString()));
-      for (const it of items) if (set.has(it.product.toString())) base += it.price * it.qty;
-    }
-    if (appliesTo.scope === 'category' && Array.isArray(appliesTo.categoryIds)) {
-      base = itemsSubtotal; // fallback
-    }
-    const pct = (coupon.discount || 0) / 100;
-    return { discount: Math.round(Math.max(0, Math.min(itemsSubtotal, base * pct)) * 100) / 100 };
+  const application = applyCoupons(eligible, lines);
+  for (const rejected of application.rejected) {
+    invalidCoupons.push({ code: rejected.coupon.coupon, reason: rejected.reason });
   }
+
+  return {
+    validCoupons: application.applied.map((a) => ({ code: a.coupon.coupon, couponDoc: a.coupon, discount: a.discount })),
+    invalidCoupons,
+    totalDiscount: application.totalDiscount,
+  };
 }

@@ -1,4 +1,5 @@
-import amqplib, { type Channel } from 'amqplib';
+import amqplib, { type ChannelModel, type ConfirmChannel } from 'amqplib';
+import { logger } from '@/lib/logger';
 import { v4 as uuidv4 } from 'uuid';
 import { EventType, type BaseEvent } from './eventTypes';
 import type {
@@ -15,42 +16,85 @@ import type {
 // Simplified: single topic exchange. Consumers can bind a queue with patterns (e.g. order.*, payment.#, #)
 const EXCHANGE_NAME = 'app.events';
 
-// Use minimal structural connection type to avoid tight coupling to amqplib's internal Connection interface
-type SimpleConnection = {
-  createChannel: () => Promise<Channel>;
-  on: (event: string, cb: (...args: unknown[]) => void) => void;
-  close: () => Promise<void> | void;
-};
+/** Events waiting for a connection. Bounded so a long outage cannot exhaust memory. */
+const MAX_PENDING = 2000;
+const RECONNECT_MIN_MS = 1000;
+const RECONNECT_MAX_MS = 30_000;
 
+type PendingEvent = { event: BaseEvent; attempts: number };
+
+/**
+ * Publishes domain events to RabbitMQ.
+ *
+ * Reliability, which the first version lacked entirely:
+ *  - a confirm channel, so publish() resolves only once the broker has taken the message;
+ *  - automatic reconnection with backoff when the connection drops (before, a dropped connection
+ *    meant every later event was logged as "dropping event" until the process restarted);
+ *  - events published while disconnected wait in a bounded queue and go out on reconnect, in order.
+ */
 class EventPublisher {
-  private connection: SimpleConnection | null = null;
-  private channel: Channel | null = null;
+  private connection: ChannelModel | null = null;
+  private channel: ConfirmChannel | null = null;
   private isConnected = false;
+  private connecting: Promise<void> | null = null;
+  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectDelay = RECONNECT_MIN_MS;
+  private closing = false;
+  private readonly pending: PendingEvent[] = [];
 
   async connect(): Promise<void> {
     if (this.isConnected) return; // idempotent
-    const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
-    try {
-      const connection = (await amqplib.connect(rabbitmqUrl)) as unknown as SimpleConnection;
-      const channel = await connection.createChannel();
-      await channel.assertExchange(EXCHANGE_NAME, 'topic', { durable: true });
+    if (this.connecting) return this.connecting;
 
-      this.connection = connection;
-      this.channel = channel;
-      this.isConnected = true;
-      console.log('[events] connected');
+    this.connecting = (async () => {
+      const rabbitmqUrl = process.env.RABBITMQ_URL || 'amqp://localhost:5672';
+      try {
+        const connection = await amqplib.connect(rabbitmqUrl);
+        const channel = await connection.createConfirmChannel();
+        await channel.assertExchange(EXCHANGE_NAME, 'topic', { durable: true });
 
-      connection.on('close', () => {
-        this.isConnected = false;
-        console.warn('[events] connection closed');
+        this.connection = connection;
+        this.channel = channel;
+        this.isConnected = true;
+        this.reconnectDelay = RECONNECT_MIN_MS;
+        logger.info('[events] connected');
+
+        connection.on('close', () => this.onConnectionLost('connection closed'));
+        connection.on('error', (err: unknown) => logger.error('[events] connection error', err));
+        channel.on('error', (err: unknown) => logger.error('[events] channel error', err));
+
+        await this.flushPending();
+      } catch (err) {
+        logger.error(`[events] failed to connect: ${(err as Error).message}`);
+        this.scheduleReconnect();
+        throw err;
+      } finally {
+        this.connecting = null;
+      }
+    })();
+    return this.connecting;
+  }
+
+  private onConnectionLost(reason: string): void {
+    this.isConnected = false;
+    this.channel = null;
+    this.connection = null;
+    if (this.closing) return;
+    logger.warn(`[events] ${reason}; reconnecting`);
+    this.scheduleReconnect();
+  }
+
+  private scheduleReconnect(): void {
+    if (this.closing || this.reconnectTimer) return;
+    const delay = this.reconnectDelay;
+    this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      this.connect().catch(() => {
+        /* scheduleReconnect already re-armed */
       });
-      connection.on('error', (err) => {
-        console.error('[events] connection error', err);
-      });
-    } catch (err) {
-      console.error('[events] failed to connect', err);
-      throw err;
-    }
+    }, delay);
+    this.reconnectTimer.unref?.();
   }
 
   /** For health checks — RabbitMQ is connected non-blockingly at startup, so this reports it rather than gating readiness on it. */
@@ -58,20 +102,78 @@ class EventPublisher {
     return this.isConnected;
   }
 
-  async disconnect(): Promise<void> {
-    try {
-      await this.channel?.close();
-      if (this.connection) {
-        try {
-          await this.connection.close();
-        } catch {
-          /* swallow */
-        }
+  /** Events queued while disconnected. Exposed for /health. */
+  pendingCount(): number {
+    return this.pending.length;
+  }
+
+  private enqueue(event: BaseEvent): void {
+    if (this.pending.length >= MAX_PENDING) {
+      const dropped = this.pending.shift();
+      logger.error(`[events] pending queue full; dropped ${dropped?.event.type} id=${dropped?.event.id}`);
+    }
+    this.pending.push({ event, attempts: 0 });
+  }
+
+  private async flushPending(): Promise<void> {
+    while (this.pending.length > 0 && this.channel) {
+      const next = this.pending[0];
+      try {
+        await this.send(next.event);
+        this.pending.shift();
+      } catch (err) {
+        next.attempts += 1;
+        logger.error(`[events] replay of ${next.event.type} failed (attempt ${next.attempts})`, err);
+        if (next.attempts >= 5) this.pending.shift();
+        return;
       }
+    }
+    if (this.pending.length === 0) return;
+  }
+
+  /** Publishes on the confirm channel and resolves once the broker acknowledges the message. */
+  private send(event: BaseEvent): Promise<void> {
+    const channel = this.channel;
+    if (!channel) return Promise.reject(new Error('not connected'));
+    const payload = Buffer.from(JSON.stringify(event));
+    return new Promise<void>((resolve, reject) => {
+      channel.publish(
+        EXCHANGE_NAME,
+        event.type,
+        payload,
+        {
+          contentType: 'application/json',
+          persistent: true,
+          messageId: event.id,
+          timestamp: event.timestamp.getTime(),
+          type: event.type,
+          headers: { source: event.source },
+        },
+        (err) => (err ? reject(err) : resolve())
+      );
+    });
+  }
+
+  /** Stops reconnecting, gives queued events a moment to drain, then closes. For shutdown. */
+  async disconnect(): Promise<void> {
+    this.closing = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    try {
+      if (this.isConnected) await this.flushPending();
+      if (this.pending.length > 0) {
+        logger.error(`[events] shutting down with ${this.pending.length} unsent events`);
+      }
+      await this.channel?.close();
+      await this.connection?.close();
     } catch (err) {
-      console.error('[events] disconnect error', err);
+      logger.error('[events] disconnect error', err);
     } finally {
       this.isConnected = false;
+      this.channel = null;
+      this.connection = null;
     }
   }
 
@@ -80,14 +182,6 @@ class EventPublisher {
     data: Record<string, unknown> = {},
     opts?: { userId?: string; source?: string; metadata?: Record<string, unknown> }
   ): Promise<void> {
-    if (!this.channel || !this.isConnected) {
-      console.warn('[events] publish attempted while disconnected; retrying connect…');
-      await this.connect();
-      if (!this.channel) {
-        console.error('[events] still not connected, dropping event', eventType);
-        return;
-      }
-    }
     const event: BaseEvent = {
       id: uuidv4(),
       type: eventType,
@@ -97,20 +191,29 @@ class EventPublisher {
       metadata: opts?.metadata,
       data,
     };
-    try {
-      const payload = Buffer.from(JSON.stringify(event));
-      this.channel.publish(EXCHANGE_NAME, eventType, payload, {
-        contentType: 'application/json',
-        persistent: true,
-        messageId: event.id,
-        timestamp: event.timestamp.getTime(),
-        type: eventType,
-        headers: { source: event.source },
+
+    if (!this.isConnected || !this.channel) {
+      this.enqueue(event);
+      logger.warn(`[events] not connected; queued ${eventType} id=${event.id} (${this.pending.length} pending)`);
+      this.connect().catch(() => {
+        /* reconnect is scheduled */
       });
-      // Lightweight debug log; can swap with central logger later
-      console.log(`[events] published ${eventType} id=${event.id}`);
+      return;
+    }
+
+    // Keep ordering: nothing goes out ahead of events still waiting from an outage.
+    if (this.pending.length > 0) {
+      this.enqueue(event);
+      await this.flushPending();
+      return;
+    }
+
+    try {
+      await this.send(event);
+      logger.debug(`[events] published ${eventType} id=${event.id}`);
     } catch (err) {
-      console.error(`[events] failed to publish ${eventType}`, err);
+      logger.error(`[events] failed to publish ${eventType}; queued for retry`, err);
+      this.enqueue(event);
     }
   }
 

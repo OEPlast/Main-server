@@ -116,7 +116,29 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Copied into every JWT as `tv`. Incrementing it revokes every token issued before: tokens
+    // are otherwise valid for 7 days, so a suspension or a password reset used to leave any
+    // stolen or old session working until it expired on its own.
+    tokenVersion: {
+      type: Number,
+      default: 0,
+    },
+    // A customer record created by guest checkout: no password, never logged in. Orders and
+    // transactions point at it like any other user, so emails, admin views and per-customer
+    // coupon limits keep working. Cleared once the owner proves the email is theirs — setting a
+    // password through the emailed reset code, or signing in with a provider that verified it.
+    isGuest: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
     address: [addressSchema],
+    // Self-service account deletion (services/users/accountDeletion.ts). Requesting sets both
+    // dates; the customer can cancel until `deletionScheduledFor`, when cron/accountDeletion
+    // anonymises the account and sets `deletedAt`.
+    deletionRequestedAt: { type: Date, default: null },
+    deletionScheduledFor: { type: Date, default: null, index: true },
+    deletedAt: { type: Date, default: null },
     notifications: {
       type: Boolean,
       default: true,
@@ -133,6 +155,16 @@ const userSchema = new mongoose.Schema(
       },
       unsubscribedAt: {
         type: Date,
+        default: null,
+      },
+      /** When the customer last opted in (newsletter form or account settings). */
+      subscribedAt: {
+        type: Date,
+        default: null,
+      },
+      /** Where that opt-in came from, e.g. `footer`, `account`. */
+      source: {
+        type: String,
         default: null,
       },
     },

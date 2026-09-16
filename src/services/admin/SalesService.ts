@@ -1,4 +1,5 @@
 import Sales, { SalesType } from '@/models/Sales';
+import { escapeRegex } from '@/helpers/regex';
 import { Types } from 'mongoose';
 import { CustomResponsePromise, CustomResponseTypeWithMeta } from '@/types';
 import { isDuplicateKeyError } from '@/middleware/mongodb';
@@ -69,7 +70,7 @@ export const getAllSales = async (filter: GetAllSalesFilter): SalesWithPaginatio
     // Build match stage for search filter
     const matchStage: Record<string, any> = {};
     if (filter.search) {
-      matchStage.title = { $regex: filter.search, $options: 'i' };
+      matchStage.title = { $regex: escapeRegex(filter.search), $options: 'i' };
     }
     if (saleType !== undefined) {
       matchStage.type = saleType;

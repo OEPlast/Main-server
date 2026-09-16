@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { toPublicShipment } from '@/utils/publicShipment';
 import Shipment, { IShipment } from '@/models/Shipment';
 import Order from '@/models/Order';
 import { CustomResponseType } from '@/types';
@@ -194,7 +195,7 @@ const getUserShipments = async (
  */
 const trackShipmentByTrackingNumber = async (trackingNumber: string): Promise<CustomResponseType<IShipment>> => {
   try {
-    const shipment = await Shipment.findOne({ trackingNumber }).populate('orderId', 'total status');
+    const shipment = await Shipment.findOne({ trackingNumber }).populate('orderId', 'orderNumber status');
 
     if (!shipment) {
       return {
@@ -206,7 +207,8 @@ const trackShipmentByTrackingNumber = async (trackingNumber: string): Promise<Cu
 
     return {
       message: 'Shipment tracking information retrieved successfully',
-      data: shipment as unknown as IShipment,
+      // Public endpoint: no phone, street address or customer details.
+      data: toPublicShipment(shipment as unknown as IShipment),
       code: 200,
     };
   } catch (error) {

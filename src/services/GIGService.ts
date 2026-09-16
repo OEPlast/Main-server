@@ -7,12 +7,10 @@ import {
   GIGPriceV3Result,
   GIGPreshipmentRequest,
   GIG_VEHICLE_TYPE,
-  GIG_CUSTOMER_TYPE,
   GIG_PICKUP_OPTION,
   GIG_SHIPMENT_TYPE,
   GIGShipmentType,
   GIGVehicleType,
-  GIGCustomerType,
   GIGPickupOption,
   GIGV3APIResponse,
   GIGPriceResult,
@@ -35,11 +33,6 @@ const VEHICLE_TYPE_MAP: Record<string, GIGVehicleType> = {
   CAR: GIG_VEHICLE_TYPE.Car,
 };
 
-const CUSTOMER_TYPE_MAP: Record<string, GIGCustomerType> = {
-  Company: GIG_CUSTOMER_TYPE.Company,
-  IndividualCustomer: GIG_CUSTOMER_TYPE.IndividualCustomer,
-  Partner: GIG_CUSTOMER_TYPE.Partner,
-};
 
 const PICKUP_OPTION_MAP: Record<string, GIGPickupOption> = {
   HomeDelivery: GIG_PICKUP_OPTION.HomeDelivery,

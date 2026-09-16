@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import CouponController from '@/controller/CouponController';
+import { authenticateUserIfTokenSent } from '@/middleware/auth';
 import { couponCodeValidators, validateCouponValidators } from '@/validators/CouponValidator';
 
 const router = Router();
@@ -30,6 +31,7 @@ router.get('/:code', couponCodeValidators(), CouponController.getCouponByCode);
  * @desc    Validate if coupon can be applied to order
  * @access  Public (but checks userId if logged in)
  */
-router.post('/validate', validateCouponValidators(), CouponController.validateCoupon);
+// Optional auth so per-customer coupons can be checked against the signed-in shopper.
+router.post('/validate', authenticateUserIfTokenSent, validateCouponValidators(), CouponController.validateCoupon);
 
 export default router;
