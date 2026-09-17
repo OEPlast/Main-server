@@ -2,6 +2,7 @@ import Product, { ProductType } from '@/models/Product';
 import { escapeRegex } from '@/helpers/regex';
 import { CustomResponseType } from '@/types';
 import eventPublisher from '@/events/eventPublisher';
+import { revalidateProductDocs } from '@/services/storefront/productRevalidation';
 
 type InventoryChild = { name: string; stock: number };
 type InventoryAttribute = { name: string; children: InventoryChild[] };
@@ -111,7 +112,7 @@ const setStock = async (
     const { stock, variants } = payload;
 
     const product = await Product.findById(productId).select(
-      'name price stock lowStockThreshold attributes.name attributes.children.name attributes.children.stock'
+      'name price stock lowStockThreshold slug slugHistory attributes.name attributes.children.name attributes.children.stock'
     );
     if (!product) return { message: 'Product not found', data: null, code: 404 };
 
@@ -160,6 +161,8 @@ const setStock = async (
       }
 
       await eventPublisher.publishProductUpdated(productId, product.name, (product as any).price ?? 0, product.stock);
+      // A deliberate stock edit should show in listings immediately (in/out of stock filters).
+      revalidateProductDocs([product], { lists: true });
       return { message: 'Stock updated', data: { stock: product.stock }, code: 200 };
     }
 
@@ -192,6 +195,7 @@ const setStock = async (
     }
 
     await eventPublisher.publishProductUpdated(productId, product.name, (product as any).price ?? 0, product.stock);
+    revalidateProductDocs([product], { lists: true });
     return { message: 'Stock updated', data: { stock: product.stock }, code: 200 };
   } catch (error) {
     return { message: 'Failed to update stock', data: null, code: 500 };

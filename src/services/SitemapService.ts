@@ -60,24 +60,24 @@ class SitemapService {
    * Uses aggregation pipeline to avoid loading full documents.
    */
   async getCategorySlugs() {
-    const categories = await Category.aggregate([
-      {
-        $match: {},
-      },
-      {
-        $project: {
-          _id: 0,
-          slug: 1,
-          updatedAt: 1,
-          image: 1,
-        },
-      },
-      {
-        $sort: { updatedAt: -1 },
-      },
+    // Only categories a shopper would find products in. An empty category page renders "No products
+    // found" — submitting it to search engines produced exactly that snippet in Google. A category
+    // counts as non-empty when it, or a direct subcategory, has an active product: that is how
+    // productService.getByCategorySlug decides what the page shows.
+    const [categoryIdsWithProducts, categories] = await Promise.all([
+      Product.distinct('category', { status: 'active' }),
+      Category.find({}).select('slug updatedAt image parent').sort({ updatedAt: -1 }).lean(),
     ]);
 
-    return categories;
+    const nonEmpty = new Set(categoryIdsWithProducts.map((id) => String(id)));
+    for (const category of categories) {
+      if (!nonEmpty.has(String(category._id))) continue;
+      for (const parentId of (category.parent as unknown[] | undefined) ?? []) nonEmpty.add(String(parentId));
+    }
+
+    return categories
+      .filter((category) => nonEmpty.has(String(category._id)))
+      .map(({ slug, updatedAt, image }) => ({ slug, updatedAt, image }));
   }
 }
 

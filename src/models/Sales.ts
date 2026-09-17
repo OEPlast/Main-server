@@ -93,5 +93,9 @@ const Sales = mongoose.model<SalesType>('Sales', salesSchema);
 // Every checkout line looks up the product's active sale; flash-sale listings range on the dates.
 salesSchema.index({ product: 1, isActive: 1, deleted: 1 });
 salesSchema.index({ isActive: 1, type: 1, startDate: 1, endDate: 1 });
+// `cron/storefrontBoundaries` sweeps for sales that started or ended in the last two minutes; it
+// ranges on one date at a time, which the compound index above can't serve for `endDate`.
+salesSchema.index({ startDate: 1 });
+salesSchema.index({ endDate: 1 });
 
 export default Sales;

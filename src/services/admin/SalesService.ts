@@ -3,6 +3,7 @@ import { escapeRegex } from '@/helpers/regex';
 import { Types } from 'mongoose';
 import { CustomResponsePromise, CustomResponseTypeWithMeta } from '@/types';
 import { isDuplicateKeyError } from '@/middleware/mongodb';
+import { revalidateSale } from '@/services/storefront/productRevalidation';
 
 // Lightweight projection result types
 interface AggregatedUserRef {
@@ -44,6 +45,7 @@ export type SalesWithPagination = CustomResponseTypeWithMeta<
 export const createSale = async (data: Partial<SalesType>, userId: string): CustomResponsePromise<SalesType> => {
   try {
     const sale = await Sales.create({ ...data, createdBy: userId, updatedBy: userId });
+    void revalidateSale(sale);
     return { message: 'Sale created successfully', data: sale, code: 201 };
   } catch (error) {
     console.error(error);
@@ -215,6 +217,7 @@ export const updateSale = async (
     const updateQuery = Object.keys(unsetFields).length > 0 ? { ...updateFields, $unset: unsetFields } : updateFields;
 
     const sale = await Sales.findByIdAndUpdate(id, updateQuery, { new: true });
+    void revalidateSale(sale);
     return { message: sale ? 'Sale updated successfully' : 'Sale not found', data: sale, code: sale ? 200 : 404 };
   } catch (error) {
     console.error(error);
@@ -228,6 +231,7 @@ export const updateSale = async (
 export const deleteSale = async (id: string): CustomResponsePromise<null> => {
   try {
     const sale = await Sales.findByIdAndDelete(id);
+    void revalidateSale(sale);
     return {
       message: sale !== null ? 'Sale deleted successfully' : 'Sale not found',
       data: null,
@@ -299,6 +303,7 @@ export const deleteSaleVariant = async (
       { $unset: { [`variants.${variantIndex}`]: '' }, updatedBy: userId },
       { new: true }
     );
+    void revalidateSale(sale);
     return {
       message: sale ? 'Variant deleted successfully' : 'Sale or variant not found',
       data: sale,
@@ -351,6 +356,7 @@ export const decrementSaleLimit = async (id: string, variantIndex?: number): Cus
     if (sale.endDate && sale.endDate < new Date()) {
       sale.isActive = false;
       await sale.save();
+      void revalidateSale(sale);
       return { message: 'Sale has ended', data: null, code: 400 };
     }
 
@@ -374,6 +380,10 @@ export const decrementSaleLimit = async (id: string, variantIndex?: number): Cus
     }
 
     await sale.save();
+    // Deliberately NOT revalidated on every purchase — `publishLiveProductUpdates` already drops
+    // this product's page, and purging `products` per order would regenerate the whole site.
+    // A sale that has just exhausted itself is different: it disappears from the deals page.
+    if (!sale.isActive) void revalidateSale(sale);
     return { message: 'Sale usage recorded', data: sale, code: 200 };
   } catch (error) {
     console.error(error);
@@ -506,6 +516,7 @@ export const deactivateSale = async (
     }
 
     await sale.save();
+    void revalidateSale(sale);
     return { message: 'Sale deactivated', data: sale, code: 200 };
   } catch (error) {
     console.error(error);

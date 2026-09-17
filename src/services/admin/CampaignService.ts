@@ -2,11 +2,26 @@ import Campaign, { ICampaign } from '../../models/Campaign';
 import { Types } from 'mongoose';
 import { CustomResponseType } from '@/types';
 import { buildUpdateQuery } from '@/helpers/query';
+import { campaignTag, requestStorefrontRevalidation, StorefrontTag } from '@/services/storefront/revalidate';
 // Helper: detect duplicate key (Mongo 11000) across Mongoose/Mongo errors
 const isDuplicateKeyError = (err: unknown): boolean => {
   if (typeof err !== 'object' || err === null) return false;
   const e = err as { code?: number; keyPattern?: Record<string, number> };
   return e.code === 11000 || (e.keyPattern && e.keyPattern.slug === 1) || false;
+};
+
+
+/**
+ * Purge the storefront's cached copy of a campaign. `products` goes with it because a campaign's
+ * membership decides which products appear on the deals page and in the campaign listing, and a
+ * rename has to purge the *old* slug too or its URL keeps serving the previous campaign.
+ */
+const revalidateCampaign = (...slugs: Array<string | null | undefined>): void => {
+  requestStorefrontRevalidation([
+    StorefrontTag.CAMPAIGNS,
+    StorefrontTag.PRODUCTS,
+    ...slugs.filter(Boolean).map((slug) => campaignTag(slug as string)),
+  ]);
 };
 
 const createCampaign = async (campaignData: {
@@ -32,6 +47,7 @@ const createCampaign = async (campaignData: {
       { path: 'sales', select: 'title type startDate endDate isActive products' },
     ]);
 
+    revalidateCampaign(campaign.slug as unknown as string);
     return {
       message: 'Campaign created successfully',
       data: campaign,
@@ -168,6 +184,9 @@ const updateCampaign = async (
       sales: updates.sales,
     };
 
+    // Captured before the write so a slug change also purges the URL people already have.
+    const before = await Campaign.findById(campaignId).select('slug').lean<{ slug?: string; }>();
+
     const updateQuery = buildUpdateQuery(updatesFiltered);
 
     // If no updates, return error
@@ -191,6 +210,7 @@ const updateCampaign = async (
       };
     }
 
+    revalidateCampaign(before?.slug, campaign.slug as unknown as string);
     return {
       message: 'Campaign updated successfully',
       data: campaign,
@@ -237,6 +257,7 @@ const deleteCampaign = async (campaignId: string): Promise<CustomResponseType> =
       };
     }
 
+    revalidateCampaign(campaign.slug as unknown as string);
     return {
       message: 'Campaign deleted successfully',
       data: null,
@@ -269,6 +290,7 @@ const toggleCampaignStatus = async (
       };
     }
 
+    revalidateCampaign(campaign.slug as unknown as string);
     return {
       message: `Campaign ${status === 'active' ? 'activated' : 'deactivated'} successfully`,
       data: campaign,
@@ -316,6 +338,7 @@ const addProductToCampaign = async (campaignId: string, productId: string): Prom
       { path: 'sales', select: 'title type startDate endDate isActive products' },
     ]);
 
+    revalidateCampaign(campaign.slug as unknown as string);
     return {
       message: 'Product added to campaign successfully',
       data: campaign,
@@ -356,6 +379,7 @@ const removeProductFromCampaign = async (
       { path: 'sales', select: 'title type startDate endDate isActive products' },
     ]);
 
+    revalidateCampaign(campaign.slug as unknown as string);
     return {
       message: 'Product removed from campaign successfully',
       data: campaign,

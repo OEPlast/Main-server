@@ -76,6 +76,8 @@ import { startMerchantSync } from '@/cron/merchantSync';
 import { startPaymentReconciliation } from '@/cron/paymentReconciliation';
 import { startReviewRequests } from '@/cron/reviewRequests';
 import { startAccountDeletions } from '@/cron/accountDeletion';
+import { startStorefrontBoundaries } from '@/cron/storefrontBoundaries';
+import { flushStorefrontRevalidation } from '@/services/storefront/revalidate';
 
 // Helper to capture raw body without using any
 const rawBodySaver = (req: Request & { rawBody?: Buffer }, _res: Response, buf: Buffer) => {
@@ -266,6 +268,9 @@ async function shutdown(reason: string, exitCode = 0): Promise<void> {
   try {
     for (const task of cron.getTasks().values()) task.stop();
     await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+    // Cache purges are debounced by a couple of seconds, so a deploy right after an admin save
+    // would otherwise drop them and leave the storefront stale until its 12-hour revalidation.
+    await flushStorefrontRevalidation();
     await eventPublisher.disconnect();
     await mongoose.connection.close();
     logger.info('Shutdown complete');
@@ -297,6 +302,7 @@ async function startServer() {
     startPaymentReconciliation();
     startReviewRequests();
     startAccountDeletions();
+    startStorefrontBoundaries();
     server = app.listen(port, () => {
       logger.info(`Server is listening on port ${port}`);
     });

@@ -2,6 +2,7 @@
 import { CustomResponsePromise, CustomResponseTypeWithMeta } from '@/types';
 import Category, { CategoryType } from '../../models/Category';
 import mongoose, { PipelineStage } from 'mongoose';
+import { categoryTag, requestStorefrontRevalidation, StorefrontTag } from '@/services/storefront/revalidate';
 
 /**
  * Creates a new category.
@@ -9,6 +10,21 @@ import mongoose, { PipelineStage } from 'mongoose';
  * @param slug - The slug of the category.
  * @returns A promise that resolves to a custom response containing the created category.
  */
+
+/**
+ * Purge the storefront's cached category data. `categories` is read by the header menu on *every*
+ * page, so this regenerates the whole site — which is fine, because categories are edited rarely.
+ * `products` goes with it because moving a category moves which products a listing shows, and the
+ * old slug is purged too so a renamed category's URL stops serving the previous page.
+ */
+const revalidateCategory = (...slugs: Array<string | null | undefined>): void => {
+  requestStorefrontRevalidation([
+    StorefrontTag.CATEGORIES,
+    StorefrontTag.PRODUCTS,
+    ...slugs.filter(Boolean).map((slug) => categoryTag(slug as string)),
+  ]);
+};
+
 const createCategory = async ({
   name,
   banner,
@@ -24,6 +40,7 @@ const createCategory = async ({
     const slug = name.trim().replace(/\s+/g, '_');
     const category = new Category({ name, slug, banner, description, parent });
     await category.save();
+    revalidateCategory(category.slug);
     return {
       message: 'Category created successfully',
       data: category,
@@ -307,7 +324,10 @@ const updateCategory = async ({
       updatePayload.parent = parent;
     }
 
+    // Read before the write so a renamed category purges the URL people already have.
+    const before = await Category.findById(categoryId).select('slug').lean<{ slug?: string; }>();
     const category = await Category.findByIdAndUpdate(categoryId, updatePayload, { new: true });
+    revalidateCategory(before?.slug, category?.slug);
     return {
       message: 'Category updated successfully',
       data: category,
@@ -339,6 +359,7 @@ const updateCategory = async ({
  */
 const deleteCategory = async (categoryId: string): CustomResponsePromise<null> => {
   try {
+    const before = await Category.findById(categoryId).select('slug').lean<{ slug?: string; }>();
     const deleteCategoryFun = await Category.deleteOne({ _id: categoryId });
 
     if (deleteCategoryFun.deletedCount > 0) {
@@ -351,6 +372,7 @@ const deleteCategory = async (categoryId: string): CustomResponsePromise<null> =
           $pull: { parent: categoryId },
         }
       );
+      revalidateCategory(before?.slug);
       return {
         message: 'Category deleted successfully',
         data: null,

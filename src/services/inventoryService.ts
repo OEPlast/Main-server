@@ -1,6 +1,7 @@
 import Product from '@/models/Product';
 import { CustomResponseType } from '@/types';
 import eventPublisher from '@/events/eventPublisher';
+import { revalidateProductDocs } from '@/services/storefront/productRevalidation';
 
 /**
  * Get product availability and variant-level stock if attributes exist
@@ -20,7 +21,7 @@ const getAvailability = async (
       data: { inStock: product.stock > 0, stock: product.stock, lowStock },
       code: 200,
     };
-  } catch (error) {
+  } catch {
     return { message: 'Failed to get availability', data: null, code: 500 };
   }
 };
@@ -34,7 +35,7 @@ const adjustStock = async (productId: string, delta: number): Promise<CustomResp
       { _id: productId },
       { $inc: { stock: delta } },
       { new: true }
-    ).select('name price stock lowStockThreshold');
+    ).select('name price stock lowStockThreshold slug slugHistory');
 
     if (!product) {
       return { message: 'Product not found', data: null, code: 404 };
@@ -47,6 +48,10 @@ const adjustStock = async (productId: string, delta: number): Promise<CustomResp
     }
 
     await eventPublisher.publishProductUpdated(productId, product.name, (product as any).price ?? 0, product.stock);
+
+    // Drop the storefront's cached product page. Listings are only purged when the product has
+    // just run out — doing it on every decrement would regenerate the whole site per order.
+    revalidateProductDocs([product], { lists: product.stock <= 0 });
 
     return { message: 'Stock updated', data: { stock: product.stock }, code: 200 };
   } catch (error) {

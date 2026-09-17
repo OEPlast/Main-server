@@ -3,6 +3,7 @@ import Order from '@/models/Order';
 import Product from '@/models/Product';
 import Transaction from '@/models/Transaction';
 import { ObjectId } from 'mongodb';
+import { revalidateProductDocs } from '@/services/storefront/productRevalidation';
 
 /**
  * Only moderated-in reviews are ever visible to shoppers, counted in a product's
@@ -31,7 +32,13 @@ const syncProductRatingStats = async (productId: string): Promise<void> => {
     ]);
     const ratingCount: number = agg?.count ?? 0;
     const ratingAverage: number = agg?.avg ? Math.round(agg.avg * 10) / 10 : 0;
-    await Product.findByIdAndUpdate(productId, { ratingCount, ratingAverage });
+    const product = await Product.findByIdAndUpdate(productId, { ratingCount, ratingAverage }, { new: true })
+      .select('slug slugHistory')
+      .lean();
+    // The star rating is in the product page's Product JSON-LD, so a cached page keeps advertising
+    // the old aggregate to Google until it regenerates. Every review write (customer or staff) ends
+    // up here, which makes this the one place worth hooking.
+    revalidateProductDocs([product as { slug?: string; slugHistory?: string[]; } | null]);
   } catch (error) {
     console.error('Failed to sync product rating stats:', error);
   }

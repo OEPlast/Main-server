@@ -21,6 +21,7 @@ import {
   GIGCalculateShippingResult,
   GIGPublicCheckoutConfig,
 } from '@/types/gig';
+import { requestStorefrontRevalidation, StorefrontTag } from '@/services/storefront/revalidate';
 
 const GIG_API_URL = process.env.GIG_API_URL || 'https://dev-thirdpartynode.theagilitysystems.com';
 const GIG_ACCESS_TOKEN = process.env.GIG_ACCESS_TOKEN || '';
@@ -356,6 +357,11 @@ async function upsertConfig(
       { $set: data },
       { new: true, upsert: true, runValidators: true }
     ).lean<GIGConfigType>();
+
+    // The free-delivery threshold and delivery window are rendered by the storefront's top bar,
+    // shipping page and FAQ, all of which are cached. `delivery-config` is read in the root
+    // layout, so this regenerates every page — delivery settings change rarely enough for that.
+    requestStorefrontRevalidation([StorefrontTag.DELIVERY_CONFIG]);
 
     return { message: 'GIG configuration updated', data: config, code: 200 };
   } catch (error) {

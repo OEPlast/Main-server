@@ -1,5 +1,6 @@
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import Banner, { BannerType } from '../../models/Banner';
+import { requestStorefrontRevalidation, StorefrontTag } from '@/services/storefront/revalidate';
 
 // Banner input types
 interface CreateBannerInput {
@@ -26,11 +27,19 @@ interface SearchBannerInput {
  * @param bannerData - The data for the banner.
  * @returns A promise that resolves to a custom response containing the created banner.
  */
+
+/**
+ * The banner slider renders in the root layout, so purging this regenerates every cached page.
+ * Banners change rarely enough for that to be the right trade.
+ */
+const revalidateBanners = (): void => requestStorefrontRevalidation([StorefrontTag.BANNERS]);
+
 const createBanner = async (bannerData: CreateBannerInput): Promise<CustomResponseType<BannerType>> => {
   try {
     const banner = new Banner(bannerData);
     await banner.save();
 
+    revalidateBanners();
     return {
       message: 'Banner created successfully',
       data: banner,
@@ -71,6 +80,7 @@ const updateBanner = async (
       };
     }
 
+    revalidateBanners();
     return {
       message: 'Banner updated successfully',
       data: updatedBanner,
@@ -103,6 +113,7 @@ const deleteBanner = async (bannerId: string): Promise<CustomResponseType<null>>
       };
     }
 
+    revalidateBanners();
     return {
       message: 'Banner deleted successfully',
       data: null,
@@ -232,6 +243,7 @@ const toggleBannerActive = async (bannerId: string): Promise<CustomResponseType<
     banner.active = !banner.active;
     await banner.save();
 
+    revalidateBanners();
     return {
       message: `Banner ${banner.active ? 'activated' : 'deactivated'} successfully`,
       data: banner,

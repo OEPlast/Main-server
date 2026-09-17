@@ -1,6 +1,7 @@
 import { Types } from 'mongoose';
 import Product from '@/models/Product';
 import eventPublisher from '@/events/eventPublisher';
+import { revalidateProductDocs } from '@/services/storefront/productRevalidation';
 
 /**
  * Tells open storefront pages that these products changed, so they refetch.
@@ -13,6 +14,11 @@ import eventPublisher from '@/events/eventPublisher';
  * Call it only AFTER the transaction that changed stock or sale counters has committed. A browser
  * that refetches before the commit reads the old values and keeps showing them.
  *
+ * It also purges the storefront's cached copy of each product page, for the visitor who arrives
+ * *after* the change rather than during it. That purge is deliberately per-product: the `products`
+ * tag (home rails, deals, every category listing) is only added when a product has just hit zero
+ * stock, because adding it on every order would regenerate the whole site on every sale.
+ *
  * Never throws: a missed live update must not fail an order, cancellation or payment callback.
  */
 export async function publishLiveProductUpdates(
@@ -23,8 +29,10 @@ export async function publishLiveProductUpdates(
     if (ids.length === 0) return;
 
     const products = await Product.find({ _id: { $in: ids } })
-      .select('name price stock')
+      .select('name price stock slug slugHistory')
       .lean();
+
+    revalidateProductDocs(products, { lists: products.some((p) => (p.stock ?? 0) <= 0) });
 
     await Promise.all(
       products.map((p) =>

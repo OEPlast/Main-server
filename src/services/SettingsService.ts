@@ -1,16 +1,24 @@
 import { CustomResponseType } from '@/types';
 import Settings, { SettingsType } from '../models/Settings';
 import { invalidateBrandCache } from './brand';
+import { requestStorefrontRevalidation, StorefrontTag } from './storefront/revalidate';
 
 /**
- * Pings storefront/admin to drop their cached branding (Next.js `revalidateTag('branding')`)
- * so a Settings change shows up immediately instead of on their next deploy.
+ * Drops the cached branding in the storefront and admin so a Settings change shows up immediately.
+ *
+ * The storefront goes through the shared `/api/revalidate` route (batched, retried), which the
+ * rest of the app uses. The admin still gets the original single-purpose ping on
+ * `ADMIN_REVALIDATE_URL`, and `STOREFRONT_REVALIDATE_URL` is kept as a fallback for a storefront
+ * deployed before `/api/revalidate` existed.
  *
  * Fire-and-forget by design: a revalidation ping failing (frontend down, network blip) must
  * never fail or delay the settings save itself — the cache just stays stale until the next
  * successful save, same as it would if this feature didn't exist.
  */
 function triggerBrandingRevalidation(): void {
+  // Branding is read by the storefront's root layout, so this regenerates every cached page.
+  requestStorefrontRevalidation([StorefrontTag.BRANDING]);
+
   const secret = process.env.REVALIDATE_SECRET;
   if (!secret) return;
 

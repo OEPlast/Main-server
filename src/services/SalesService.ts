@@ -1,6 +1,7 @@
 import Sales, { SalesType } from '@/models/Sales';
 import { Types } from 'mongoose';
 import { CustomResponsePromise } from '@/types';
+import { revalidateSale } from '@/services/storefront/productRevalidation';
 
 // Shape of aggregated sale with product fields
 interface AggregatedSale {
@@ -450,6 +451,9 @@ export const markSaleInactiveIfNeeded = async (sale: import('@/models/Sales').Sa
   }
   if (updated) {
     await sale.save();
+    // The sale just stopped applying, so the deals page, the product page and any campaign it
+    // belongs to are now showing a price that no longer exists.
+    void revalidateSale(sale);
   }
 };
 

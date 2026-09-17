@@ -25,6 +25,10 @@ const campaignSchema = new Schema(
 
 // Unique index for slug
 campaignSchema.index({ slug: 1 }, { unique: true });
+// `cron/storefrontBoundaries` finds campaigns that just started or ended so the storefront's
+// cached pages are purged on the boundary rather than at their next 12-hour revalidation.
+campaignSchema.index({ startDate: 1 });
+campaignSchema.index({ endDate: 1 });
 
 // Custom validation using pre hook
 campaignSchema.pre('validate', function (next) {

@@ -1,6 +1,7 @@
 import Intent, { IIntent } from '@/models/Intent';
 import { CustomResponseType } from '@/types';
 import { Types } from 'mongoose';
+import { intentTag, requestStorefrontRevalidation, StorefrontTag } from '@/services/storefront/revalidate';
 
 /**
  * Admin CRUD for intent shops (curated SEO landing pages).
@@ -45,6 +46,19 @@ const failure = (error: unknown, fallback: string): CustomResponseType<never> =>
   return { code: 400, message: (error as Error).message || fallback, data: null };
 };
 
+
+/**
+ * Purge the storefront's copy of an intent shop. The old slug is included on a rename so
+ * `/shop/<old-slug>` stops serving the previous page; `intents` covers the list used by
+ * `generateStaticParams` and the sitemap.
+ */
+const revalidateIntent = (...slugs: Array<string | null | undefined>): void => {
+  requestStorefrontRevalidation([
+    StorefrontTag.INTENTS,
+    ...slugs.filter(Boolean).map((slug) => intentTag(slug as string)),
+  ]);
+};
+
 const createIntent = async (input: CreateIntentInput): Promise<CustomResponseType<IIntent>> => {
   try {
     const existing = await Intent.findOne({ slug: input.slug }).lean();
@@ -55,6 +69,7 @@ const createIntent = async (input: CreateIntentInput): Promise<CustomResponseTyp
     const intent = await Intent.create(input);
     await intent.populate({ path: 'products', select: PRODUCT_FIELDS });
 
+    revalidateIntent(intent.slug);
     return { code: 201, message: 'Intent created successfully', data: intent.toObject() as IIntent };
   } catch (error) {
     return failure(error, 'Failed to create intent');
@@ -116,10 +131,12 @@ const updateIntent = async (
       return { code: 404, message: 'Intent not found', data: null };
     }
 
+    const previousSlug = intent.slug;
     intent.set(updates);
     await intent.save();
     await intent.populate({ path: 'products', select: PRODUCT_FIELDS });
 
+    revalidateIntent(previousSlug, intent.slug);
     return { code: 200, message: 'Intent updated successfully', data: intent.toObject() as IIntent };
   } catch (error) {
     return failure(error, 'Failed to update intent');
@@ -131,11 +148,12 @@ const deleteIntent = async (intentId: string): Promise<CustomResponseType> => {
     return { code: 400, message: 'Invalid intent id', data: null };
   }
 
-  const deleted = await Intent.findByIdAndDelete(intentId).lean();
+  const deleted = await Intent.findByIdAndDelete(intentId).lean<{ slug?: string; }>();
   if (!deleted) {
     return { code: 404, message: 'Intent not found', data: null };
   }
 
+  revalidateIntent(deleted.slug);
   return { code: 200, message: 'Intent deleted successfully', data: null };
 };
 
@@ -161,6 +179,7 @@ const toggleIntentStatus = async (
     await intent.save();
     await intent.populate({ path: 'products', select: PRODUCT_FIELDS });
 
+    revalidateIntent(intent.slug);
     return { code: 200, message: 'Intent status updated successfully', data: intent.toObject() as IIntent };
   } catch (error) {
     return failure(error, 'Failed to update intent status');

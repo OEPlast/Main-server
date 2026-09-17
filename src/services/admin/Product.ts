@@ -5,6 +5,7 @@ import mongoose, { FilterQuery, PipelineStage } from 'mongoose';
 import eventPublisher from '@/events/eventPublisher';
 import { duplicateMessage, isDuplicateKeyError } from '@/middleware/mongodb';
 import Category from '@/models/Category';
+import { revalidateProductDocs } from '@/services/storefront/productRevalidation';
 
 function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -129,6 +130,9 @@ const createProduct = async (data: CreateProductData): Promise<CustomResponseTyp
     };
 
     const newProduct = await Product.create(productDataWithOriginStock);
+    // A new product changes every list it can appear in, so the storefront's `products` tag goes
+    // with it; without this the home rails and category pages wouldn't show it for up to 12 hours.
+    revalidateProductDocs([newProduct], { lists: true });
     return {
       message: 'Product created successfully',
       data: newProduct as unknown as ProductType,
@@ -230,6 +234,10 @@ const updateProduct = async (
       };
     }
 
+    // Price, name, stock and images all show up in listings, so an edit purges the lists too.
+    // `slugHistory` is on the updated document, so a rename purges the old URL's cached redirect.
+    revalidateProductDocs([updatedProduct], { lists: true });
+
     // Emit price-change events when base price changes
     const oldPrice = Number(existing.price);
     const newPrice = Number(data.price ?? existing.price);
@@ -273,6 +281,8 @@ const deleteProduct = async (id: string): Promise<CustomResponseType<void>> => {
         code: 404,
       };
     }
+    // Purge the product's own page (it must start 404ing) and every list it was in.
+    revalidateProductDocs([deletedProduct], { lists: true });
     return {
       message: 'Product deleted successfully',
       data: null,
@@ -396,6 +406,9 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
     };
 
     const duplicatedProduct = await Product.create(duplicatedProductData);
+    // No `lists: true`: a duplicate starts inactive with zero stock, so it is in no listing yet.
+    // Its own URL is purged in case a 404 for that slug was cached.
+    revalidateProductDocs([duplicatedProduct]);
 
     return {
       message: 'Product duplicated successfully',
@@ -444,6 +457,8 @@ const updateCoverImage = async (productId: string, imageId: string): Promise<Cus
     if (!resultDoc) {
       return { message: 'Product not found or image not matched', data: null, code: 404 };
     }
+    // The cover is what listings render, so this purges the lists as well as the product page.
+    revalidateProductDocs([resultDoc], { lists: true });
     return { message: 'Cover image updated successfully', data: resultDoc, code: 200 };
   } catch (error) {
     console.error('Error updating cover image:', error);
@@ -466,6 +481,7 @@ const addTags = async (productId: string, tags: string[]): Promise<CustomRespons
       .lean<ProductType>()
       .exec();
     if (!doc) return { message: 'Product not found', data: null, code: 404 };
+    revalidateProductDocs([doc]);
     return { message: 'Tags added', data: doc, code: 200 };
   } catch (e) {
     console.error(e);
@@ -479,6 +495,7 @@ const removeTag = async (productId: string, tag: string): Promise<CustomResponse
       .lean<ProductType>()
       .exec();
     if (!doc) return { message: 'Product not found', data: null, code: 404 };
+    revalidateProductDocs([doc]);
     return { message: 'Tag removed', data: doc, code: 200 };
   } catch (e) {
     console.error(e);
@@ -499,6 +516,7 @@ const addSpecifications = async (
       .lean<ProductType>()
       .exec();
     if (!doc) return { message: 'Product not found', data: null, code: 404 };
+    revalidateProductDocs([doc]);
     return { message: 'Specifications added', data: doc, code: 200 };
   } catch (e) {
     console.error(e);
@@ -516,6 +534,7 @@ const removeSpecification = async (productId: string, key: string): Promise<Cust
       .lean<ProductType>()
       .exec();
     if (!doc) return { message: 'Product not found', data: null, code: 404 };
+    revalidateProductDocs([doc]);
     return { message: 'Specification removed', data: doc, code: 200 };
   } catch (e) {
     console.error(e);
