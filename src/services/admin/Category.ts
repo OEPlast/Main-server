@@ -263,6 +263,9 @@ const getCategoryById = async (categoryId: string): CustomResponseTypeWithMeta<C
           slug: 1,
           description: 1,
           parent: 1,
+          priority: 1,
+          sizeChart: 1,
+          isAddOnCategory: 1,
           createdAt: 1,
           updatedAt: 1,
           sub_categories: 1,
@@ -331,13 +334,18 @@ const updateCategory = async ({
     if (parent) {
       updatePayload.parent = parent;
     }
-    // Empty string / null clears the size chart.
-    if (sizeChart !== undefined) (updatePayload as Record<string, unknown>).sizeChart = sizeChart || undefined;
+    if (sizeChart) (updatePayload as Record<string, unknown>).sizeChart = sizeChart;
     if (typeof isAddOnCategory === 'boolean') updatePayload.isAddOnCategory = isAddOnCategory;
+    // Empty string / null clears the size chart (an undefined key would just be dropped from the update).
+    const clearSizeChart = sizeChart === '' || sizeChart === null;
 
     // Read before the write so a renamed category purges the URL people already have.
     const before = await Category.findById(categoryId).select('slug').lean<{ slug?: string; }>();
-    const category = await Category.findByIdAndUpdate(categoryId, updatePayload, { new: true });
+    const category = await Category.findByIdAndUpdate(
+      categoryId,
+      clearSizeChart ? { ...updatePayload, $unset: { sizeChart: 1 } } : updatePayload,
+      { new: true }
+    );
     revalidateCategory(before?.slug, category?.slug);
     return {
       message: 'Category updated successfully',

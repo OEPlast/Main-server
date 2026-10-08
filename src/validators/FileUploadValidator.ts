@@ -14,6 +14,8 @@ export const ALLOWED_FILE_CATEGORIES = [
   'settings',
   'misc',
   'general',
+  // Storefront content images (articles, Instagram tiles); staff only
+  'content',
 ] as const;
 export type FileCategory = (typeof ALLOWED_FILE_CATEGORIES)[number];
 

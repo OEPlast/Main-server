@@ -365,6 +365,9 @@ const getOrderById = async (orderId: string): Promise<CustomResponseType<Enriche
           updatedAt: 1,
           paidAt: 1,
           deliveredAt: 1,
+          // Chosen pickup location and the gift message (both optional)
+          pickupLocation: 1,
+          giftMessage: 1,
 
           // Coupon info
           coupon: {
