@@ -643,6 +643,10 @@ const getOneOrder = async ({
           // GIG waybill number
           gigWaybill: 1,
 
+          // Chosen pickup location (pickup orders) and the gift message, when there is one
+          pickupLocation: 1,
+          giftMessage: 1,
+
           // Products with enriched details
           products: {
             $map: {
