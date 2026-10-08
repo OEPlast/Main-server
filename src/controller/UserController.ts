@@ -19,6 +19,17 @@ const getProfile = async (req: Request, res: Response) => {
 };
 
 // Update user profile
+const getMe = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as unknown as { userId: string }).userId;
+    const { code, data, message } = await UserService.getMe(userId);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getMe:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 const updateProfile = async (req: Request, res: Response) => {
   try {
     if (!isAuthenticatedRequest(req)) {
@@ -138,6 +149,7 @@ const getUserPermissions = async (req: Request, res: Response) => {
 
 export default {
   getProfile,
+  getMe,
   updateProfile,
   changePassword,
   addAddress,

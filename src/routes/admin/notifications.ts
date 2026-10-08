@@ -3,6 +3,7 @@ import Order from '@/models/Order';
 import Return from '@/models/Return';
 import Transaction from '@/models/Transaction';
 import Product from '@/models/Product';
+import ContactTicket from '@/models/ContactTicket';
 import { authenticateUser, isAdmin } from '@/middleware/auth';
 
 const router = express.Router();
@@ -12,7 +13,7 @@ const RECENT_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 export interface StaffNotification {
   id: string;
-  kind: 'order' | 'return' | 'transaction' | 'inventory';
+  kind: 'order' | 'return' | 'transaction' | 'inventory' | 'ticket';
   title: string;
   detail?: string;
   at: Date;
@@ -32,7 +33,7 @@ router.get('/summary', async (_req: Request, res: Response) => {
   try {
     const since = new Date(Date.now() - RECENT_WINDOW_MS);
 
-    const [ordersToFulfil, pendingReturns, transactionsForReview, lowStock, recentOrders, recentReturns, flagged] =
+    const [ordersToFulfil, pendingReturns, transactionsForReview, lowStock, recentOrders, recentReturns, flagged, openTickets, recentTickets] =
       await Promise.all([
         Order.countDocuments({ status: 'Processing', isPaid: true, deliveredAt: { $exists: false } }),
         Return.countDocuments({ status: 'pending', deleted: { $ne: true } }),
@@ -52,6 +53,13 @@ router.get('/summary', async (_req: Request, res: Response) => {
           .sort({ 'review.flaggedAt': -1 })
           .limit(10)
           .select('_id reference amount review')
+          .lean(),
+        // Contact-form tickets (empty unless the store uses the support inbox).
+        ContactTicket.countDocuments({ status: 'open' }),
+        ContactTicket.find({ status: 'open', createdAt: { $gte: since } })
+          .sort({ createdAt: -1 })
+          .limit(10)
+          .select('_id ticketNumber name topic createdAt')
           .lean(),
       ]);
 
@@ -80,12 +88,20 @@ router.get('/summary', async (_req: Request, res: Response) => {
         at: t.review?.flaggedAt ?? new Date(),
         href: `/transactions/${t._id.toString()}`,
       })),
+      ...recentTickets.map((t) => ({
+        id: `ticket:${t._id.toString()}`,
+        kind: 'ticket' as const,
+        title: `Message from ${t.name} (${t.ticketNumber})`,
+        detail: t.topic,
+        at: t.createdAt ?? new Date(),
+        href: `/support/tickets/${t._id.toString()}`,
+      })),
     ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 
     return res.status(200).json({
       message: 'Notification summary',
       data: {
-        counts: { ordersToFulfil, pendingReturns, transactionsForReview, lowStock },
+        counts: { ordersToFulfil, pendingReturns, transactionsForReview, lowStock, openTickets },
         items: items.slice(0, 20),
         generatedAt: new Date(),
       },

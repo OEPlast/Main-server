@@ -6,6 +6,7 @@ import Category from '@/models/Category';
 import mongoose, { PipelineStage } from 'mongoose';
 import { buildPriceFilter, buildTagsFilter } from './aggregation';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
+import { buildScopeConditions, CatalogScope, getRankedBestSellers, rankSortStages, withBadges } from './catalog/catalogQuery';
 
 
 /**
@@ -2895,7 +2896,7 @@ const searchProductsWithFilters = async (params: {
   attributes?: Record<string, string[]>;
   sortBy?: 'price' | 'name' | 'createdAt' | 'rating' | 'sales';
   sortOrder?: 'asc' | 'desc';
-}): Promise<
+} & CatalogScope): Promise<
   CustomResponseTypeWithMeta<ProductType[], { total: number; page: number; limit: number; pages: number }>
 > => {
   try {
@@ -2911,6 +2912,10 @@ const searchProductsWithFilters = async (params: {
       attributes,
       sortBy,
       sortOrder = 'desc',
+      category,
+      collection,
+      ids,
+      specs,
     } = params;
 
     // Build filter pipeline
@@ -2918,6 +2923,13 @@ const searchProductsWithFilters = async (params: {
     const filterConditions: { $and: AndFilter } = {
       $and: [{ status: 'active' }],
     };
+
+    // Category (with subcategories), collection, ids and specifications. All optional.
+    const scope = await buildScopeConditions({ category, collection, ids, specs });
+    if (scope.notFound) {
+      return { message: 'Category not found', data: [], code: 404, meta: { total: 0, page, limit, pages: 0 } };
+    }
+    filterConditions.$and.push(...scope.conditions);
 
     // Search filter (if query provided)
     if (query) {
@@ -2987,6 +2999,11 @@ const searchProductsWithFilters = async (params: {
       sortObj.createdAt = -1;
     }
 
+    // Best-seller order for sortBy=sales, and the default order of the best-sellers collection.
+    const rank =
+      sortBy === 'sales' ? await getRankedBestSellers() : !sortBy && scope.rank ? scope.rank : undefined;
+    const sortStages: PipelineStage[] = rank ? rankSortStages(rank) : [{ $sort: sortObj }];
+
     const pipeline: PipelineStage[] = [
       { $match: filterConditions },
       {
@@ -3015,7 +3032,7 @@ const searchProductsWithFilters = async (params: {
         },
       },
       { $unwind: { path: '$sale', preserveNullAndEmptyArrays: true } },
-      { $sort: sortObj },
+      ...sortStages,
       {
         $facet: {
           metadata: [{ $count: 'total' }],
@@ -3026,7 +3043,15 @@ const searchProductsWithFilters = async (params: {
 
     const result = await Product.aggregate(pipeline).allowDiskUse(true);
     const total = result[0]?.metadata[0]?.total || 0;
-    const products = result[0]?.data || [];
+    let products = result[0]?.data || [];
+    // A list by ids (e.g. a wishlist) keeps the order it was asked in unless a sort was chosen.
+    if (ids?.length && !sortBy) {
+      const order = new Map(ids.map((id, i) => [id, i]));
+      products = [...products].sort(
+        (a: { _id: unknown }, b: { _id: unknown }) => (order.get(String(a._id)) ?? 0) - (order.get(String(b._id)) ?? 0)
+      );
+    }
+    products = await withBadges(products);
 
     return {
       message: 'Search results retrieved successfully',
@@ -3055,7 +3080,8 @@ const searchProductsWithFilters = async (params: {
  * Returns available filter options based on search query
  */
 const getSearchFilters = async (
-  query?: string
+  query?: string,
+  scopeParams: Pick<CatalogScope, 'category' | 'collection'> = {}
 ): Promise<
   CustomResponseType<{
     priceRange: { min: number; max: number };
@@ -3083,6 +3109,10 @@ const getSearchFilters = async (
         ],
       });
     }
+
+    const scope = await buildScopeConditions(scopeParams);
+    if (scope.notFound) return { message: 'Category not found', data: null, code: 404 };
+    matchCondition.$and.push(...scope.conditions);
 
     const pipeline: PipelineStage[] = [
       { $match: matchCondition },
@@ -3309,9 +3339,9 @@ const getProductBySlugOrId = async (
     ];
 
     const products = await Product.aggregate(pipeline).exec();
-    const product = products[0];
+    const found = products[0];
 
-    if (!product) {
+    if (!found) {
       return {
         message: 'Product not found',
         data: null,
@@ -3319,6 +3349,10 @@ const getProductBySlugOrId = async (
       };
     }
 
+    // The product's own size chart wins, otherwise its category's; plus the New / Best seller badges.
+    const [product] = await withBadges([
+      { ...found, sizeChart: found.sizeChart || found.category?.sizeChart || undefined },
+    ]);
 
     return {
       message: 'Product retrieved successfully',
@@ -3649,7 +3683,7 @@ const getRelatedProducts = async (productId: string, limit = 8): Promise<CustomR
 
     return {
       message: 'Related products retrieved successfully',
-      data: products as ProductType[],
+      data: (await withBadges(products)) as unknown as ProductType[],
       code: 200,
     };
   } catch (error) {

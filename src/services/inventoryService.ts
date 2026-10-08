@@ -2,6 +2,7 @@ import Product from '@/models/Product';
 import { CustomResponseType } from '@/types';
 import eventPublisher from '@/events/eventPublisher';
 import { revalidateProductDocs } from '@/services/storefront/productRevalidation';
+import StockAlertService from '@/services/support/stockAlertService';
 
 /**
  * Get product availability and variant-level stock if attributes exist
@@ -52,6 +53,7 @@ const adjustStock = async (productId: string, delta: number): Promise<CustomResp
     // Drop the storefront's cached product page. Listings are only purged when the product has
     // just run out — doing it on every decrement would regenerate the whole site per order.
     revalidateProductDocs([product], { lists: product.stock <= 0 });
+    if (delta > 0) StockAlertService.notifyIfRestocked([productId]);
 
     return { message: 'Stock updated', data: { stock: product.stock }, code: 200 };
   } catch (error) {

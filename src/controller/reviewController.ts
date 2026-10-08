@@ -34,7 +34,7 @@ const getReviews = async (req: Request, res: Response) => {
 // Create a new review
 const createReview = async (req: Request, res: Response) => {
   try {
-    const { product, rating, review, title, size, style, fit, images } = req.body;
+    const { product, rating, review, title, size, style, fit, images, recommends } = req.body;
     if (!isAuthenticatedRequest(req)) {
       return res.status(401).json({ error: 'Unauthenticated' });
     }
@@ -49,6 +49,7 @@ const createReview = async (req: Request, res: Response) => {
       style,
       fit,
       images,
+      recommends,
       // Note: transactionId and orderId will be determined by the service
       transactionId: '', // Will be populated by service
       orderId: '', // Will be populated by service
@@ -217,7 +218,7 @@ const getOneProductReview = async (req: Request, res: Response) => {
     // Filter parameters
     const sortByParam = req.query.sortBy as string | undefined;
     let rating: number | undefined = req.query.rating ? Number(req.query.rating) : undefined;
-    let sortBy: 'newest' | 'helpful' | 'rating-high' | 'rating-low' | undefined = sortByParam as any;
+    let sortBy: 'newest' | 'helpful' | 'most-helpful' | 'rating-high' | 'rating-low' | undefined = sortByParam as any;
 
     // Handle star-based sorting (5star, 4star, etc.)
     if (sortByParam && /^[1-5]star$/.test(sortByParam)) {
@@ -236,6 +237,22 @@ const getOneProductReview = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error in getOneProductReview:', error);
     return res.status(404).json({ error: 'Something went wrong' });
+  }
+};
+
+// "Was this helpful?" vote: { helpful: boolean }
+const voteReview = async (req: Request, res: Response) => {
+  try {
+    if (!isAuthenticatedRequest(req)) return res.status(401).json({ message: 'Unauthenticated' });
+    const { code, message, data } = await ReviewService.voteReview(
+      String(req.params.reviewId),
+      req.userId,
+      req.body.helpful === true || req.body.helpful === 'true'
+    );
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in voteReview:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
   }
 };
 
@@ -418,6 +435,7 @@ const canReview = async (req: Request, res: Response) => {
 };
 
 const ReviewController = {
+  voteReview,
   getReviews,
   createReview,
   updateReview,

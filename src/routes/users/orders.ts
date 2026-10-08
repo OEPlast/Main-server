@@ -18,6 +18,9 @@ router.get('/orders/returns', authenticateUser, OrderController.getAllReturns);
 // Get order by ID
 router.get('/orders/:id', authenticateUser, OrderValidator.validateOrderId, OrderController.getOrderById);
 
+// Tracking timeline for one of the customer's orders
+router.get('/orders/:id/tracking', authenticateUser, OrderValidator.validateOrderId, OrderController.getOrderTracking);
+
 // Update an order
 // router.put('/orders/:id', authenticateUser, OrderValidator.validateOrderId, OrderController.updateOrder);
 

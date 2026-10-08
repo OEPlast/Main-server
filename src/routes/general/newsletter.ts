@@ -20,7 +20,7 @@ router.post(
   authenticateUserIfTokenSent,
   RateLimits.Newsletter_Limiter,
   body('email').isEmail().withMessage('Enter a valid email address').bail().normalizeEmail({ gmail_remove_dots: false }),
-  body('source').optional().isIn(['footer', 'about', 'account', 'checkout']).withMessage('Unknown signup source'),
+  body('source').optional().isIn(['footer', 'about', 'account', 'checkout', 'popup', 'signup']).withMessage('Unknown signup source'),
   async (req: Request, res: Response) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {

@@ -28,8 +28,15 @@ const getCategoriesListAll = async (req: Request, res: Response) => {
 // Create category
 const createCategory = async (req: Request, res: Response) => {
   try {
-    const { name, banner, description, parent } = req.body;
-    const { data, code, message } = await Admin_CategoryService.createCategory({ name, banner, description, parent });
+    const { name, banner, description, parent, sizeChart, isAddOnCategory } = req.body;
+    const { data, code, message } = await Admin_CategoryService.createCategory({
+      name,
+      banner,
+      description,
+      parent,
+      sizeChart,
+      isAddOnCategory,
+    });
     return res.status(code).json({ data, message });
   } catch (error) {
     console.error('Error in createCategory:', error);
@@ -41,7 +48,7 @@ const createCategory = async (req: Request, res: Response) => {
 const updateCategory = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, banner, description, parent, image, slug } = req.body;
+    const { name, banner, description, parent, image, slug, sizeChart, isAddOnCategory } = req.body;
     const { data, code, message } = await Admin_CategoryService.updateCategory({
       categoryId: id,
       name,
@@ -50,6 +57,8 @@ const updateCategory = async (req: Request, res: Response) => {
       parent,
       image,
       slug,
+      sizeChart,
+      isAddOnCategory,
     });
     return res.status(code).json({ data, message });
   } catch (error) {

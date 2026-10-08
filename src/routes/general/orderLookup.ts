@@ -5,6 +5,7 @@ import Shipment from '@/models/Shipment';
 import RateLimits from '@/middleware/rate';
 import { toPublicShipment } from '@/utils/publicShipment';
 import { logger } from '@/lib/logger';
+import { trackByNumber } from '@/services/orders/trackingTimeline';
 
 const router = Router();
 
@@ -90,6 +91,32 @@ router.post(
       });
     } catch (error) {
       logger.error('Order lookup failed:', error);
+      return res.status(500).json({ message: 'Could not look up the order right now.', data: null, code: 500 });
+    }
+  }
+);
+
+/**
+ * POST /orders/track { orderNumber, email }
+ *
+ * The same check as /lookup, answered as a timeline: { order, carrier, trackingNumber,
+ * estimatedDelivery, fulfillmentStatus, steps, events }.
+ */
+router.post(
+  '/track',
+  RateLimits.OrderLookup_Limiter,
+  body('orderNumber').isString().trim().toUpperCase().isLength({ min: 4, max: 40 }).withMessage('Enter your order number'),
+  body('email').isEmail().withMessage('Enter the email you ordered with'),
+  async (req: Request, res: Response) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ message: errors.array()[0].msg, data: null, code: 400 });
+    }
+    try {
+      const { message, data, code } = await trackByNumber(String(req.body.orderNumber), String(req.body.email));
+      return res.status(code).json({ message, data, code });
+    } catch (error) {
+      logger.error('Order tracking failed:', error);
       return res.status(500).json({ message: 'Could not look up the order right now.', data: null, code: 500 });
     }
   }

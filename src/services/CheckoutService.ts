@@ -13,6 +13,7 @@ import type { OrderType } from '@/models/Order';
 import { CustomResponseType } from '@/types';
 import eventPublisher from '@/events/eventPublisher';
 import { cancelOrder } from '@/services/orders/orderLifecycle';
+import PickupService from '@/services/pickup/pickupService';
 import type {
   CheckoutDeliveryType,
   SecureCheckoutItemInput,
@@ -154,6 +155,15 @@ class CheckoutService {
         data: null,
         code: 400,
       };
+    }
+
+    // A chosen pickup location is copied onto the order; an unknown or inactive one is refused.
+    let pickupLocation: Awaited<ReturnType<typeof PickupService.snapshot>> = null;
+    if (deliveryType === 'pickup' && payload.pickupLocationId) {
+      pickupLocation = await PickupService.snapshot(payload.pickupLocationId);
+      if (!pickupLocation) {
+        return { message: 'That pickup location is no longer available', data: null, code: 400 };
+      }
     }
 
     // Step 1: Calculate shipping cost up front
@@ -389,6 +399,8 @@ class CheckoutService {
       isPaid: false,
       status: 'Pending' as OrderType['status'],
       notes: payload.notes,
+      pickupLocation: pickupLocation ?? undefined,
+      giftMessage: payload.giftMessage?.trim() || undefined,
       // Only present for guest checkout (the controller strips it for signed-in shoppers).
       guestContact: payload.guest
         ? {

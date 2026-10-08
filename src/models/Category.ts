@@ -39,6 +39,16 @@ const categorySchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    // Size chart slug (see SizeChart) used by products in this category that don't set their own.
+    sizeChart: {
+      type: String,
+      required: false,
+    },
+    // Products in an add-on category (e.g. Gift Boxes) are suggested as add-ons on product pages.
+    isAddOnCategory: {
+      type: Boolean,
+      required: false,
+    },
   },
   {
     timestamps: true,

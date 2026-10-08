@@ -20,6 +20,8 @@ router.get('/:reviewId/likeCount', ...ReviewValidator.validateReviewId, ReviewCo
 // Protected routes (auth required)
 router.post('/:reviewId/like', authenticateUser, ReviewController.likeReview);
 router.post('/:reviewId/unlike', authenticateUser, ReviewController.unlikeReview);
+// "Was this helpful?" { helpful: boolean } — the same vote twice removes it
+router.post('/:reviewId/vote', authenticateUser, ...ReviewValidator.validateReviewVote, ReviewController.voteReview);
 router.get(
   '/:reviewId/isLikedByUser',
   authenticateUser,

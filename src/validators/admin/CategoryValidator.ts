@@ -45,6 +45,18 @@ const createCategoryValidator = async (req: Request, res: Response, next: NextFu
         isMongoId: true,
         errorMessage: 'Each parent value must be a id',
       },
+      sizeChart: {
+        in: ['body'],
+        optional: true,
+        isString: true,
+        errorMessage: 'sizeChart should be a size chart slug',
+      },
+      isAddOnCategory: {
+        in: ['body'],
+        optional: true,
+        isBoolean: true,
+        errorMessage: 'isAddOnCategory should be a boolean',
+      },
     })
   ).run(req);
   const errors = validationResult(req);

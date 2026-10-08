@@ -96,6 +96,11 @@ const attributeSchema = new mongoose.Schema(
             message: (props: { value?: string }) => `${props.value} is not a valid hex color code!`,
           },
         },
+        // Gallery shown when this value is selected (e.g. the Rose Gold photos); bare CDN paths.
+        images: {
+          type: [String],
+          default: undefined,
+        },
         pricingTiers: {
           type: [pricingTierSchema],
           default: undefined,
@@ -284,6 +289,16 @@ const productSchema = new mongoose.Schema(
       type: String,
       enum: ['active', 'inactive', 'archived'],
       default: 'inactive',
+    },
+    // Products offered alongside this one on its page (e.g. a gift box), in order.
+    addOns: {
+      type: [{ type: ObjectId, ref: 'Product' }],
+      default: undefined,
+    },
+    // Size chart slug (see SizeChart); overrides the category's.
+    sizeChart: {
+      type: String,
+      required: false,
     },
     // Where an imported product came from (e.g. the Vylux scraper). Absent on products created
     // in the admin. Only used to stop the same external product being imported twice.

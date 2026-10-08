@@ -204,6 +204,20 @@ async function buildShipping(order: OrderDocument, deliveryType: DeliveryType): 
     typeof gigConfig?.shippingMaxDeliveryDays === 'number' ? Math.max(0, gigConfig.shippingMaxDeliveryDays) : 5
   );
 
+  const chosen = (order as unknown as { pickupLocation?: { name?: string; address?: string; city?: string; state?: string; phone?: string } })
+    .pickupLocation;
+  if (deliveryType === 'pickup' && chosen?.address) {
+    const pickupAddress = [chosen.address, chosen.city, chosen.state].filter(Boolean).join(', ');
+    return {
+      courier: 'Pickup',
+      address: pickupAddress,
+      pickupAddress,
+      pickupContactName: chosen.name || gigConfig?.senderName || process.env.STORE_NAME || 'Store Pickup',
+      pickupContactPhone: chosen.phone || gigConfig?.senderPhoneNumber || process.env.STORE_PHONE || '',
+      _id: order.shipmentId?._id?.toString(),
+    };
+  }
+
   if (deliveryType === 'pickup') {
     const pickupAddress = gigConfig?.senderAddress || process.env.STORE_ADDRESS || 'Store Pickup';
     return {

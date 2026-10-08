@@ -42,6 +42,9 @@ const settingsSchema = new Schema(
     currency: { type: String, default: 'NGN' },
     timezone: { type: String, default: DEFAULT_TIMEZONE },
     socialLinks: { type: socialLinksSchema, default: {} },
+    // Storefront catalog: how long a product counts as "new", and how many top sellers get the badge.
+    newArrivalDays: { type: Number, default: 30, min: 1, max: 365 },
+    bestSellerCount: { type: Number, default: 20, min: 1, max: 200 },
   },
   { timestamps: true }
 );

@@ -38,6 +38,20 @@ router.post(
   AuthController.resetUserPasswordByCode
 );
 
+// Password reset by emailed link (the code-based routes above stay as they are)
+router.post(
+  '/forgot-password',
+  RateLimits.ResetLink_Limiter,
+  ...AuthValidator.forgotPasswordLinkValidator,
+  AuthController.requestPasswordResetLink
+);
+router.post(
+  '/reset-password',
+  RateLimits.CodeCheck_Limiter,
+  ...AuthValidator.resetPasswordLinkValidator,
+  AuthController.resetPasswordWithLink
+);
+
 router.post(
   '/verifyAccount',
   AuthValidator.verifyAccountOtpValidator,

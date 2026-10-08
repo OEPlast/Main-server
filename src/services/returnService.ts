@@ -72,9 +72,11 @@ interface InitiateReturnInput {
     reason: string;
     reasonDetails?: string;
     images?: string[];
+    exchangeFor?: { name: string; value: string };
   }>;
   type: 'refund' | 'exchange';
   customerNotes?: string;
+  method?: 'drop-off' | 'courier';
 }
 
 interface GetReturnsInput {
@@ -99,7 +101,7 @@ const initiateReturn = async (
   returnData: InitiateReturnInput
 ): Promise<CustomResponseType<ReturnType>> => {
   try {
-    const { orderId, userId, items, type, customerNotes } = returnData;
+    const { orderId, userId, items, type, customerNotes, method } = returnData;
 
     // Validate order exists and belongs to user
     const order = await Order.findOne({ _id: orderId, user: userId });
@@ -191,6 +193,7 @@ const initiateReturn = async (
       items,
       type,
       customerNotes,
+      method,
       status: 'pending',
       statusHistory: [{ status: 'pending', at: new Date(), by: `customer:${userId}` }],
     });

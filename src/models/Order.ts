@@ -270,6 +270,27 @@ const orderSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    // The pickup location chosen at checkout (a copy, so later edits don't change past orders).
+    pickupLocation: {
+      type: new mongoose.Schema(
+        {
+          locationId: { type: mongoose.Schema.Types.ObjectId, ref: 'PickupLocation' },
+          name: String,
+          address: String,
+          city: String,
+          state: String,
+          phone: String,
+          hours: String,
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
+    // Message to print on the gift card / packing slip.
+    giftMessage: {
+      type: String,
+      maxlength: 250,
+    },
   },
   {
     timestamps: true,

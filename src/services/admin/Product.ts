@@ -6,6 +6,7 @@ import eventPublisher from '@/events/eventPublisher';
 import { duplicateMessage, isDuplicateKeyError } from '@/middleware/mongodb';
 import Category from '@/models/Category';
 import { revalidateProductDocs } from '@/services/storefront/productRevalidation';
+import StockAlertService from '@/services/support/stockAlertService';
 
 function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -56,7 +57,9 @@ type CreateProductData = {
       name: string;
       price?: number;
       stock: number;
-      image: string;
+      image?: string;
+      images?: string[];
+      colorCode?: string;
       pricingTiers?: PricingTier[];
     }[];
   }[];
@@ -65,6 +68,8 @@ type CreateProductData = {
   lowStockThreshold?: number;
   status?: 'active' | 'inactive' | 'archived';
   source?: { provider: string; externalId: string; importedAt?: Date };
+  addOns?: string[];
+  sizeChart?: string | null;
 };
 
 function validatePricingTiers(tiers?: PricingTier[]): string | null {
@@ -238,6 +243,9 @@ const updateProduct = async (
     // Price, name, stock and images all show up in listings, so an edit purges the lists too.
     // `slugHistory` is on the updated document, so a rename purges the old URL's cached redirect.
     revalidateProductDocs([updatedProduct], { lists: true });
+    if (data.stock !== undefined || data.attributes !== undefined || data.status !== undefined) {
+      StockAlertService.notifyIfRestocked([id]);
+    }
 
     // Emit price-change events when base price changes
     const oldPrice = Number(existing.price);

@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { trackForUser, withFulfillmentStatus } from '@/services/orders/trackingTimeline';
 import { AuthenticatedRequest } from '@/types';
 import OrderService from '../services/orderService';
 import { OrderType } from '@/models/Order';
@@ -29,6 +30,9 @@ export const getOrders = async (req: Request, res: Response) => {
     };
 
     const { data, message, code, meta } = await OrderService.getOrderHistory(Number(page), Number(limit), filters);
+    // Adds the customer-facing processing / shipped / delivered / cancelled status to each order.
+    const history = data as unknown as { orders?: Array<{ _id: unknown }> } | null;
+    if (history?.orders) history.orders = await withFulfillmentStatus(history.orders);
     return res.status(code).json({ message, data, meta });
   } catch (error) {
     console.error('Error in getOrders:', error);
@@ -55,10 +59,23 @@ export const getOrderById = async (req: Request, res: Response) => {
     const userId = (req as AuthenticatedRequest).userId!;
 
     const { data, message, code } = await OrderService.getOneOrder({ orderId: id, userId });
+    // Adds the customer-facing processing / shipped / delivered / cancelled status.
+    const withStatus = data ? (await withFulfillmentStatus([data as unknown as { _id: unknown }]))[0] : data;
 
-    return res.status(code).json({ message, data });
+    return res.status(code).json({ message, data: withStatus });
   } catch (error) {
     console.error('Error in getOrderById:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getOrderTracking = async (req: Request, res: Response) => {
+  try {
+    const userId = (req as AuthenticatedRequest).userId!;
+    const { data, message, code } = await trackForUser(String(req.params.id), userId);
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in getOrderTracking:', error);
     return res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -273,6 +290,7 @@ export const calculateShipping = async (req: Request, res: Response) => {
 };
 
 const OrderController = {
+  getOrderTracking,
   getOrders,
   getOrderById,
   updateOrder,

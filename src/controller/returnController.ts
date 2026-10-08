@@ -14,7 +14,7 @@ import returnService from '../services/returnService';
 export const initiateReturn = async (req: Request, res: Response) => {
   try {
     const userId = (req as AuthenticatedRequest).userId!;
-    const { orderId, items, type = 'refund', customerNotes } = req.body;
+    const { orderId, items, type = 'refund', customerNotes, method } = req.body;
 
     const returnData = {
       orderId,
@@ -22,6 +22,7 @@ export const initiateReturn = async (req: Request, res: Response) => {
       items,
       type,
       customerNotes,
+      method,
     };
 
     const { data, message, code } = await returnService.initiateReturn(returnData);

@@ -48,6 +48,9 @@ export type SecureCheckoutPayload = {
   shippingCost?: number;
   acceptChanges?: boolean; // Auto-apply corrections when true
   notes?: string;
+  /** Pickup orders: one of /checkout/pickup-locations. Without it pickup uses the store address. */
+  pickupLocationId?: string;
+  giftMessage?: string;
 };
 
 export type SecureCheckoutCorrection = {

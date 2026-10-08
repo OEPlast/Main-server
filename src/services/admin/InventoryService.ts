@@ -3,6 +3,7 @@ import { escapeRegex } from '@/helpers/regex';
 import { CustomResponseType } from '@/types';
 import eventPublisher from '@/events/eventPublisher';
 import { revalidateProductDocs } from '@/services/storefront/productRevalidation';
+import StockAlertService from '@/services/support/stockAlertService';
 
 type InventoryChild = { name: string; stock: number };
 type InventoryAttribute = { name: string; children: InventoryChild[] };
@@ -163,6 +164,7 @@ const setStock = async (
       await eventPublisher.publishProductUpdated(productId, product.name, (product as any).price ?? 0, product.stock);
       // A deliberate stock edit should show in listings immediately (in/out of stock filters).
       revalidateProductDocs([product], { lists: true });
+      StockAlertService.notifyIfRestocked([productId]);
       return { message: 'Stock updated', data: { stock: product.stock }, code: 200 };
     }
 
@@ -196,6 +198,7 @@ const setStock = async (
 
     await eventPublisher.publishProductUpdated(productId, product.name, (product as any).price ?? 0, product.stock);
     revalidateProductDocs([product], { lists: true });
+    StockAlertService.notifyIfRestocked([productId]);
     return { message: 'Stock updated', data: { stock: product.stock }, code: 200 };
   } catch (error) {
     return { message: 'Failed to update stock', data: null, code: 500 };

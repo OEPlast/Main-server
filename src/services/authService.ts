@@ -10,6 +10,9 @@ import Account from '@/models/Account';
 import { OTP_EXPIRY_MINUTES } from '@/models/OTP';
 import { getBrand, shopUrl, supportUrl } from './brand';
 import { verifyGoogleIdToken } from '@/lib/googleIdToken';
+import { subscribeToNewsletter } from '@/services/email/newsletter';
+import VerificationToken from '@/models/VerificationToken';
+import crypto from 'crypto';
 
 /**
  * Marks a signup/login response for an email that belongs to a guest-checkout record. The
@@ -76,6 +79,10 @@ const signup = async (userData: {
   firstName: string;
   lastName: string;
   country: string;
+  /** Opt in to marketing email (the newsletter) at signup. */
+  marketingEmails?: boolean;
+  /** Recorded consent to marketing texts. */
+  marketingTexts?: boolean;
 }): CustomResponsePromise<{ newUser: UserType; token: string } | GuestAccountData> => {
   // Checked before the transaction starts: returning early from inside it used to leave the
   // session open. Case-insensitive so "Ada@x.com" cannot register beside an existing "ada@x.com".
@@ -106,7 +113,12 @@ const signup = async (userData: {
 
   try {
     const hashedPassword = await passwordLib.hashPassword(userData.password!);
-    const newUser = new User({ ...userData, password: hashedPassword });
+    const { marketingEmails, marketingTexts, ...accountData } = userData;
+    const newUser = new User({
+      ...accountData,
+      password: hashedPassword,
+      ...(typeof marketingTexts === 'boolean' ? { marketingTexts } : {}),
+    });
     await newUser.save({ session });
 
     // Create OTP for account verification
@@ -119,6 +131,12 @@ const signup = async (userData: {
     session.endSession();
 
     const token = tokenizer.SignSession(newUser);
+
+    if (marketingEmails) {
+      subscribeToNewsletter({ email: newUser.email, userId: newUser._id.toString(), source: 'signup' }).catch((error) =>
+        console.warn('[signup] newsletter opt-in failed:', error)
+      );
+    }
 
     eventPublisher.publishUserSignup({
       firstName: newUser.firstName!,
@@ -567,6 +585,81 @@ const resetPasswordWithCode = async ({
   }
 };
 
+const RESET_LINK_MINUTES = 60;
+const resetIdentifier = (userId: string) => `password-reset:${userId}`;
+const hashResetToken = (token: string) => crypto.createHash('sha256').update(token).digest('hex');
+
+/**
+ * Emails a one-time reset link to `${storefrontUrl}/reset-password?token=…`. Always answers the
+ * same way so the response doesn't reveal whether an address has an account. Only a hash of the
+ * token is stored; requesting again replaces any earlier link.
+ */
+const requestPasswordResetLink = async (email: string): Promise<CustomResponseType<null>> => {
+  const generic = { message: 'If the email is registered, a reset link has been sent.', data: null, code: 200 };
+  try {
+    const user = await User.findOne({ email }).collation(EMAIL_COLLATION).select('_id firstName email suspended');
+    if (!user || user.suspended) return generic;
+
+    const token = crypto.randomBytes(32).toString('base64url');
+    const identifier = resetIdentifier(user._id.toString());
+    await VerificationToken.deleteMany({ identifier });
+    await VerificationToken.create({
+      identifier,
+      token: hashResetToken(token),
+      expires: new Date(Date.now() + RESET_LINK_MINUTES * 60_000),
+    });
+
+    const brand = await getBrand();
+    await EmailProcessor.send('password-reset-link', {
+      email: user.email,
+      firstName: user.firstName ?? undefined,
+      resetLink: `${brand.storefrontUrl}/reset-password?token=${encodeURIComponent(token)}`,
+      expiresInMinutes: RESET_LINK_MINUTES,
+    });
+    return generic;
+  } catch (error) {
+    console.log(error);
+    return { message: 'Something went wrong', data: null, code: 500 };
+  }
+};
+
+/** Sets a new password from a reset link. The link works once and ends every existing session. */
+const resetPasswordWithLink = async ({
+  token,
+  newPassword,
+  context,
+}: {
+  token: string;
+  newPassword: string;
+  context?: RequestContext;
+}): Promise<CustomResponseType<null>> => {
+  try {
+    // Claimed atomically so the same link cannot be used twice.
+    const record = await VerificationToken.findOneAndDelete({
+      token: hashResetToken(token),
+      identifier: { $regex: /^password-reset:/ },
+      expires: { $gt: new Date() },
+    });
+    if (!record) return { message: 'This reset link is invalid or has expired. Request a new one.', data: null, code: 400 };
+
+    const userId = record.identifier.replace('password-reset:', '');
+    const user = await User.findById(userId);
+    if (!user || user.suspended) return { message: 'This reset link is invalid or has expired. Request a new one.', data: null, code: 400 };
+
+    const newPasswordHash = await passwordLib.hashPassword(newPassword);
+    // The link was emailed to this address, which proves ownership the same way the reset code does.
+    const claimedGuest = user.isGuest
+      ? { isGuest: false, ...(user.emailVerified ? {} : { emailVerified: new Date() }) }
+      : {};
+    await User.updateOne({ _id: user._id }, { $set: { password: newPasswordHash, ...claimedGuest }, $inc: { tokenVersion: 1 } });
+    await notifyPasswordChanged(user, context);
+    return { message: 'Password reset successful', data: null, code: 200 };
+  } catch (error) {
+    console.log(error);
+    return { message: 'Something went wrong', data: null, code: 500 };
+  }
+};
+
 const verifyAccountOtp = async ({
   userId,
   code,
@@ -781,6 +874,8 @@ const AuthService = {
   changePassword,
   requestResetCode,
   resetPasswordWithCode,
+  requestPasswordResetLink,
+  resetPasswordWithLink,
   verifyAccountOtp,
   resendAccountOtp,
   loginWithProvider,

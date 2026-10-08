@@ -66,6 +66,8 @@ interface UpdateSettingsInput {
     x?: string;
     threads?: string;
   };
+  newArrivalDays?: number;
+  bestSellerCount?: number;
 }
 
 /**

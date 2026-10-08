@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
-import { checkExact, checkSchema, validationResult } from 'express-validator';
+import { body, checkExact, checkSchema, validationResult } from 'express-validator';
+import { validate } from '@/middleware/validate';
 
 // These validators used to build `checkSchema(...)` and never `.run(req)` it, so nothing was
 // validated: a JSON object such as `{ "$gt": "" }` reached the Mongo query as an operator.
@@ -193,7 +194,21 @@ const setPasswordValidator = async (req: Request, res: Response, next: NextFunct
   next();
 };
 
+// Password reset by link
+const forgotPasswordLinkValidator = [
+  body('email').isEmail().withMessage('Please enter a valid email').normalizeEmail({ gmail_remove_dots: false }),
+  validate,
+];
+
+const resetPasswordLinkValidator = [
+  body('token').isString().trim().isLength({ min: 20, max: 200 }).withMessage('Reset link is invalid'),
+  body('password').isString().isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  validate,
+];
+
 const AuthValidator = {
+  forgotPasswordLinkValidator,
+  resetPasswordLinkValidator,
   loginValidator,
   providerLoginValidator,
   registerValidator,

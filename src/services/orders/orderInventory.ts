@@ -6,6 +6,7 @@ import CouponRedemption from '@/models/CouponRedemption';
 import { reverseSaleCountersOnCancel } from '@/helpers/saleOrderUtils';
 import { publishLiveProductUpdates } from '@/helpers/liveProductUpdates';
 import { logger } from '@/lib/logger';
+import StockAlertService from '@/services/support/stockAlertService';
 
 /**
  * Hands back the coupon usage an order consumed.
@@ -98,5 +99,8 @@ export async function releaseOrderInventoryInSession(
 
 /** Pushes restored stock to open product pages. Call after the releasing transaction commits. */
 export function announceReleasedInventory(productIds: string[]): void {
-  if (productIds.length > 0) void publishLiveProductUpdates(productIds);
+  if (productIds.length > 0) {
+    void publishLiveProductUpdates(productIds);
+    StockAlertService.notifyIfRestocked(productIds);
+  }
 }

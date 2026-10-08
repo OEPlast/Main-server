@@ -1,4 +1,7 @@
 import { Router, Request, Response } from 'express';
+import { param } from 'express-validator';
+import { validate } from '@/middleware/validate';
+import CatalogController from '@/controller/CatalogController';
 import Product from '@/models/Product';
 import ProductController from '../../controller/productController';
 import ProductValidator, { validateProductSlug } from '../../validators/ProductValidator';
@@ -52,9 +55,13 @@ router.get('/by-id/:id', ...ProductValidator.validateProductId, ProductControlle
 // Related products and popular products
 router.get(
   '/:productId/related',
-  ...ProductValidator.validateProductId,
+  // validateProductId checks `params.id`, which this route doesn't have, so it refused every call.
+  param('productId').isMongoId().withMessage('Invalid product ID'),
+  validate,
   ProductController.getRelatedProductsController
 );
 router.get('/popular', ProductController.getPopularProductsController);
+// Products to offer next to this one (picked add-ons, then add-on categories), max 5
+router.get('/:productId/add-ons', CatalogController.getAddOns);
 
 export default router;

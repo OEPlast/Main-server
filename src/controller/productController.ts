@@ -1,4 +1,5 @@
 import { Request, Response } from 'express';
+import { parseCollection, parseIds, parseKeyValues } from '@/services/catalog/catalogQuery';
 import ProductService from '../services/productService';
 import { isAuthenticatedRequest } from '@/types';
 
@@ -660,7 +661,17 @@ const getSearchResults = async (req: Request, res: Response) => {
     const sortBy = (req.query.sortBy as 'price' | 'name' | 'createdAt' | 'rating' | 'sales' | undefined) ?? undefined;
     const sortOrder = (req.query.sortOrder as 'asc' | 'desc' | undefined) ?? undefined;
 
+    // Optional storefront scoping: ?category=<slug>&collection=best-sellers&ids=a,b&specs=Material:Brass|Gold
+    const category = typeof req.query.category === 'string' && req.query.category ? req.query.category : undefined;
+    const collection = parseCollection(req.query.collection);
+    const ids = parseIds(req.query.ids);
+    const specs = parseKeyValues(req.query.specs);
+
     const { data, message, code, meta } = await ProductService.searchProductsWithFilters({
+      category,
+      collection,
+      ids,
+      specs,
       query: q,
       page,
       limit,
@@ -685,7 +696,9 @@ const getSearchResults = async (req: Request, res: Response) => {
 const getSearchFilters = async (req: Request, res: Response) => {
   try {
     const q = (req.query.q as string) || '';
-    const { data, message, code } = await ProductService.getSearchFilters(q);
+    const category = typeof req.query.category === 'string' && req.query.category ? req.query.category : undefined;
+    const collection = parseCollection(req.query.collection);
+    const { data, message, code } = await ProductService.getSearchFilters(q, { category, collection });
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in getSearchFilters:', error);

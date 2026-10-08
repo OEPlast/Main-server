@@ -41,6 +41,8 @@ const reviewSchema = new mongoose.Schema(
     },
     // Storage paths under `reviews/` (see ReviewValidator); rendered through the CDN.
     images: { type: [String], default: [] },
+    // "Would you recommend this product?" — optional; absent on older reviews.
+    recommends: { type: Boolean, required: false },
     // Transaction that verifies purchase
     transactionId: {
       type: ObjectId,

@@ -77,6 +77,16 @@ const userSchema = new mongoose.Schema(
       type: String,
       default: '',
     },
+    // Account-level phone (addresses carry their own). Optional.
+    phoneNumber: {
+      type: String,
+      required: false,
+    },
+    // Consent to marketing texts, recorded at signup. There is no SMS sender yet.
+    marketingTexts: {
+      type: Boolean,
+      required: false,
+    },
     country: {
       type: String,
       default: '',

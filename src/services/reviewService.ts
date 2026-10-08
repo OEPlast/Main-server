@@ -44,7 +44,7 @@ const syncProductRatingStats = async (productId: string): Promise<void> => {
   }
 };
 
-type ReviewSortKey = 'newest' | 'helpful' | 'rating-high' | 'rating-low';
+type ReviewSortKey = 'newest' | 'helpful' | 'most-helpful' | 'rating-high' | 'rating-low';
 
 /**
  * Sort orders available to the public review list.
@@ -56,6 +56,8 @@ type ReviewSortKey = 'newest' | 'helpful' | 'rating-high' | 'rating-low';
 const REVIEW_SORTS: Record<ReviewSortKey, Record<string, 1 | -1>> = {
   newest: { createdAt: -1, _id: 1 },
   helpful: { likesCount: -1, createdAt: -1, _id: 1 },
+  // By "was this helpful?" votes (helpful minus not helpful).
+  'most-helpful': { helpfulScore: -1, createdAt: -1, _id: 1 },
   'rating-high': { rating: -1, createdAt: -1, _id: 1 },
   'rating-low': { rating: 1, createdAt: -1, _id: 1 },
 };
@@ -149,6 +151,7 @@ type IReview = {
   images: [];
   transactionId: string;
   orderId: string;
+  recommends?: boolean;
 };
 type ReplyData = { _id: string; replyBy: string; reply: string; createdAt: Date };
 
@@ -470,7 +473,7 @@ const deleteReply = async (reviewId: string, replyId: string, replyBy: string): 
  */
 const createReview = async (reviewData: IReview): Promise<CustomResponseType<ReviewType>> => {
   try {
-    const { reviewBy, product, rating, review, title, size, style, fit, images } = reviewData;
+    const { reviewBy, product, rating, review, title, size, style, fit, images, recommends } = reviewData;
 
     // Verify purchase eligibility
     const eligibility = await verifyPurchaseEligibility(reviewBy, product);
@@ -506,6 +509,7 @@ const createReview = async (reviewData: IReview): Promise<CustomResponseType<Rev
       style,
       fit,
       images,
+      recommends: typeof recommends === 'boolean' ? recommends : undefined,
       transactionId: eligibility.transactionId,
       orderId: eligibility.orderId,
     });
@@ -645,7 +649,7 @@ const allReviews = async (
   filters?: {
     rating?: number;
     hasImages?: boolean;
-    sortBy?: 'newest' | 'helpful' | 'rating-high' | 'rating-low';
+    sortBy?: ReviewSortKey;
   }
 ): Promise<{
   message: string;
@@ -654,6 +658,7 @@ const allReviews = async (
   meta?: {
     nextCursor: string | null;
     count: number;
+    total?: number;
   };
 }> => {
   try {
@@ -686,7 +691,27 @@ const allReviews = async (
           likesCount: { $size: { $ifNull: ['$likes', []] } },
           repliesCount: { $size: { $ifNull: ['$replies', []] } },
           isLikedByUser: userId ? { $in: [new ObjectId(userId), { $ifNull: ['$likes', []] }] } : false,
+          helpfulCount: { $size: { $ifNull: ['$helpfulVotes.helpful', []] } },
+          notHelpfulCount: { $size: { $ifNull: ['$helpfulVotes.notHelpful', []] } },
+          userVote: userId
+            ? {
+                $cond: [
+                  { $in: [new ObjectId(userId), { $ifNull: ['$helpfulVotes.helpful', []] }] },
+                  'helpful',
+                  {
+                    $cond: [
+                      { $in: [new ObjectId(userId), { $ifNull: ['$helpfulVotes.notHelpful', []] }] },
+                      'not-helpful',
+                      null,
+                    ],
+                  },
+                ],
+              }
+            : null,
         },
+      },
+      {
+        $addFields: { helpfulScore: { $subtract: ['$helpfulCount', '$notHelpfulCount'] } },
       },
       ...(cursorKey ? [{ $match: buildReviewCursorMatch(cursorKey, sortStage) }] : []),
       { $sort: sortStage },
@@ -721,6 +746,13 @@ const allReviews = async (
           likesCount: 1,
           repliesCount: 1,
           isLikedByUser: 1,
+          helpfulCount: 1,
+          notHelpfulCount: 1,
+          helpfulScore: 1,
+          userVote: 1,
+          recommends: 1,
+          // Every public review comes from a verified purchase (see verifyPurchaseEligibility).
+          verified: { $literal: true },
           title: 1,
           transactionId: 1,
           // Staff replies are shown as the store's response, without the staff member's name.
@@ -742,6 +774,7 @@ const allReviews = async (
     // Next cursor is the full sort key of the last row on this page, so the
     // follow-up query resumes exactly where this one stopped under any sort.
     const nextCursor = hasMore && data.length > 0 ? encodeReviewCursor(data[data.length - 1], sortStage) : null;
+    const total = await Review.countDocuments(matchCondition);
 
     return {
       message: 'Reviews retrieved successfully',
@@ -750,6 +783,7 @@ const allReviews = async (
       meta: {
         nextCursor,
         count: data.length,
+        total,
       },
     };
   } catch (error) {
@@ -944,6 +978,8 @@ const getProductReviewStats = async (
       2: number;
       1: number;
     };
+    gallery?: string[];
+    recommendPercent?: number | null;
   }>
 > => {
   try {
@@ -967,6 +1003,19 @@ const getProductReviewStats = async (
                 count: { $sum: 1 },
               },
             },
+          ],
+          // The 12 most recent review photos.
+          gallery: [
+            { $match: { images: { $exists: true, $ne: [] } } },
+            { $sort: { createdAt: -1 } },
+            { $limit: 12 },
+            { $unwind: '$images' },
+            { $limit: 12 },
+            { $group: { _id: null, images: { $push: '$images' } } },
+          ],
+          recommend: [
+            { $match: { recommends: { $in: [true, false] } } },
+            { $group: { _id: null, yes: { $sum: { $cond: ['$recommends', 1, 0] } }, answered: { $sum: 1 } } },
           ],
         },
       },
@@ -997,6 +1046,10 @@ const getProductReviewStats = async (
         totalRatings: totalAndAverage.totalRatings,
         averageRating: Math.round(totalAndAverage.averageRating * 10) / 10, // Round to 1 decimal
         starDistribution,
+        gallery: stats[0].gallery?.[0]?.images ?? [],
+        recommendPercent: stats[0].recommend?.[0]?.answered
+          ? Math.round((stats[0].recommend[0].yes / stats[0].recommend[0].answered) * 100)
+          : null,
       },
       code: 200,
     };
@@ -1014,7 +1067,54 @@ const getProductReviewStats = async (
   }
 };
 
+/**
+ * "Was this review helpful?" Voting the same way again removes the vote; voting the other way
+ * moves it. Returns the new counts and the user's current vote.
+ */
+const voteReview = async (
+  reviewId: string,
+  userId: string,
+  helpful: boolean
+): Promise<CustomResponseType<{ helpfulCount: number; notHelpfulCount: number; userVote: 'helpful' | 'not-helpful' | null }>> => {
+  try {
+    if (!ObjectId.isValid(reviewId)) return { message: 'Invalid review id', data: null, code: 400 };
+    const review = await Review.findOne({ _id: new ObjectId(reviewId), ...PUBLIC_REVIEW_MATCH }).select('helpfulVotes');
+    if (!review) return { message: 'Review not found', data: null, code: 404 };
+
+    const user = new ObjectId(userId);
+    const same = helpful ? 'helpfulVotes.helpful' : 'helpfulVotes.notHelpful';
+    const other = helpful ? 'helpfulVotes.notHelpful' : 'helpfulVotes.helpful';
+    const current = (review.helpfulVotes?.[helpful ? 'helpful' : 'notHelpful'] ?? []) as unknown as ObjectId[];
+    const alreadyVoted = current.some((id) => id.equals(user));
+
+    const updated = await Review.findByIdAndUpdate(
+      reviewId,
+      alreadyVoted ? { $pull: { [same]: user } } : { $addToSet: { [same]: user }, $pull: { [other]: user } },
+      { new: true }
+    )
+      .select('helpfulVotes')
+      .lean();
+
+    const helpfulIds = (updated?.helpfulVotes?.helpful ?? []) as unknown as ObjectId[];
+    const notHelpfulIds = (updated?.helpfulVotes?.notHelpful ?? []) as unknown as ObjectId[];
+    const userVote = helpfulIds.some((id) => user.equals(id))
+      ? 'helpful'
+      : notHelpfulIds.some((id) => user.equals(id))
+        ? 'not-helpful'
+        : null;
+    return {
+      message: 'Vote recorded',
+      data: { helpfulCount: helpfulIds.length, notHelpfulCount: notHelpfulIds.length, userVote },
+      code: 200,
+    };
+  } catch (error) {
+    console.error(error);
+    return { message: 'Something went wrong', data: null, code: 500 };
+  }
+};
+
 const ReviewService = {
+  voteReview,
   likeReview,
   unlikeReview,
   isLikedByUser,

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { checkSchema, validationResult } from 'express-validator';
+import { body, checkSchema, param, validationResult } from 'express-validator';
+import { validate } from '@/middleware/validate';
 
 /** Photos a customer can attach to one review. */
 export const MAX_REVIEW_PHOTOS = 4;
@@ -36,6 +37,13 @@ const validateCreateReview = [
         options: { max: 100 },
       },
       errorMessage: 'Title must be less than 100 characters',
+    },
+    recommends: {
+      in: ['body'],
+      optional: true,
+      isBoolean: true,
+      toBoolean: true,
+      errorMessage: 'recommends must be true or false',
     },
     size: {
       in: ['body'],
@@ -253,10 +261,18 @@ const validateReviewHelpful = [
   },
 ];
 
+// "Was this helpful?" vote
+const validateReviewVote = [
+  param('reviewId').isMongoId().withMessage('Invalid review id'),
+  body('helpful').isBoolean().withMessage('helpful must be true or false').toBoolean(),
+  validate,
+];
+
 export default {
   validateCreateReview,
   validateUpdateReview,
   validateReviewId,
   validateProductReviewsQuery,
   validateReviewHelpful,
+  validateReviewVote,
 };

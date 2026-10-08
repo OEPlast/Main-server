@@ -23,6 +23,11 @@ export enum PermissionResource {
   TRANSACTIONS = 'transactions',
   DELIVERY = 'delivery',
   SETTINGS = 'settings',
+  // Storefront content: articles, FAQs, legal pages, size charts, home content
+  CONTENT = 'content',
+  // Contact tickets and back-in-stock alerts
+  SUPPORT = 'support',
+  PICKUP = 'pickup',
 }
 
 export enum PermissionAction {

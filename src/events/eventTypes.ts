@@ -31,6 +31,9 @@ export enum EventType {
   INVENTORY_OUT_OF_STOCK = 'inventory.out_of_stock',
   INVENTORY_RESTOCKED = 'inventory.restocked',
 
+  // Support events
+  SUPPORT_TICKET_CREATED = 'support.ticket_created',
+
   // Campaign events
   CAMPAIGN_CREATED = 'campaign.created',
   CAMPAIGN_STARTED = 'campaign.started',

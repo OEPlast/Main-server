@@ -39,8 +39,16 @@ const userLogout = async (req: Request, res: Response) => {
 const userRegister = async (req: Request, res: Response) => {
   try {
     // Logic for user registration
-    const { email, password, firstName, lastName, country } = req.body;
-    const { data, message, code } = await AuthService.signup({ email, password, firstName, lastName, country });
+    const { email, password, firstName, lastName, country, marketingEmails, marketingTexts } = req.body;
+    const { data, message, code } = await AuthService.signup({
+      email,
+      password,
+      firstName,
+      lastName,
+      country,
+      marketingEmails: marketingEmails === true || marketingEmails === 'true',
+      marketingTexts: typeof marketingTexts === 'boolean' ? marketingTexts : undefined,
+    });
     return res.status(code).json({ data, message });
   } catch (error) {
     console.error('Error in userRegister:', error);
@@ -73,6 +81,32 @@ const resetUserPasswordByCode = async (req: Request, res: Response) => {
     return res.status(statusCode).json({ message });
   } catch (error) {
     console.error('Error in resetPasswordWithCode:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+// Password reset by emailed link
+const requestPasswordResetLink = async (req: Request, res: Response) => {
+  try {
+    const { message, code } = await AuthService.requestPasswordResetLink(String(req.body.email));
+    return res.status(code).json({ message });
+  } catch (error) {
+    console.error('Error in requestPasswordResetLink:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+const resetPasswordWithLink = async (req: Request, res: Response) => {
+  try {
+    const { token, password } = req.body;
+    const { message, code } = await AuthService.resetPasswordWithLink({
+      token,
+      newPassword: password,
+      context: requestContext(req),
+    });
+    return res.status(code).json({ message });
+  } catch (error) {
+    console.error('Error in resetPasswordWithLink:', error);
     return res.status(500).json({ error: 'Something went wrong' });
   }
 };
@@ -170,6 +204,8 @@ const AuthController = {
   userRegister,
   updateUserPassword,
   resetUserPasswordByCode,
+  requestPasswordResetLink,
+  resetPasswordWithLink,
   requestResetPasswordCode,
   verifyAccountOtp,
   resendVerifyAccountOtp,

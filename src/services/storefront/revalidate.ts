@@ -36,12 +36,17 @@ export const StorefrontTag = {
   INTENTS: 'intents',
   BRANDING: 'branding',
   DELIVERY_CONFIG: 'delivery-config',
+  // Storefront content (articles, FAQs, legal pages, size charts, home content, pickup locations)
+  ARTICLES: 'articles',
+  CONTENT: 'content',
+  PICKUP_LOCATIONS: 'pickup-locations',
 } as const;
 
 export const productTag = (slug: string) => `product:${slug}`;
 export const categoryTag = (slug: string) => `category:${slug}`;
 export const campaignTag = (slug: string) => `campaign:${slug}`;
 export const intentTag = (slug: string) => `intent:${slug}`;
+export const articleTag = (slug: string) => `article:${slug}`;
 
 const DEBOUNCE_MS = 2_000;
 const MAX_WAIT_MS = 10_000;

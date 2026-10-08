@@ -100,6 +100,35 @@ const AccountDanger_Limiter = rateLimit({
   message: { message: 'Too many attempts. Please try again in an hour.' },
 });
 
+// Contact form and back-in-stock alerts: each sends email, so keep them slow per IP and address.
+const Contact_Limiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: ipAndAccountKey,
+  message: { message: 'Too many messages. Please try again later.' },
+});
+
+const StockAlert_Limiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: ipAndAccountKey,
+  message: { message: 'Too many requests. Please try again later.' },
+});
+
+// Password reset links by email.
+const ResetLink_Limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: ipAndAccountKey,
+  message: { message: 'Too many reset requests. Please wait 15 minutes and try again.' },
+});
+
 const RateLimits = {
   OTP_Limiter,
   GuestCheckout_Limiter,
@@ -109,5 +138,8 @@ const RateLimits = {
   Newsletter_Limiter,
   OrderLookup_Limiter,
   AccountDanger_Limiter,
+  Contact_Limiter,
+  StockAlert_Limiter,
+  ResetLink_Limiter,
 };
 export default RateLimits;

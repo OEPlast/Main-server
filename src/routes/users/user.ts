@@ -9,6 +9,9 @@ router.use(authenticateUser);
 
 router.get('/profile', UserController.getProfile);
 
+// The signed-in account with email, phone and default address in one call
+router.get('/me', UserController.getMe);
+
 // Update user profile
 router.put('/profile', UserValidator.validateUserProfileUpdate, UserController.updateProfile);
 

@@ -167,6 +167,20 @@ const validateUpdateSettings = async (req: Request, res: Response, next: NextFun
       isURL: true,
       errorMessage: 'Threads must be a valid URL',
     },
+    newArrivalDays: {
+      in: ['body'],
+      optional: true,
+      isInt: { options: { min: 1, max: 365 } },
+      toInt: true,
+      errorMessage: 'newArrivalDays must be a whole number of days between 1 and 365',
+    },
+    bestSellerCount: {
+      in: ['body'],
+      optional: true,
+      isInt: { options: { min: 1, max: 200 } },
+      toInt: true,
+      errorMessage: 'bestSellerCount must be between 1 and 200',
+    },
     // A phone number, not a URL — matching what the admin form asks for.
     'socialLinks.whatsapp': {
       in: ['body'],

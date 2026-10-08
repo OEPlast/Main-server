@@ -88,6 +88,12 @@ const createProduct = async (req: Request, res: Response) => {
       attributes,
       tags,
       stock,
+      lowStockThreshold,
+      status,
+      pricingTiers,
+      dimension,
+      addOns,
+      sizeChart,
     } = req.body;
     const { message, code, data } = await Admin_ProductService.createProduct({
       sku,
@@ -110,6 +116,12 @@ const createProduct = async (req: Request, res: Response) => {
       attributes,
       tags,
       stock,
+      lowStockThreshold,
+      status,
+      pricingTiers,
+      dimension,
+      addOns,
+      sizeChart,
     });
     return res.status(code).json({ message, data });
   } catch (error) {

@@ -79,6 +79,9 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
         },
       },
 
+      'attributes.*.children.*.images': { optional: true, isArray: true },
+      'attributes.*.children.*.images.*': { optional: true, isString: true, notEmpty: true },
+
       'attributes.*.children.*.pricingTiers': { optional: true, isArray: true },
       'attributes.*.children.*.pricingTiers.*.minQty': { optional: true, isInt: { options: { min: 1 } } },
       'attributes.*.children.*.pricingTiers.*.maxQty': { optional: true, isInt: { options: { min: 1 } } },
@@ -97,6 +100,16 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
       stock: { isNumeric: true, errorMessage: 'stock must be a number' },
       lowStockThreshold: { optional: true, isNumeric: true },
       status: { optional: true, isIn: { options: [['active', 'inactive', 'archived']] } },
+      slug: { optional: true, isString: true },
+      // GIG shipping fields (the admin form always sends these; checkExact rejected them before)
+      weight: { optional: true, isFloat: { options: { min: 0 } }, errorMessage: 'weight must be a non-negative number' },
+      height: { optional: true, isFloat: { options: { min: 0 } }, errorMessage: 'height must be a non-negative number' },
+      width: { optional: true, isFloat: { options: { min: 0 } }, errorMessage: 'width must be a non-negative number' },
+      length: { optional: true, isFloat: { options: { min: 0 } }, errorMessage: 'length must be a non-negative number' },
+      isVolumetric: { optional: true, isBoolean: true },
+      addOns: { optional: true, isArray: { options: { max: 10 } }, errorMessage: 'addOns must be at most 10 product ids' },
+      'addOns.*': { optional: true, isMongoId: true, errorMessage: 'addOns must contain product ids' },
+      sizeChart: { optional: { options: { values: 'null' } }, isString: true, trim: true },
       // Google Shopping identity. GTIN must be a real barcode number (valid check digit).
       brand: { optional: true, isString: true, trim: true, isLength: { options: { max: 70 } }, errorMessage: 'brand must be at most 70 characters' },
       gtin: {
@@ -175,6 +188,9 @@ const updateProductValidator = async (req: Request, res: Response, next: NextFun
         },
       },
 
+      'attributes.*.children.*.images': { optional: true, isArray: true },
+      'attributes.*.children.*.images.*': { optional: true, isString: true, notEmpty: true },
+
       'attributes.*.children.*.pricingTiers': { optional: true, isArray: true },
       'attributes.*.children.*.pricingTiers.*.minQty': { optional: true, isInt: { options: { min: 1 } } },
       'attributes.*.children.*.pricingTiers.*.maxQty': { optional: true, isInt: { options: { min: 1 } } },
@@ -194,6 +210,15 @@ const updateProductValidator = async (req: Request, res: Response, next: NextFun
       lowStockThreshold: { optional: true, isNumeric: true },
       status: { optional: true, isIn: { options: [['active', 'inactive', 'archived']] } },
       slug: { optional: true, isString: true },
+      // GIG shipping fields (the admin form always sends these; checkExact rejected them before)
+      weight: { optional: true, isFloat: { options: { min: 0 } }, errorMessage: 'weight must be a non-negative number' },
+      height: { optional: true, isFloat: { options: { min: 0 } }, errorMessage: 'height must be a non-negative number' },
+      width: { optional: true, isFloat: { options: { min: 0 } }, errorMessage: 'width must be a non-negative number' },
+      length: { optional: true, isFloat: { options: { min: 0 } }, errorMessage: 'length must be a non-negative number' },
+      isVolumetric: { optional: true, isBoolean: true },
+      addOns: { optional: true, isArray: { options: { max: 10 } }, errorMessage: 'addOns must be at most 10 product ids' },
+      'addOns.*': { optional: true, isMongoId: true, errorMessage: 'addOns must contain product ids' },
+      sizeChart: { optional: { options: { values: 'null' } }, isString: true, trim: true },
       // Google Shopping identity. GTIN must be a real barcode number (valid check digit).
       brand: { optional: true, isString: true, trim: true, isLength: { options: { max: 70 } }, errorMessage: 'brand must be at most 70 characters' },
       gtin: {

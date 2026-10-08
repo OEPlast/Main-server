@@ -30,15 +30,19 @@ const createCategory = async ({
   banner,
   description,
   parent,
+  sizeChart,
+  isAddOnCategory,
 }: {
   name: string;
   banner?: string;
   parent: string[];
   description?: string;
+  sizeChart?: string;
+  isAddOnCategory?: boolean;
 }): CustomResponseTypeWithMeta<CategoryType> => {
   try {
     const slug = name.trim().replace(/\s+/g, '_');
-    const category = new Category({ name, slug, banner, description, parent });
+    const category = new Category({ name, slug, banner, description, parent, sizeChart, isAddOnCategory });
     await category.save();
     revalidateCategory(category.slug);
     return {
@@ -295,6 +299,8 @@ const updateCategory = async ({
   description,
   image,
   slug,
+  sizeChart,
+  isAddOnCategory,
 }: {
   categoryId: string;
   name?: string;
@@ -303,6 +309,8 @@ const updateCategory = async ({
   image?: string;
   slug?: string;
   parent: mongoose.Types.ObjectId[];
+  sizeChart?: string | null;
+  isAddOnCategory?: boolean;
 }): CustomResponseTypeWithMeta<CategoryType> => {
   try {
     if (!categoryId) {
@@ -323,6 +331,9 @@ const updateCategory = async ({
     if (parent) {
       updatePayload.parent = parent;
     }
+    // Empty string / null clears the size chart.
+    if (sizeChart !== undefined) (updatePayload as Record<string, unknown>).sizeChart = sizeChart || undefined;
+    if (typeof isAddOnCategory === 'boolean') updatePayload.isAddOnCategory = isAddOnCategory;
 
     // Read before the write so a renamed category purges the URL people already have.
     const before = await Category.findById(categoryId).select('slug').lean<{ slug?: string; }>();

@@ -8,6 +8,8 @@ export interface IReturnItem {
   reasonDetails?: string;
   images?: string[]; // Base64 strings or URLs
   refundAmount?: number;
+  /** Exchanges: the option wanted instead, e.g. { name: 'Ring Size', value: '8' }. */
+  exchangeFor?: { name: string; value: string };
 }
 
 export interface IReturn extends Document {
@@ -16,6 +18,8 @@ export interface IReturn extends Document {
   user: mongoose.Types.ObjectId;
   items: IReturnItem[];
   type: 'refund' | 'exchange';
+  /** How the customer will send the items back. */
+  method?: 'drop-off' | 'courier';
   status:
     | 'pending'
     | 'approved'
@@ -97,6 +101,11 @@ const ReturnSchema = new Schema<IReturn>(
           type: [String],
           default: [],
         },
+        // Exchanges: the option wanted instead, e.g. { name: 'Ring Size', value: '8' }.
+        exchangeFor: {
+          type: new Schema({ name: { type: String, required: true }, value: { type: String, required: true } }, { _id: false }),
+          default: undefined,
+        },
         refundAmount: {
           type: Number,
           min: [0, 'Refund amount cannot be negative'],
@@ -108,6 +117,12 @@ const ReturnSchema = new Schema<IReturn>(
       required: [true, 'Return type is required'],
       enum: ['refund', 'exchange'],
       default: 'refund',
+    },
+    // How the customer will send the items back; optional.
+    method: {
+      type: String,
+      enum: ['drop-off', 'courier'],
+      required: false,
     },
     status: {
       type: String,

@@ -266,6 +266,48 @@ const getUserProfile = async (userId: string): Promise<CustomResponseType<Partia
   }
 };
 /**
+ * The signed-in account in one call: identity, contact details and the default (active) address.
+ */
+const getMe = async (userId: string): Promise<CustomResponseType<Record<string, unknown>>> => {
+  try {
+    const user = await User.findById(userId)
+      .select('firstName lastName email phoneNumber image emailVerified isGuest role address')
+      .lean<{
+        _id: unknown;
+        firstName?: string;
+        lastName?: string;
+        email: string;
+        phoneNumber?: string;
+        image?: string;
+        emailVerified?: Date | null;
+        role?: string;
+        address?: Array<Record<string, unknown> & { active?: boolean; phoneNumber?: string }>;
+      }>();
+    if (!user) return { message: 'User not found', data: null, code: 404 };
+    const addresses = user.address ?? [];
+    const defaultAddress = addresses.find((a) => a.active) ?? addresses[0] ?? null;
+    return {
+      message: 'Account retrieved successfully',
+      data: {
+        id: String(user._id),
+        firstName: user.firstName ?? '',
+        lastName: user.lastName ?? '',
+        email: user.email,
+        phone: user.phoneNumber || defaultAddress?.phoneNumber || '',
+        image: user.image,
+        emailVerified: !!user.emailVerified,
+        role: user.role,
+        defaultAddress,
+      },
+      code: 200,
+    };
+  } catch (error) {
+    console.log(error);
+    return { message: 'Something went wrong', data: null, code: 500 };
+  }
+};
+
+/**
  * Update user profile (only allowed fields: notifications, image, country, dob, firstName, lastName)
  * @param userId - The ID of the user to update.
  * @param updateData - The profile data to update.
@@ -277,7 +319,9 @@ const updateUserProfile = async (
 ): Promise<CustomResponseType<Partial<UserType>>> => {
   try {
     // Only allow specific fields to be updated
-    const { notifications, image, country, dob, firstName, lastName } = updateData;
+    const { notifications, image, country, dob, firstName, lastName, phoneNumber } = updateData as Partial<UserType> & {
+      phoneNumber?: string;
+    };
     const allowedUpdateData: Partial<UserType> = {};
 
     if (firstName !== undefined) allowedUpdateData.firstName = firstName;
@@ -286,6 +330,7 @@ const updateUserProfile = async (
     if (image !== undefined) allowedUpdateData.image = image;
     if (country !== undefined) allowedUpdateData.country = country;
     if (dob !== undefined) allowedUpdateData.dob = dob;
+    if (phoneNumber !== undefined) (allowedUpdateData as Record<string, unknown>).phoneNumber = phoneNumber;
 
     const user = await User.findByIdAndUpdate(userId, allowedUpdateData, { new: true }).select(
       '-password -resetCode -isVerified'
@@ -561,6 +606,7 @@ const UserService = {
   changePassword,
   applyCoupon,
   getUserProfile,
+  getMe,
   updateUserProfile,
   addAddress,
   updateAddress,

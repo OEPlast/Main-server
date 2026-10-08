@@ -52,6 +52,13 @@ const validateUserProfileUpdate = async (req: Request, res: Response, next: Next
           errorMessage: 'Notifications must be a boolean',
         },
       },
+      phoneNumber: {
+        in: ['body'],
+        optional: true,
+        isString: { errorMessage: 'Phone number must be a string' },
+        trim: true,
+        isLength: { options: { max: 30 }, errorMessage: 'Phone number is too long' },
+      },
     })
   ).run(req);
 
@@ -64,6 +71,7 @@ const validateUserProfileUpdate = async (req: Request, res: Response, next: Next
       checkSchema({ country: { in: ['body'], exists: true } }),
       checkSchema({ dob: { in: ['body'], exists: true } }),
       checkSchema({ notifications: { in: ['body'], exists: true } }),
+      checkSchema({ phoneNumber: { in: ['body'], exists: true } }),
     ],
     { message: 'Supply at least one of the required fields', errorType: 'least_errored' }
   ).run(req);

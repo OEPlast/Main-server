@@ -1,4 +1,5 @@
 import express from 'express';
+import CatalogController from '@/controller/CatalogController';
 import CategoryController from '@/controller/categoryController';
 import { categorySlugValidators } from '@/validators/CategoryValidator';
 
@@ -6,6 +7,8 @@ const router = express.Router();
 
 router.get('/', CategoryController.getAllCategories);
 
+// Every category as a tree with active product counts, plus the curated collections
+router.get('/tree', CatalogController.getCategoryTree);
 router.get('/:id', CategoryController.getOneCategoryById);
 
 // Get category by slug

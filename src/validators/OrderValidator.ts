@@ -270,6 +270,17 @@ const validateSecureCheckout = async (req: Request, res: Response, next: NextFun
         errorMessage: 'Order notes cannot exceed 1000 characters.',
       },
     },
+    pickupLocationId: {
+      in: ['body'],
+      optional: { options: { values: 'falsy' } },
+      isMongoId: { errorMessage: 'pickupLocationId must be a valid id.' },
+    },
+    giftMessage: {
+      in: ['body'],
+      optional: { options: { values: 'null' } },
+      isString: { errorMessage: 'giftMessage must be text.' },
+      isLength: { options: { max: 250 }, errorMessage: 'Gift message cannot exceed 250 characters.' },
+    },
 
     // Consumed by CheckoutService but previously undeclared. They were never rejected because
     // this whole chain was built and then discarded without being run; declaring them keeps
