@@ -64,6 +64,7 @@ type CreateProductData = {
   stock: number;
   lowStockThreshold?: number;
   status?: 'active' | 'inactive' | 'archived';
+  source?: { provider: string; externalId: string; importedAt?: Date };
 };
 
 function validatePricingTiers(tiers?: PricingTier[]): string | null {

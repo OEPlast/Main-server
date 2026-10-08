@@ -27,6 +27,9 @@ const RECOMMENDED = [
   ['UNSUBSCRIBE_SECRET', 'signs unsubscribe links (falls back to INTERNAL_SERVICE_KEY)'],
   ['SMTP_HOST', 'outgoing email'],
   ['FROM_EMAIL', 'sender address on every email'],
+  ['STORE_NAME', 'store name in emails and feeds when Settings has none (defaults to Rawura)'],
+  ['SUPPORT_EMAIL', 'support address in emails when Settings has none (defaults to support@rawura.com)'],
+  ['ORDER_NUMBER_PREFIX', 'prefix on order numbers (defaults to RW)'],
 ] as const;
 
 export function validateEnv(): void {

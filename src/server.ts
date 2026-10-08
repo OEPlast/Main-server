@@ -68,6 +68,7 @@ import EmailProcessor from './services/processor/EmailProcessor';
 import InternalServiceRoutes from '@/routes/internal/serviceRoutes';
 import AdminAuditLogRoute from '@/routes/admin/auditLog';
 import AdminNotificationsRoute from '@/routes/admin/notifications';
+import AdminVyluxRoute from '@/routes/admin/vylux';
 import { auditAdminMutations } from '@/middleware/audit';
 import { logger } from '@/lib/logger';
 import cron from 'node-cron';
@@ -196,6 +197,7 @@ app.use('/admin/returns', AdminReturnRoute);
 app.use('/admin/shipment', AdminShipmentRoute);
 app.use('/admin/delivery', AdminDeliveryRoute);
 app.use('/admin/gig', AdminGIGRoute);
+app.use('/admin/vylux', AdminVyluxRoute);
 
 app.use('/admin/analytics', AdminAnalyticsRoute);
 

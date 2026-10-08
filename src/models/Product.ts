@@ -285,6 +285,20 @@ const productSchema = new mongoose.Schema(
       enum: ['active', 'inactive', 'archived'],
       default: 'inactive',
     },
+    // Where an imported product came from (e.g. the Vylux scraper). Absent on products created
+    // in the admin. Only used to stop the same external product being imported twice.
+    source: {
+      type: new mongoose.Schema(
+        {
+          provider: { type: String, required: true },
+          externalId: { type: String, required: true },
+          importedAt: { type: Date, default: Date.now },
+        },
+        { _id: false }
+      ),
+      required: false,
+      default: undefined,
+    },
   },
   {
     timestamps: true,
@@ -305,6 +319,11 @@ productSchema.index({ brand: 1 });
 // Old-URL redirects look products up by a former slug.
 productSchema.index({ slugHistory: 1 });
 productSchema.index({ status: 1, stock: 1 });
+// One store product per external product. Partial, so products without a source are not indexed.
+productSchema.index(
+  { 'source.provider': 1, 'source.externalId': 1 },
+  { unique: true, partialFilterExpression: { 'source.externalId': { $exists: true } } }
+);
 
 const Product = mongoose.model('Product', productSchema);
 export default Product;
