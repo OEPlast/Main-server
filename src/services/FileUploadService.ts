@@ -34,6 +34,10 @@ const BUNNY_REGION_ENV = (process.env.BUNNY_REGION ||
 const BUNNY_REGION =
   BunnyStorageSDK.regions.StorageRegion[BUNNY_REGION_ENV] || BunnyStorageSDK.regions.StorageRegion.Falkenstein;
 const BUNNY_BASE_URL = process.env.BUNNY_BASE_URL; // e.g. https://cdn.example.com
+// Optional top-level folder, so several stores can share one storage zone (e.g. "doreti" →
+// doreti/products/…). Unset keeps the original layout.
+const BUNNY_PATH_PREFIX = (process.env.BUNNY_PATH_PREFIX || '').trim().replace(/^\/+|\/+$/g, '');
+const folderFor = (category: string) => (BUNNY_PATH_PREFIX ? `${BUNNY_PATH_PREFIX}/${category}` : category);
 
 // Lazily connect (simple memoization)
 let zoneConnection: BunnyStorageSDK.StorageZone | null = null;
@@ -122,7 +126,7 @@ const uploadFile = async (
       // For videos: upload the original video file, and generate a WebP thumbnail from frame
       const videoExt = originalExt || 'mp4';
       const rawVideoFilename = `${baseFilename}.${videoExt}`;
-      videoInternalPath = `${category}/${rawVideoFilename}`;
+      videoInternalPath = `${folderFor(category)}/${rawVideoFilename}`;
       const zone = getZone();
       const videoStream = bufferToWebStream(file.buffer);
       videoSuccess = await BunnyStorageSDK.file.upload(zone, `/${videoInternalPath}`, videoStream, {
@@ -151,7 +155,7 @@ const uploadFile = async (
     }
 
     // Upload base version (image WebP or video thumbnail WebP)
-    const internalPath = `${category}/${finalBaseFilename}`;
+    const internalPath = `${folderFor(category)}/${finalBaseFilename}`;
     const zone = getZone();
     const baseStream = bufferToWebStream(baseBuffer);
 
@@ -164,7 +168,7 @@ const uploadFile = async (
     }
 
     // Upload mini version
-    const miniInternalPath = `${category}/${finalMiniFilename}`;
+    const miniInternalPath = `${folderFor(category)}/${finalMiniFilename}`;
     const miniStream = bufferToWebStream(miniBuffer);
 
     const miniSuccess = await BunnyStorageSDK.file.upload(zone, `/${miniInternalPath}`, miniStream, {
@@ -178,7 +182,7 @@ const uploadFile = async (
 
     // Upload PNG version (for OG images)
     let pngSuccess = false;
-    const pngInternalPath = `${category}/${finalPngFilename}`;
+    const pngInternalPath = `${folderFor(category)}/${finalPngFilename}`;
     if (pngBuffer) {
       const pngStream = bufferToWebStream(pngBuffer);
       pngSuccess = await BunnyStorageSDK.file.upload(zone, `/${pngInternalPath}`, pngStream, {
@@ -289,7 +293,7 @@ const getFilesByCategory = async (
     }
     const zone = getZone();
     // List at /category (ensure leading slash)
-    const list = await BunnyStorageSDK.file.list(zone, `/${category}`);
+    const list = await BunnyStorageSDK.file.list(zone, `/${folderFor(category)}`);
     // Filter out directories
     const fileEntries = list.filter((f) => !f.isDirectory);
     const total = fileEntries.length;
