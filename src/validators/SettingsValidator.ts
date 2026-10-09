@@ -181,6 +181,17 @@ const validateUpdateSettings = async (req: Request, res: Response, next: NextFun
       toInt: true,
       errorMessage: 'bestSellerCount must be between 1 and 200',
     },
+    bestSellerPicks: {
+      in: ['body'],
+      optional: true,
+      isArray: { options: { max: 50 } },
+      errorMessage: 'bestSellerPicks must be at most 50 product ids',
+    },
+    'bestSellerPicks.*': {
+      in: ['body'],
+      isMongoId: true,
+      errorMessage: 'bestSellerPicks must contain product ids',
+    },
     // A phone number, not a URL — matching what the admin form asks for.
     'socialLinks.whatsapp': {
       in: ['body'],

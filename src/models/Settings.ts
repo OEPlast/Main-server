@@ -45,6 +45,9 @@ const settingsSchema = new Schema(
     // Storefront catalog: how long a product counts as "new", and how many top sellers get the badge.
     newArrivalDays: { type: Number, default: 30, min: 1, max: 365 },
     bestSellerCount: { type: Number, default: 20, min: 1, max: 200 },
+    // Products the store picks to fill the best-seller list while sales are still few (a new
+    // store has none). Real best sellers always come first; picks fill the remaining slots.
+    bestSellerPicks: { type: [{ type: Schema.Types.ObjectId, ref: 'Product' }], default: [] },
   },
   { timestamps: true }
 );

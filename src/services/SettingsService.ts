@@ -1,6 +1,7 @@
 import { CustomResponseType } from '@/types';
 import Settings, { SettingsType } from '../models/Settings';
 import { invalidateBrandCache } from './brand';
+import { resetCatalogCaches } from './catalog/catalogQuery';
 import { requestStorefrontRevalidation, StorefrontTag } from './storefront/revalidate';
 
 /**
@@ -68,6 +69,7 @@ interface UpdateSettingsInput {
   };
   newArrivalDays?: number;
   bestSellerCount?: number;
+  bestSellerPicks?: string[];
 }
 
 /**
@@ -128,6 +130,10 @@ const updateSettings = async (settingsData: UpdateSettingsInput): Promise<Custom
     // Update existing settings
     Object.assign(settings, settingsData);
     await settings.save();
+
+    // New-arrival days and best sellers change badges and the Best Sellers rail right away.
+    resetCatalogCaches();
+    requestStorefrontRevalidation([StorefrontTag.PRODUCTS]);
 
     // Email branding is cached for a minute; drop it so a logo or support-address change
     // shows up in the next email rather than the one after.

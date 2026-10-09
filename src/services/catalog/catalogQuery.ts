@@ -29,18 +29,21 @@ const DEFAULT_BEST_SELLER_COUNT = 20;
 const SETTINGS_TTL_MS = 60_000;
 const BEST_SELLERS_TTL_MS = 10 * 60_000;
 
-let settingsCache: { at: number; newArrivalDays: number; bestSellerCount: number } | null = null;
+type CatalogSettings = { newArrivalDays: number; bestSellerCount: number; bestSellerPicks: Types.ObjectId[] };
+let settingsCache: (CatalogSettings & { at: number }) | null = null;
 
-export async function getCatalogSettings(): Promise<{ newArrivalDays: number; bestSellerCount: number }> {
+export async function getCatalogSettings(): Promise<CatalogSettings> {
   if (settingsCache && Date.now() - settingsCache.at < SETTINGS_TTL_MS) return settingsCache;
-  const s = await Settings.findOne().select('newArrivalDays bestSellerCount').lean<{
+  const s = await Settings.findOne().select('newArrivalDays bestSellerCount bestSellerPicks').lean<{
     newArrivalDays?: number;
     bestSellerCount?: number;
+    bestSellerPicks?: Types.ObjectId[];
   }>();
   settingsCache = {
     at: Date.now(),
     newArrivalDays: s?.newArrivalDays || DEFAULT_NEW_ARRIVAL_DAYS,
     bestSellerCount: s?.bestSellerCount || DEFAULT_BEST_SELLER_COUNT,
+    bestSellerPicks: s?.bestSellerPicks ?? [],
   };
   return settingsCache;
 }
@@ -63,9 +66,19 @@ export async function getRankedBestSellers(): Promise<Types.ObjectId[]> {
   return bestSellerCache.ids;
 }
 
+/** Top sellers by units sold, then the store's picks (in their order) to fill any empty slots. */
 export async function getBestSellerIds(): Promise<Types.ObjectId[]> {
-  const [ranked, { bestSellerCount }] = await Promise.all([getRankedBestSellers(), getCatalogSettings()]);
-  return ranked.slice(0, bestSellerCount);
+  const [ranked, { bestSellerCount, bestSellerPicks }] = await Promise.all([getRankedBestSellers(), getCatalogSettings()]);
+  const ids = ranked.slice(0, bestSellerCount);
+  const taken = new Set(ids.map(String));
+  for (const pick of bestSellerPicks) {
+    if (ids.length >= bestSellerCount) break;
+    if (!taken.has(String(pick))) {
+      ids.push(pick);
+      taken.add(String(pick));
+    }
+  }
+  return ids;
 }
 
 /** The category with this slug and every category below it, or null when the slug is unknown. */
@@ -198,7 +211,7 @@ export async function withBadges<T extends { _id?: unknown; createdAt?: unknown 
   }));
 }
 
-/** For tests: forget cached settings and best sellers. */
+/** Forget cached settings and best sellers (after a settings change, and in tests). */
 export function resetCatalogCaches(): void {
   settingsCache = null;
   bestSellerCache = null;
