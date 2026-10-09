@@ -35,6 +35,22 @@ const article = (update: boolean) => [
 ];
 
 const siteContent = [
+  body('home').optional().isObject(),
+  body('home.hero').optional().isObject(),
+  body('home.hero.image').optional().isString().trim(),
+  body('home.hero.title').optional().isString().trim().isLength({ max: 120 }),
+  body('home.hero.ctaLabel').optional().isString().trim().isLength({ max: 40 }),
+  body('home.hero.ctaHref').optional().isString().trim().isLength({ max: 300 }),
+  body('home.tiles').optional().isArray({ max: 4 }),
+  body('home.tiles.*.image').isString().notEmpty().withMessage('tile image is required'),
+  body('home.tiles.*.label').isString().trim().notEmpty().withMessage('tile label is required'),
+  body('home.tiles.*.href').isString().trim().isLength({ max: 300 }).notEmpty().withMessage('tile link is required'),
+  body('home.feature').optional().isObject(),
+  body('home.feature.image').optional().isString().trim(),
+  body('home.feature.title').optional().isString().trim().isLength({ max: 120 }),
+  body('home.feature.text').optional().isString().trim().isLength({ max: 400 }),
+  body('home.feature.ctaLabel').optional().isString().trim().isLength({ max: 40 }),
+  body('home.feature.ctaHref').optional().isString().trim().isLength({ max: 300 }),
   body('testimonials').optional().isArray({ max: 50 }),
   body('testimonials.*.quote').isString().trim().notEmpty().withMessage('testimonial quote is required'),
   body('testimonials.*.author').isString().trim().notEmpty().withMessage('testimonial author is required'),

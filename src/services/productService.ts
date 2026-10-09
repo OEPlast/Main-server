@@ -2925,7 +2925,7 @@ const searchProductsWithFilters = async (params: {
     };
 
     // Category (with subcategories), collection, ids and specifications. All optional.
-    const scope = await buildScopeConditions({ category, collection, ids, specs });
+    const scope = await buildScopeConditions({ category, collection, ids, specs, query });
     if (scope.notFound) {
       return { message: 'Category not found', data: [], code: 404, meta: { total: 0, page, limit, pages: 0 } };
     }
@@ -3110,7 +3110,7 @@ const getSearchFilters = async (
       });
     }
 
-    const scope = await buildScopeConditions(scopeParams);
+    const scope = await buildScopeConditions({ ...scopeParams, query });
     if (scope.notFound) return { message: 'Category not found', data: null, code: 404 };
     matchCondition.$and.push(...scope.conditions);
 

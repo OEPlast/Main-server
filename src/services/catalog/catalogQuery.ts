@@ -20,6 +20,8 @@ export type CatalogScope = {
   ids?: string[];
   /** Specification filters, e.g. { Material: ['925 Sterling Silver'] }. */
   specs?: Record<string, string[]>;
+  /** Free-text search; a search still finds add-on products (see below). */
+  query?: string;
 };
 
 const DEFAULT_NEW_ARRIVAL_DAYS = 30;
@@ -132,6 +134,14 @@ export async function buildScopeConditions(
 
   if (scope.ids?.length) {
     conditions.push({ _id: { $in: scope.ids.map((id) => new mongoose.Types.ObjectId(id)) } });
+  }
+
+  // Add-ons (gift boxes, wrapping) are sold alongside other products, so plain browsing
+  // (Shop All, collections, rails) leaves them out. Their own category, a search or an id list
+  // still returns them. Stores without an add-on category are unaffected.
+  if (!scope.category && !scope.ids?.length && !scope.query?.trim()) {
+    const addOnCategories = await Category.find({ isAddOnCategory: true }).select('_id').lean();
+    if (addOnCategories.length) conditions.push({ category: { $nin: addOnCategories.map((c) => c._id) } });
   }
 
   if (scope.specs) {

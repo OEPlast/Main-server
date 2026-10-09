@@ -2,11 +2,50 @@ import { Schema, model, InferSchemaType, Types } from 'mongoose';
 
 /**
  * Storefront content that isn't a product or a page of its own (singleton, read with findOne):
- * home testimonials and Instagram tiles, popular searches, article categories and the
- * newsletter popup.
+ * home hero, tiles and feature block, testimonials and Instagram tiles, popular searches,
+ * article categories and the newsletter popup.
  */
 const siteContentSchema = new Schema(
   {
+    // Home page imagery and copy. Image fields hold CDN paths (or absolute URLs); an empty hero
+    // image shows a plain text hero, and tiles without an image are skipped.
+    home: {
+      type: new Schema(
+        {
+          hero: {
+            type: new Schema(
+              {
+                image: { type: String, default: '' },
+                title: { type: String, default: '' },
+                ctaLabel: { type: String, default: '' },
+                ctaHref: { type: String, default: '' },
+              },
+              { _id: false }
+            ),
+            default: {},
+          },
+          tiles: {
+            type: [new Schema({ image: { type: String, required: true }, label: { type: String, required: true }, href: { type: String, required: true } }, { _id: false })],
+            default: [],
+          },
+          feature: {
+            type: new Schema(
+              {
+                image: { type: String, default: '' },
+                title: { type: String, default: '' },
+                text: { type: String, default: '' },
+                ctaLabel: { type: String, default: '' },
+                ctaHref: { type: String, default: '' },
+              },
+              { _id: false }
+            ),
+            default: {},
+          },
+        },
+        { _id: false }
+      ),
+      default: {},
+    },
     testimonials: {
       type: [new Schema({ quote: { type: String, required: true }, author: { type: String, required: true } }, { _id: false })],
       default: [],
