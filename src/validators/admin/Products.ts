@@ -110,6 +110,8 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
       addOns: { optional: true, isArray: { options: { max: 10 } }, errorMessage: 'addOns must be at most 10 product ids' },
       'addOns.*': { optional: true, isMongoId: true, errorMessage: 'addOns must contain product ids' },
       sizeChart: { optional: { options: { values: 'null' } }, isString: true, trim: true },
+      // Created from a Vylux scraper product ("Add product" on the import page): links it back.
+      vyluxId: { optional: true, isInt: { options: { min: 1 } }, toInt: true, errorMessage: 'vyluxId must be a positive integer' },
       // Google Shopping identity. GTIN must be a real barcode number (valid check digit).
       brand: { optional: true, isString: true, trim: true, isLength: { options: { max: 70 } }, errorMessage: 'brand must be at most 70 characters' },
       gtin: {

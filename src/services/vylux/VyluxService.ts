@@ -2,7 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import path from 'path';
 import Product from '@/models/Product';
 import Category from '@/models/Category';
-import { ensureSequenceAtLeast, nextSequence } from '@/models/Counter';
+import Counter, { ensureSequenceAtLeast, nextSequence } from '@/models/Counter';
 import FileUploadService from '@/services/FileUploadService';
 import Admin_ProductService from '@/services/admin/Product';
 import { logger } from '@/lib/logger';
@@ -66,6 +66,14 @@ export type VyluxImportItem = {
 };
 
 export type VyluxImportResult = { vyluxId: number; ok: boolean; productId?: string; error?: string };
+
+/** What the admin's "Add product" needs to open a prefilled product form. */
+export type VyluxPrepared = {
+  product: VyluxListItem;
+  images: StoredImage[];
+  /** Next free SKU, as a suggestion — the counter isn't consumed until a product is created. */
+  suggestedSku: number;
+};
 
 const isConfigured = (): boolean => !!(process.env.VYLUX_API_URL?.trim() && process.env.VYLUX_API_KEY?.trim());
 
@@ -166,7 +174,7 @@ async function download(media: VyluxMedia): Promise<{ buffer: Buffer; mimetype: 
   return { buffer, mimetype, name };
 }
 
-type StoredImage = { url: string; cover_image: boolean; mediaType: 'image' | 'video'; miniUrl?: string };
+export type StoredImage = { url: string; cover_image: boolean; mediaType: 'image' | 'video'; miniUrl?: string };
 
 async function copyMedia(product: VyluxProduct, uploadedPaths: string[]): Promise<StoredImage[]> {
   const stored: StoredImage[] = [];
@@ -274,5 +282,62 @@ const importProducts = async (items: VyluxImportItem[]): Promise<CustomResponseT
   return { message: `Imported ${imported} of ${items.length}`, data: results, code: 200 };
 };
 
-const VyluxService = { isConfigured, listProducts, importProducts };
+/** Highest of the SKU counter and the largest SKU in use, plus one. Read-only. */
+async function peekNextSku(): Promise<number> {
+  const [highest, counter] = await Promise.all([
+    Product.findOne().sort({ sku: -1 }).select('sku').lean(),
+    Counter.findById('sku').lean(),
+  ]);
+  return Math.max(Number(highest?.sku) || 0, counter?.seq ?? 0) + 1;
+}
+
+/**
+ * "Add product": copies one scraper product's media into this store's storage and returns it
+ * with the scraper's title, caption and price lines, so the admin can open the normal product
+ * form already holding the pictures. Nothing is created yet; the product form does that, with
+ * `vyluxId` so the product is linked back (see linkProductSource / markImported).
+ */
+const prepareProduct = async (vyluxId: number): Promise<CustomResponseType<VyluxPrepared>> => {
+  if (!isConfigured()) return { message: 'Vylux import is not configured', data: null, code: 503 };
+  const existing = (await importedIds([vyluxId])).get(String(vyluxId));
+  if (existing) return { message: 'Already imported', data: null, code: 409 };
+
+  const uploadedPaths: string[] = [];
+  try {
+    const { data } = await api().get(`/products/${vyluxId}`);
+    const product: VyluxProduct = data.data;
+    const images = await copyMedia(product, uploadedPaths);
+    return {
+      message: 'Vylux product ready',
+      data: { product: toListItem(product, null), images, suggestedSku: await peekNextSku() },
+      code: 200,
+    };
+  } catch (error) {
+    await Promise.all(uploadedPaths.map((p) => FileUploadService.deleteFile(p).catch(() => undefined)));
+    if (axios.isAxiosError(error)) {
+      if (error.response?.status === 404) return { message: 'Not found on the Vylux scraper', data: null, code: 404 };
+      logger.error(`[vylux] prepare ${vyluxId} failed: ${error.message}`);
+      return { message: 'Could not reach the Vylux scraper', data: null, code: 502 };
+    }
+    logger.error(`[vylux] prepare ${vyluxId} failed: ${(error as Error).message}`);
+    return { message: (error as Error).message, data: null, code: 500 };
+  }
+};
+
+/** The `source` stored on a product created from a scraper product; null when import is off. */
+const productSource = (vyluxId: number) =>
+  isConfigured() ? { provider: PROVIDER, externalId: String(vyluxId), importedAt: new Date() } : null;
+
+/** True when a product already exists for this scraper product. */
+const isImported = async (vyluxId: number) => (await importedIds([vyluxId])).has(String(vyluxId));
+
+/** Hides the scraper product from the "not synced" list. Fire and forget. */
+const markImported = (vyluxId: number, productId: string) => {
+  if (!isConfigured()) return;
+  api()
+    .patch(`/products/${vyluxId}`, { storeProductId: productId })
+    .catch((error) => logger.warn(`[vylux] could not mark ${vyluxId} as imported: ${(error as Error).message}`));
+};
+
+const VyluxService = { isConfigured, listProducts, importProducts, prepareProduct, productSource, isImported, markImported };
 export default VyluxService;

@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import Admin_ProductService from '../../services/admin/Product';
+import VyluxService from '../../services/vylux/VyluxService';
 
 // Search products
 const updateCoverImage = async (req: Request, res: Response) => {
@@ -94,7 +95,13 @@ const createProduct = async (req: Request, res: Response) => {
       dimension,
       addOns,
       sizeChart,
+      vyluxId,
     } = req.body;
+    // A product made from a scraper product records where it came from, so it can't be added twice.
+    const source = vyluxId ? VyluxService.productSource(vyluxId) : null;
+    if (vyluxId && source && (await VyluxService.isImported(vyluxId))) {
+      return res.status(409).json({ message: 'This Vylux product has already been added', data: null });
+    }
     const { message, code, data } = await Admin_ProductService.createProduct({
       sku,
       name,
@@ -122,7 +129,9 @@ const createProduct = async (req: Request, res: Response) => {
       dimension,
       addOns,
       sizeChart,
+      ...(source ? { source } : {}),
     });
+    if (source && data) VyluxService.markImported(vyluxId, String((data as unknown as { _id: unknown })._id));
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in deleteProduct:', error);

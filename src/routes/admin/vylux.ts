@@ -26,6 +26,18 @@ router.get(
 );
 
 /**
+ * @route POST /admin/vylux/products/:vyluxId/prepare
+ * @desc  Copy one product's media into this store and return it with the scraper's title, caption
+ *        and prices, for the admin's prefilled product form (nothing is created yet)
+ */
+router.post(
+  '/products/:vyluxId/prepare',
+  requirePermission('products', 'create'),
+  ...VyluxValidator.prepareValidator,
+  VyluxController.prepareProduct
+);
+
+/**
  * @route POST /admin/vylux/import
  * @desc  Import up to 10 products as inactive drafts: { items: [{ vyluxId, categoryId, price, name?, description? }] }
  */

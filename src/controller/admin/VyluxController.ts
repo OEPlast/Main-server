@@ -28,5 +28,15 @@ const importProducts = async (req: Request, res: Response) => {
   }
 };
 
-const VyluxController = { getStatus, listProducts, importProducts };
+const prepareProduct = async (req: Request, res: Response) => {
+  try {
+    const { message, data, code } = await VyluxService.prepareProduct(Number(req.params.vyluxId));
+    return res.status(code).json({ message, data });
+  } catch (error) {
+    console.error('Error in Vylux prepareProduct:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+const VyluxController = { getStatus, listProducts, importProducts, prepareProduct };
 export default VyluxController;

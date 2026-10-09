@@ -1,4 +1,4 @@
-import { body, query } from 'express-validator';
+import { body, param, query } from 'express-validator';
 import { validate } from '@/middleware/validate';
 
 export const MAX_IMPORT_BATCH = 10;
@@ -21,5 +21,7 @@ const importValidator = [
   validate,
 ];
 
-const VyluxValidator = { listValidator, importValidator };
+const prepareValidator = [param('vyluxId').isInt({ min: 1 }).withMessage('vyluxId must be a positive integer').toInt(), validate];
+
+const VyluxValidator = { listValidator, importValidator, prepareValidator };
 export default VyluxValidator;
