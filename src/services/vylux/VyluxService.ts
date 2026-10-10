@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import path from 'path';
 import Product from '@/models/Product';
 import Category from '@/models/Category';
+import VyluxDraft from '@/models/VyluxDraft';
 import Counter, { ensureSequenceAtLeast, nextSequence } from '@/models/Counter';
 import FileUploadService from '@/services/FileUploadService';
 import Admin_ProductService from '@/services/admin/Product';
@@ -176,7 +177,10 @@ async function download(media: VyluxMedia): Promise<{ buffer: Buffer; mimetype: 
 
 export type StoredImage = { url: string; cover_image: boolean; mediaType: 'image' | 'video'; miniUrl?: string };
 
-async function copyMedia(product: VyluxProduct, uploadedPaths: string[]): Promise<StoredImage[]> {
+type CopiedGroup = { url: string; miniUrl?: string; files: string[] };
+
+/** @param groups receives, per copied file, every path stored for it (for VyluxDraft cleanup) */
+async function copyMedia(product: VyluxProduct, uploadedPaths: string[], groups?: CopiedGroup[]): Promise<StoredImage[]> {
   const stored: StoredImage[] = [];
   for (const media of readyMedia(product)) {
     const file = await download(media);
@@ -193,8 +197,9 @@ async function copyMedia(product: VyluxProduct, uploadedPaths: string[]): Promis
       'vylux-import'
     );
     if (!res.data) throw new Error(`Media upload failed: ${res.message}`);
-    uploadedPaths.push(res.data.path, res.data.miniPath, res.data.pngPath);
-    if (res.data.thumbnailPath) uploadedPaths.push(res.data.thumbnailPath);
+    const files = [res.data.path, res.data.miniPath, res.data.pngPath, res.data.thumbnailPath].filter((p): p is string => !!p);
+    uploadedPaths.push(...files);
+    groups?.push({ url: res.data.path, ...(res.data.thumbnailPath ? { miniUrl: res.data.thumbnailPath } : {}), files: [...new Set(files)] });
     stored.push(
       res.data.mediaType === 'video'
         ? { url: res.data.path, mediaType: 'video', miniUrl: res.data.thumbnailPath, cover_image: false }
@@ -306,7 +311,10 @@ const prepareProduct = async (vyluxId: number): Promise<CustomResponseType<Vylux
   try {
     const { data } = await api().get(`/products/${vyluxId}`);
     const product: VyluxProduct = data.data;
-    const images = await copyMedia(product, uploadedPaths);
+    const groups: CopiedGroup[] = [];
+    const images = await copyMedia(product, uploadedPaths, groups);
+    // Remembered so pictures from an abandoned form (or removed from it) can be cleaned up later.
+    await VyluxDraft.create({ vyluxId, media: groups });
     return {
       message: 'Vylux product ready',
       data: { product: toListItem(product, null), images, suggestedSku: await peekNextSku() },
@@ -339,5 +347,46 @@ const markImported = (vyluxId: number, productId: string) => {
     .catch((error) => logger.warn(`[vylux] could not mark ${vyluxId} as imported: ${(error as Error).message}`));
 };
 
-const VyluxService = { isConfigured, listProducts, importProducts, prepareProduct, productSource, isImported, markImported };
+/**
+ * Deletes pictures copied by "Add product" more than `olderThanMs` ago that no product uses
+ * (abandoned forms, pictures removed in the form), then forgets those drafts.
+ */
+const cleanupDrafts = async (olderThanMs: number, batch = 100): Promise<{ drafts: number; deletedFiles: number }> => {
+  const drafts = await VyluxDraft.find({ createdAt: { $lt: new Date(Date.now() - olderThanMs) } })
+    .sort({ createdAt: 1 })
+    .limit(batch)
+    .lean();
+  if (!drafts.length) return { drafts: 0, deletedFiles: 0 };
+
+  const paths = drafts.flatMap((d) => d.media.flatMap((m) => [m.url, m.miniUrl].filter((p): p is string => !!p)));
+  const used = await Product.find({
+    $or: [
+      { 'description_images.url': { $in: paths } },
+      { 'description_images.miniUrl': { $in: paths } },
+      { 'attributes.children.images': { $in: paths } },
+    ],
+  })
+    .select('description_images attributes')
+    .lean();
+  const inUse = new Set<string>();
+  for (const p of used as Array<{ description_images?: { url?: string; miniUrl?: string }[]; attributes?: { children?: { images?: string[] }[] }[] }>) {
+    for (const img of p.description_images ?? []) [img.url, img.miniUrl].forEach((u) => u && inUse.add(u));
+    for (const a of p.attributes ?? []) for (const c of a.children ?? []) for (const i of c.images ?? []) inUse.add(i);
+  }
+
+  let deletedFiles = 0;
+  for (const draft of drafts) {
+    for (const media of draft.media) {
+      if (inUse.has(media.url) || (media.miniUrl && inUse.has(media.miniUrl))) continue;
+      for (const file of media.files) {
+        const res = await FileUploadService.deleteFile(file).catch(() => null);
+        if (res?.code === 200) deletedFiles += 1;
+      }
+    }
+  }
+  await VyluxDraft.deleteMany({ _id: { $in: drafts.map((d) => d._id) } });
+  return { drafts: drafts.length, deletedFiles };
+};
+
+const VyluxService = { isConfigured, listProducts, importProducts, prepareProduct, productSource, isImported, markImported, cleanupDrafts };
 export default VyluxService;

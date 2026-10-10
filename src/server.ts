@@ -83,6 +83,7 @@ import { startMerchantSync } from '@/cron/merchantSync';
 import { startPaymentReconciliation } from '@/cron/paymentReconciliation';
 import { startReviewRequests } from '@/cron/reviewRequests';
 import { startAccountDeletions } from '@/cron/accountDeletion';
+import { startVyluxDraftCleanup } from '@/cron/vyluxDrafts';
 import { startStorefrontBoundaries } from '@/cron/storefrontBoundaries';
 import { flushStorefrontRevalidation } from '@/services/storefront/revalidate';
 
@@ -320,6 +321,7 @@ async function startServer() {
     startReviewRequests();
     startAccountDeletions();
     startStorefrontBoundaries();
+    startVyluxDraftCleanup();
     server = app.listen(port, () => {
       logger.info(`Server is listening on port ${port}`);
     });

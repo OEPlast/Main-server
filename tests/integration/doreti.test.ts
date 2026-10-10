@@ -44,11 +44,11 @@ async function http(method: string, url: string, body?: unknown, token?: string)
 
 type Mail = { to: string; subject: string; text: string };
 async function mailsTo(address: string): Promise<Mail[]> {
-  const list = await (await fetch(`${MAILPIT}/api/v1/messages?limit=500`)).json();
+  const list = (await (await fetch(`${MAILPIT}/api/v1/messages?limit=500`)).json()) as Json;
   const hits = (list.messages ?? []).filter((m: Json) => m.To?.some((t: Json) => t.Address === address));
   return Promise.all(
     hits.map(async (m: Json) => {
-      const full = await (await fetch(`${MAILPIT}/api/v1/message/${m.ID}`)).json();
+      const full = (await (await fetch(`${MAILPIT}/api/v1/message/${m.ID}`)).json()) as Json;
       return { to: address, subject: m.Subject as string, text: (full.Text as string) ?? '' };
     })
   );
