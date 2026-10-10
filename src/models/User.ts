@@ -209,8 +209,16 @@ userSchema.pre('save', function (next) {
   next();
 });
 
-// Enable virtuals in toJSON and toObject
-userSchema.set('toJSON', { virtuals: true });
+// Enable virtuals in toJSON and toObject. A document sent in a response (res.json → toJSON) never
+// carries the password hash or the token version: /auth/register used to return both.
+userSchema.set('toJSON', {
+  virtuals: true,
+  transform: (_doc, ret: Record<string, unknown>) => {
+    delete ret.password;
+    delete ret.tokenVersion;
+    return ret;
+  },
+});
 userSchema.set('toObject', { virtuals: true });
 
 export type UserType = InferSchemaType<typeof userSchema>;
