@@ -191,6 +191,12 @@ const getHomeContent = async () =>
           ctaHref: c.home?.feature?.ctaHref ?? '',
         },
       },
+      about: {
+        hero: { image: c.about?.hero?.image ?? '', title: c.about?.hero?.title ?? '', text: c.about?.hero?.text ?? '' },
+        quote: { text: c.about?.quote?.text ?? '', author: c.about?.quote?.author ?? '' },
+        mission: { image: c.about?.mission?.image ?? '', title: c.about?.mission?.title ?? '', text: c.about?.mission?.text ?? '' },
+        milestones: c.about?.milestones ?? [],
+      },
       testimonials: c.testimonials,
       instagram: c.instagram,
       popularSearches: c.popularSearches,
@@ -208,7 +214,7 @@ const getSiteContent = async () => guard('Site content', async () => ok('Site co
 const updateSiteContent = async (input: Record<string, unknown>) =>
   guard('Site content', async () => {
     const c = await getOrCreateSiteContent();
-    const fields = ['home', 'testimonials', 'instagram', 'popularSearches', 'articleCategories', 'newsletterPopup'] as const;
+    const fields = ['home', 'about', 'testimonials', 'instagram', 'popularSearches', 'articleCategories', 'newsletterPopup'] as const;
     for (const f of fields) if (input[f] !== undefined) c.set(f, input[f]);
     await c.save();
     requestStorefrontRevalidation([StorefrontTag.CONTENT, StorefrontTag.ARTICLES]);

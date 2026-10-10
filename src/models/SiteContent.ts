@@ -46,6 +46,32 @@ const siteContentSchema = new Schema(
       ),
       default: {},
     },
+    // About page: hero, an optional quote, the mission block and milestone cards. Empty fields
+    // are hidden on the storefront (images are CDN paths or absolute URLs).
+    about: {
+      type: new Schema(
+        {
+          hero: {
+            type: new Schema({ image: { type: String, default: '' }, title: { type: String, default: '' }, text: { type: String, default: '' } }, { _id: false }),
+            default: {},
+          },
+          quote: {
+            type: new Schema({ text: { type: String, default: '' }, author: { type: String, default: '' } }, { _id: false }),
+            default: {},
+          },
+          mission: {
+            type: new Schema({ image: { type: String, default: '' }, title: { type: String, default: '' }, text: { type: String, default: '' } }, { _id: false }),
+            default: {},
+          },
+          milestones: {
+            type: [new Schema({ image: { type: String, default: '' }, title: { type: String, required: true }, text: { type: String, default: '' } }, { _id: false })],
+            default: [],
+          },
+        },
+        { _id: false }
+      ),
+      default: {},
+    },
     testimonials: {
       type: [new Schema({ quote: { type: String, required: true }, author: { type: String, required: true } }, { _id: false })],
       default: [],
