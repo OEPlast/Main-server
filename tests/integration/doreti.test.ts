@@ -241,6 +241,19 @@ describe('Doreti Main-server', () => {
       assert.deepEqual(slugs(await sr('tags=women&attributes=' + encodeURIComponent('Metal:Gold') + '&minPrice=100000')), ['vvs-tennis-necklace']);
       assert.equal((await sr('category=nope')).status, 404);
     });
+    test('product lists keep each product’s pack sizes', async () => {
+      const packs = [{ label: 'Single', quantity: 1 }, { label: 'Pair', quantity: 2 }];
+      await db.collection('products').updateOne({ _id: P.cuban }, { $set: { packSizes: packs } });
+      try {
+        const shape = (list: Json) => (Array.isArray(list) ? list.map((p: Json) => ({ label: p.label, quantity: p.quantity })) : list);
+        assert.deepEqual(shape((await sr('ids=' + P.cuban)).json.data[0].packSizes), packs);
+        assert.deepEqual(shape((await http('GET', '/products/by-slug/miami-cuban-chain')).json.data.packSizes), packs);
+        const all = (await http('GET', '/products/all?limit=50')).json.data;
+        assert.deepEqual(shape(all.find((p: Json) => p.slug === 'miami-cuban-chain').packSizes), packs);
+      } finally {
+        await db.collection('products').updateOne({ _id: P.cuban }, { $unset: { packSizes: 1 } });
+      }
+    });
     test('search filters scoped to a category', async () => {
       const r = await http('GET', '/products/search-filters?category=necklaces');
       assert.equal(r.status, 200, JSON.stringify(r.json));

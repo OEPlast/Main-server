@@ -33,9 +33,10 @@ function addSaleLookupStages(): any[] {
       },
     },
     {
+      // `packSizes: 1` used to sit here: in $addFields that sets the field to the number 1 (it is
+      // projection syntax), so every product page and list lost its pack sizes.
       $addFields: {
         sale: { $arrayElemAt: ['$saleData', 0] },
-        packSizes: 1,
       },
     },
     {
