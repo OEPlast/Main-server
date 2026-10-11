@@ -72,6 +72,13 @@ const siteContentSchema = new Schema(
       ),
       default: {},
     },
+    // Store-wide blocks on every product page. Plain text: a blank line starts a paragraph,
+    // **bold** and [label](/path or https://…) are allowed. Empty = the block is hidden (Delivery &
+    // Returns then falls back to facts from the delivery settings).
+    productInfo: {
+      type: new Schema({ warranty: { type: String, default: '' }, deliveryReturns: { type: String, default: '' } }, { _id: false }),
+      default: {},
+    },
     testimonials: {
       type: [new Schema({ quote: { type: String, required: true }, author: { type: String, required: true } }, { _id: false })],
       default: [],

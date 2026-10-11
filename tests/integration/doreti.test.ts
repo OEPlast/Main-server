@@ -298,6 +298,7 @@ describe('Doreti Main-server', () => {
           articleCategories: [{ value: 'lifestyle', label: 'Lifestyle' }],
           home: { hero: { image: 'content/hero.webp', title: 'Shine daily', ctaLabel: 'Shop', ctaHref: '/shop' }, tiles: [{ image: 'content/w.webp', label: 'Shop Women', href: '/shop?gender=women' }], feature: { image: '', title: '', text: '', ctaLabel: '', ctaHref: '' } },
           about: { hero: { image: '', title: 'Our story', text: 'Since 2026' }, quote: { text: 'Wear it every day.', author: 'Founder' }, mission: { image: '', title: 'Promise', text: 'Fair prices' }, milestones: [{ image: '', title: 'Launch', text: 'First pieces' }] },
+          productInfo: { warranty: '**One year** cover.', deliveryReturns: '' },
         },
         admin
       );
@@ -308,6 +309,7 @@ describe('Doreti Main-server', () => {
       assert.equal(home.home.tiles[0].label, 'Shop Women');
       assert.equal(home.about.quote.text, 'Wear it every day.');
       assert.equal(home.about.milestones[0].title, 'Launch');
+      assert.deepEqual(home.productInfo, { warranty: '**One year** cover.', deliveryReturns: '' });
       assert.deepEqual((await http('GET', '/search/suggestions?q=')).json.data.terms, ['Tennis chain', 'Moissanite']);
       const bad = await http('PUT', '/admin/content/site', { home: { tiles: [{ label: 'x' }] } }, admin);
       assert.equal(bad.status, 400);
