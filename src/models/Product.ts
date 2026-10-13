@@ -111,6 +111,22 @@ const attributeSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// One exact combination of option values (e.g. Metal: Gold + Size: 7) with its own price and
+// stock. See `helpers/productVariants.ts` for the rules.
+const variantSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true },
+    options: {
+      type: [new mongoose.Schema({ name: { type: String, required: true }, value: { type: String, required: true } }, { _id: false })],
+      required: true,
+    },
+    price: { type: Number, min: 0, required: false },
+    stock: { type: Number, required: true, default: 0, min: 0 },
+    sku: { type: String, required: false },
+  },
+  { _id: false }
+);
+
 const productSchema = new mongoose.Schema(
   {
     sku: {
@@ -289,6 +305,11 @@ const productSchema = new mongoose.Schema(
       type: String,
       enum: ['active', 'inactive', 'archived'],
       default: 'inactive',
+    },
+    // Price and stock per option combination. When set, `stock` is their sum.
+    variants: {
+      type: [variantSchema],
+      default: undefined,
     },
     // Products offered alongside this one on its page (e.g. a gift box), in order.
     addOns: {

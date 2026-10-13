@@ -13,6 +13,7 @@
     "lint:no-fix": "eslint src/**/*.ts",
     "lint": "eslint src/**/*.ts --fix",
     "prettier": "prettier --write .",
+    "test:unit": "node -r ts-node/register/transpile-only -r tsconfig-paths/register --test tests/unit/*.test.ts",
     "test:integration": "node -r ts-node/register/transpile-only -r tsconfig-paths/register --test --test-concurrency=1 tests/integration/doreti.test.ts",
     "test:returns": "node test-returns-simulation.js",
     "test:returns:quick": "node test-returns-quick.js",

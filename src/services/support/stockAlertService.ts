@@ -22,10 +22,17 @@ type AlertProduct = {
   status?: string;
   description_images?: Array<{ url?: string; cover_image?: boolean; mediaType?: string }>;
   attributes?: Array<{ name: string; children: Array<{ name: string; stock: number }> }>;
+  variants?: Array<{ options: Array<{ name: string; value: string }>; stock: number }>;
 };
 
 const optionStock = (product: AlertProduct, attribute?: { name: string; value: string } | null) => {
   if (!attribute) return product.stock;
+  // With combinations, an option is back when any combination that includes it is.
+  if (product.variants?.length) {
+    return product.variants
+      .filter((v) => v.options.some((o) => o.name === attribute.name && o.value === attribute.value))
+      .reduce((sum, v) => sum + v.stock, 0);
+  }
   const child = product.attributes?.find((a) => a.name === attribute.name)?.children.find((c) => c.name === attribute.value);
   // Products without per-option stock fall back to the product total.
   return child ? Math.min(child.stock, product.stock) : product.stock;
@@ -72,7 +79,7 @@ async function checkRestocked(productIds: Array<string | Types.ObjectId>): Promi
   if (!waiting.length) return 0;
 
   const products = await Product.find({ _id: { $in: [...new Set(waiting.map((a) => String(a.product)))] } })
-    .select('name slug price stock status description_images attributes.name attributes.children.name attributes.children.stock')
+    .select('name slug price stock status description_images attributes.name attributes.children.name attributes.children.stock variants.options variants.stock')
     .lean<AlertProduct[]>();
   const byId = new Map(products.map((p) => [String(p._id), p]));
   const brand = await getBrand();

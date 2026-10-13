@@ -7,6 +7,7 @@ import { duplicateMessage, isDuplicateKeyError } from '@/middleware/mongodb';
 import Category from '@/models/Category';
 import { revalidateProductDocs } from '@/services/storefront/productRevalidation';
 import StockAlertService from '@/services/support/stockAlertService';
+import { normaliseVariants, totalVariantStock } from '@/helpers/productVariants';
 
 function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -64,6 +65,8 @@ type CreateProductData = {
     }[];
   }[];
   pricingTiers?: PricingTier[];
+  /** Price and stock per option combination; see `helpers/productVariants.ts`. */
+  variants?: unknown[];
   stock: number;
   lowStockThreshold?: number;
   status?: 'active' | 'inactive' | 'archived';
@@ -128,6 +131,12 @@ const createProduct = async (data: CreateProductData): Promise<CustomResponseTyp
         }
       }
     }
+
+    // Combinations: checked against the option groups; the product's stock is their total.
+    const checkedVariants = normaliseVariants(newData.variants, newData.attributes);
+    if ('error' in checkedVariants) return { message: checkedVariants.error, data: null, code: 400 };
+    newData.variants = checkedVariants.variants.length ? checkedVariants.variants : undefined;
+    if (checkedVariants.variants.length) newData.stock = totalVariantStock(checkedVariants.variants);
 
     // Set originStock to the initial stock value
     const productDataWithOriginStock = {
@@ -209,9 +218,21 @@ const updateProduct = async (
 
     type ProductUpdate = Partial<CreateProductData> & { originStock?: number };
     const update: ProductUpdate = { ...data };
+
+    // Combinations: re-checked whenever they or the option groups change, since removing an
+    // option can orphan a combination. The product's stock is their total.
+    if (data.variants !== undefined || (data.attributes !== undefined && existing.variants?.length)) {
+      const checkedVariants = normaliseVariants(
+        data.variants !== undefined ? data.variants : existing.toObject().variants,
+        data.attributes ?? existing.toObject().attributes
+      );
+      if ('error' in checkedVariants) return { message: checkedVariants.error, data: null, code: 400 };
+      update.variants = checkedVariants.variants;
+      if (checkedVariants.variants.length) update.stock = totalVariantStock(checkedVariants.variants);
+    }
     // Update originStock when stock is being updated
-    if (data.stock !== undefined && data.stock !== existing.stock) {
-      update.originStock = data.stock;
+    if (update.stock !== undefined && update.stock !== existing.stock) {
+      update.originStock = update.stock;
     }
 
     // A changed slug keeps the old one in `slugHistory`, so /product/<old-slug> can 301 to the
@@ -243,7 +264,7 @@ const updateProduct = async (
     // Price, name, stock and images all show up in listings, so an edit purges the lists too.
     // `slugHistory` is on the updated document, so a rename purges the old URL's cached redirect.
     revalidateProductDocs([updatedProduct], { lists: true });
-    if (data.stock !== undefined || data.attributes !== undefined || data.status !== undefined) {
+    if (data.stock !== undefined || data.attributes !== undefined || data.variants !== undefined || data.status !== undefined) {
       StockAlertService.notifyIfRestocked([id]);
     }
 
@@ -412,6 +433,8 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
           pricingTiers: child.pricingTiers,
         })),
       })),
+      // Same combinations and prices, no stock.
+      variants: productObj.variants?.map((v) => ({ ...v, stock: 0 })),
     };
 
     const duplicatedProduct = await Product.create(duplicatedProductData);

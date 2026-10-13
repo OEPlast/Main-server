@@ -100,6 +100,10 @@ const orderSchema = new mongoose.Schema(
             },
           },
         ],
+        // The product combination (`Product.variants[].key`) whose stock this line took, if any.
+        variantKey: {
+          type: String,
+        },
         // Sale info fields
         sale: {
           type: ObjectId,

@@ -408,6 +408,74 @@ describe('Doreti Main-server', () => {
     });
   });
 
+  describe('option combinations', () => {
+    let ringId = '';
+    const gold7 = [{ name: 'Metal', value: 'Gold' }, { name: 'Size', value: '7' }];
+    const attributes = [
+      { name: 'Metal', children: [{ name: 'Gold', stock: 0 }, { name: 'Silver', stock: 0 }] },
+      { name: 'Size', children: [{ name: '6', stock: 0 }, { name: '7', stock: 0 }] },
+    ];
+    const ring = (o: Json) => ({ sku: 78, name: 'Signet Ring', description: 'Engraved signet', price: 50000, category: String(cats.rings), stock: 999, weight: 0.05, height: 2, width: 2, length: 2, isVolumetric: false, status: 'active', attributes, ...o });
+    const checkout = (qty: number) => ({
+      items: [{ _id: 'signet-gold-7', product: ringId, qty, selectedAttributes: gold7, unitPrice: 85000, totalPrice: 85000 * qty }],
+      subtotal: 85000 * qty,
+      total: 85000 * qty,
+      totalDiscount: 0,
+      deliveryType: 'pickup',
+      shippingCost: 0,
+    });
+
+    test('admin saves combinations, stock is their total, and broken ones are refused', async () => {
+      const bad = await http('POST', '/admin/products/create', ring({ variants: [{ options: [{ name: 'Metal', value: 'Platinum' }], stock: 1 }] }), admin);
+      assert.equal(bad.status, 400);
+      assert.match(bad.json.message, /not one of the product's options/);
+
+      const r = await http('POST', '/admin/products/create', ring({ variants: [
+        { options: gold7, price: 85000, stock: 2 },
+        { options: [{ name: 'Metal', value: 'Gold' }, { name: 'Size', value: '6' }], stock: 1 },
+        { options: [{ name: 'Metal', value: 'Silver' }, { name: 'Size', value: '7' }], stock: 0 },
+      ] }), admin);
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      ringId = r.json.data._id;
+      assert.equal(r.json.data.stock, 3);
+
+      const detail = (await http('GET', '/products/by-slug/signet-ring')).json.data;
+      assert.deepEqual(detail.variants.map((v: Json) => [v.key, v.price ?? null, v.stock]), [['Metal=Gold|Size=7', 85000, 2], ['Metal=Gold|Size=6', null, 1], ['Metal=Silver|Size=7', null, 0]]);
+
+      // Removing the Size group would leave combinations pointing at nothing.
+      const orphaned = await http('PATCH', `/admin/products/${ringId}`, { attributes: [attributes[0]] }, admin);
+      assert.equal(orphaned.status, 400);
+      assert.match(orphaned.json.message, /not one of the product's options/);
+    });
+
+    test('the combination sets the price; unlisted or sold-out combinations are refused', async () => {
+      const priced = await http('POST', '/checkout/shipping-options', { items: [{ productId: ringId, qty: 1, selectedAttributes: gold7 }] });
+      assert.equal(priced.json.data.itemsSubtotal, 85000);
+      const soldOut = await http('POST', '/checkout/secure', { ...checkout(1), items: [{ ...checkout(1).items[0], selectedAttributes: [{ name: 'Metal', value: 'Silver' }, { name: 'Size', value: '7' }], unitPrice: 50000, totalPrice: 50000 }], subtotal: 50000, total: 50000 }, customerToken);
+      assert.equal(soldOut.json.data?.needsUpdate, true, JSON.stringify(soldOut.json));
+      assert.equal(soldOut.json.data.errors.products[0].issueType, 'attributeUnavailable');
+      assert.deepEqual(soldOut.json.data.errors.products[0].availableAttributes.length, 2);
+      const tooMany = await http('POST', '/checkout/secure', checkout(3), customerToken);
+      assert.equal(tooMany.json.data?.errors?.products?.[0]?.availableStock, 2, JSON.stringify(tooMany.json));
+    });
+
+    test('an order takes the combination’s stock, and a cancelled one gives it back', async () => {
+      // Paystack refuses the test key, so the order is placed (stock taken) and then cancelled
+      // (stock returned). Ending where it started proves both happened: without the first, the
+      // combination would end on 4.
+      await http('POST', '/checkout/secure', checkout(2), customerToken);
+      const order = await db.collection('orders').findOne({ 'products.product': new mongoose.Types.ObjectId(ringId) }, { sort: { createdAt: -1 } });
+      assert.ok(order, serverLog.slice(-2000));
+      assert.equal(order.products[0].variantKey, 'Metal=Gold|Size=7');
+      assert.ok(order.inventoryReleasedAt);
+      const product = await db.collection('products').findOne({ _id: new mongoose.Types.ObjectId(ringId) });
+      assert.equal(product?.stock, 3);
+      assert.deepEqual(product?.variants.map((v: Json) => v.stock), [2, 1, 0]);
+      // Its order number is the one the orders section seeds.
+      await db.collection('orders').deleteOne({ _id: order._id });
+    });
+  });
+
   // ---------------------------------------------------------------- reviews
   describe('reviews', () => {
     const reviewId = oid();

@@ -6,7 +6,8 @@
  * a sale applied, and checkout added an option's price on top of the product price.
  *
  * Order of operations (owner decision, 2026-09-15: "sale on top of tier"):
- *   1. List price: the selected option's own price when it has one, else the product price.
+ *   1. List price: the selected combination's price (`product.variants`) when it has one, else the
+ *      selected option's own price when it has one, else the product price.
  *   2. Bulk tier: the option's tiers when it has any, else the product's. The matching tier with
  *      the highest minQty wins. A tier never raises the price.
  *   3. Sale: taken off the tier price (percent of it, or a fixed amount capped at it).
@@ -14,7 +15,9 @@
  * Pure: no database access. `priceCart.ts` loads the product and sale documents.
  */
 
-export type TierStrategy = 'fixedPrice' | 'percentOff' | 'amountOff';
+import { findVariant } from '@/helpers/productVariants';
+
+export type TierStrategy ='fixedPrice' | 'percentOff' | 'amountOff';
 
 export interface PricingTier {
   minQty: number;
@@ -33,6 +36,7 @@ export interface PricingProduct {
   price: number;
   pricingTiers?: PricingTier[] | null;
   attributes?: Array<{ name: string; children: PricingOption[] }> | null;
+  variants?: Array<{ options: Array<{ name: string; value: string }>; price?: number | null }> | null;
 }
 
 export type SaleType = 'Flash' | 'Limited' | 'Normal';
@@ -181,8 +185,14 @@ export function priceLine(input: {
   const { product, qty } = input;
   const selected = input.selectedAttributes ?? [];
 
+  const combination = findVariant(product.variants, selected);
   const option = resolvePricedOption(product, selected);
-  const listUnitPrice = typeof option?.price === 'number' ? option.price : product.price;
+  const listUnitPrice =
+    typeof combination?.price === 'number'
+      ? combination.price
+      : typeof option?.price === 'number'
+        ? option.price
+        : product.price;
 
   const tiers = option?.pricingTiers?.length ? option.pricingTiers : product.pricingTiers;
   const tier = findTier(qty, tiers);

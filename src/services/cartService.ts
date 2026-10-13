@@ -6,10 +6,11 @@ import { checkSaleAvailability } from '@/helpers/salesUtils';
 import {
   ProductPricingShape,
   VariantOption,
-  resolveBestVariant,
+  resolvePricingVariant,
   applyPricingTier,
   PricingTier,
 } from '@/helpers/pricingUtils';
+import { availableStock } from '@/helpers/productVariants';
 import mongoose from 'mongoose';
 
 // Type definitions for aggregation results
@@ -74,7 +75,7 @@ type ChangedEntry = {
 };
 
 // Use multi-attribute resolver
-const resolveVariant = resolveBestVariant;
+const resolveVariant = resolvePricingVariant;
 
 // Applied tier shape (selected tier + the price it yielded)
 type AppliedPricingTier = PricingTier & { appliedPrice: number };
@@ -194,7 +195,7 @@ const addToCart = async (
 
     const product = productData[0];
 
-    if (qty > product.stock) {
+    if (qty > availableStock(product, attributes)) {
       return { message: 'Insufficient stock', data: null, code: 400 };
     }
 
@@ -428,7 +429,7 @@ const updateCartItem = async (
     const newQty = updates.qty || cartItem.qty;
     const newAttributes = updates.selectedAttributes || cartItem.selectedAttributes;
 
-    if (newQty > product.stock) {
+    if (newQty > availableStock(product, newAttributes)) {
       return { message: 'Insufficient stock', data: null, code: 400 };
     }
 
@@ -656,6 +657,7 @@ type CartProductDetails = Pick<
   | 'description'
   | 'tags'
   | 'attributes'
+  | 'variants'
   | 'specifications'
   | 'description_images'
   | 'dimension'
@@ -716,6 +718,7 @@ const mapProductForResponse = (product?: ProductDocument): CartProductDetails | 
     description: product.description,
     tags: product.tags ?? [],
     attributes: product.attributes,
+    variants: product.variants,
     specifications: product.specifications,
     category: categoryId,
     description_images: product.description_images,
@@ -1045,14 +1048,15 @@ const validateCartSales = async (
         continue;
       }
 
-      // Check stock
-      if (product.stock < item.qty) {
+      // Check stock (the selected combination's, when the product has combinations)
+      const unitsAvailable = availableStock(product, item.selectedAttributes);
+      if (unitsAvailable < item.qty) {
         outOfStockItems.push({
           itemId: item._id,
           productId: item.product,
           productName: product.name,
           requestedQty: item.qty,
-          availableStock: product.stock || 0,
+          availableStock: unitsAvailable,
         });
       }
 

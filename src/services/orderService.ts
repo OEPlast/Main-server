@@ -14,6 +14,7 @@ import { EnrichedOrder } from './admin/Order';
 import type { CouponDoc, OrderDataInput, PlaceOrderResponse } from '@/types/order';
 import { validateCouponCodes } from '@/helpers/couponUtils';
 import { priceCart, roundKobo, toCouponLines } from '@/services/pricing';
+import { findVariant, hasVariants } from '@/helpers/productVariants';
 
 /**
  * Fetches paginated orders for user with optional filters.
@@ -239,7 +240,8 @@ const placeOrderWithStockValidation = async (
     const productIds = products.map((item) => item.product);
     const productDocs = await Product.find({ _id: { $in: productIds } }).session(session);
 
-    if (productDocs.length !== products.length) {
+    // A product can be on several lines (one per option combination), so compare distinct ids.
+    if (productDocs.length !== new Set(productIds.map(String)).size) {
       throw new Error('One or more products were not found.');
     }
 
@@ -298,22 +300,65 @@ const placeOrderWithStockValidation = async (
       ...couponValidation.invalidCoupons.map((v) => ({ code: v.code, applied: false, reason: v.reason })),
     ];
 
-    // Check stock and prepare updates
-    const bulkUpdates = products.map((item) => {
-      const product = productDocs.find((p) => p._id.toString() === item.product!.toString());
-      if (!product || product.stock < item.qty!) {
-        throw new Error(`Product "${product?.name}" is out of stock or insufficient quantity.`);
+    // Check stock and prepare updates. Quantities are added up per product, and per option
+    // combination for products that have them (`Product.variants`), whose stock is taken too.
+    const productById = new Map(productDocs.map((p) => [p._id.toString(), p]));
+    const qtyByProduct = new Map<string, number>();
+    const qtyByVariant = new Map<string, { productId: string; key: string; label: string; qty: number }>();
+    for (const item of products) {
+      const productId = item.product!.toString();
+      const product = productById.get(productId)!;
+      qtyByProduct.set(productId, (qtyByProduct.get(productId) ?? 0) + item.qty!);
+      if (!hasVariants(product)) continue;
+      const combination = findVariant(product.variants, (item.attributes || []) as { name: string; value: string }[]);
+      if (!combination) {
+        throw new Error(`"${product.name}" is not available in the options you chose.`);
       }
-      return {
-        updateOne: {
-          filter: { _id: item.product, stock: { $gte: item.qty } },
-          update: { $inc: { stock: -item.qty! } },
-        },
+      item.variantKey = combination.key;
+      const entryKey = `${productId}|${combination.key}`;
+      const entry = qtyByVariant.get(entryKey) ?? {
+        productId,
+        key: combination.key,
+        label: combination.options.map((o: { name: string; value: string }) => `${o.name}: ${o.value}`).join(', '),
+        qty: 0,
       };
-    });
+      entry.qty += item.qty!;
+      qtyByVariant.set(entryKey, entry);
+    }
+    for (const [productId, qty] of qtyByProduct) {
+      const product = productById.get(productId)!;
+      if (product.stock < qty) {
+        throw new Error(`Product "${product.name}" is out of stock or insufficient quantity.`);
+      }
+    }
+    for (const { productId, key, label, qty } of qtyByVariant.values()) {
+      const product = productById.get(productId)!;
+      if ((product.variants?.find((v) => v.key === key)?.stock ?? 0) < qty) {
+        throw new Error(`"${product.name}" (${label}) is out of stock or insufficient quantity.`);
+      }
+    }
+    const bulkUpdates: Parameters<typeof Product.bulkWrite>[0] = [
+      ...[...qtyByProduct].map(([productId, qty]) => ({
+        updateOne: {
+          filter: { _id: productId, stock: { $gte: qty } },
+          update: { $inc: { stock: -qty } },
+        },
+      })),
+      ...[...qtyByVariant.values()].map(({ productId, key, qty }) => ({
+        updateOne: {
+          filter: { _id: productId, variants: { $elemMatch: { key, stock: { $gte: qty } } } },
+          update: { $inc: { 'variants.$[v].stock': -qty } },
+          arrayFilters: [{ 'v.key': key }],
+        },
+      })),
+    ];
 
-    // Perform bulk stock update
-    await Product.bulkWrite(bulkUpdates, { session });
+    // Perform bulk stock update. Every update must match: one that doesn't means another order
+    // took the last units since the check above.
+    const stockResult = await Product.bulkWrite(bulkUpdates, { session });
+    if (stockResult.matchedCount !== bulkUpdates.length) {
+      throw new Error('Some items sold out while you were checking out. Please review your cart.');
+    }
 
     // Emit low stock events for affected products if needed
     const updatedProducts = await Product.find({ _id: { $in: productIds } })

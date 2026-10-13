@@ -65,9 +65,22 @@ export async function releaseOrderInventoryInSession(
 
   if (lines.length > 0) {
     await Product.bulkWrite(
-      lines.map((item) => ({
-        updateOne: { filter: { _id: item.product! }, update: { $inc: { stock: item.qty! } } },
-      })),
+      [
+        ...lines.map((item) => ({
+          updateOne: { filter: { _id: item.product! }, update: { $inc: { stock: item.qty! } } },
+        })),
+        // The combination's stock too. If the combination has since been removed from the
+        // product, the filter matches nothing and only the product total comes back.
+        ...lines
+          .filter((item) => item.variantKey)
+          .map((item) => ({
+            updateOne: {
+              filter: { _id: item.product!, 'variants.key': item.variantKey },
+              update: { $inc: { 'variants.$[v].stock': item.qty! } },
+              arrayFilters: [{ 'v.key': item.variantKey }],
+            },
+          })),
+      ],
       { session }
     );
   }

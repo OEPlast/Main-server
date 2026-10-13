@@ -5,6 +5,7 @@ import SalesModel, { SalesType } from '@/models/Sales';
 import { validateCouponCodes } from '@/helpers/couponUtils';
 import { priceCart, roundKobo, toCouponLines, type PricedCartLine } from '@/services/pricing';
 import { CustomResponseType } from '@/types';
+import { findVariant, hasVariants, type ProductVariant } from '@/helpers/productVariants';
 
 // Abstract types derived from existing schema definitions
 export type CartItemType = CartType['items'][0];
@@ -246,8 +247,8 @@ const detectProductIssues = async (
 ): Promise<ProductIssueType | null> => {
   try {
     const product = await ProductModel.findById(item.product)
-      .select('name slug stock attributes')
-      .lean<{ name?: string; slug?: string; stock?: number; attributes?: AttributeType[] }>();
+      .select('name slug stock attributes variants')
+      .lean<{ name?: string; slug?: string; stock?: number; attributes?: AttributeType[]; variants?: ProductVariant[] }>();
 
     if (!product) return null;
 
@@ -276,8 +277,31 @@ const detectProductIssues = async (
       };
     }
 
+    // Check 1b: with option combinations, the selected one must exist and be in stock.
+    const combination = hasVariants(product) ? findVariant(product.variants, item.selectedAttributes) : undefined;
+    if (hasVariants(product) && (!combination || combination.stock === 0)) {
+      const label = (item.selectedAttributes ?? []).map((a) => `${a.name}: ${a.value}`).join(', ');
+      const alternatives = (product.variants ?? []).filter((v) => v.stock > 0).map((v) => v.options.map((o) => ({ name: o.name, value: o.value })));
+      return {
+        productId,
+        productName,
+        productSlug,
+        cartItemId,
+        issueType: 'attributeUnavailable',
+        message: combination ? `${label} is sold out` : `${label || 'This option'} is no longer available`,
+        severity: 'warning',
+        currentQty: item.qty,
+        availableStock: 0,
+        currentPrice: itemValidation.frontendPrice,
+        correctedPrice: itemValidation.backendPrice,
+        unavailableAttributes: item.selectedAttributes ?? null,
+        availableAttributes: alternatives.length > 0 ? alternatives : null,
+        suggestedAction: alternatives.length > 0 ? 'changeAttribute' : 'remove',
+      };
+    }
+
     // Check 2: Quantity reduced (requested more than available)
-    const productStock = product.stock ?? 0;
+    const productStock = combination ? combination.stock : (product.stock ?? 0);
     if (item.qty > productStock) {
       return {
         productId,
@@ -297,8 +321,9 @@ const detectProductIssues = async (
       };
     }
 
-    // Check 3: Attribute unavailable (check if selected attributes are in stock)
-    if (item.selectedAttributes && item.selectedAttributes.length > 0 && product.attributes) {
+    // Check 3: Attribute unavailable (check if selected attributes are in stock). Products with
+    // combinations keep stock on the combinations (check 1b), not on single options.
+    if (!combination && item.selectedAttributes && item.selectedAttributes.length > 0 && product.attributes) {
       for (const selectedAttr of item.selectedAttributes) {
         const matchingAttribute = product.attributes.find((attr) => attr.name === selectedAttr.name);
         if (matchingAttribute) {

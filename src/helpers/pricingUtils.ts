@@ -1,4 +1,5 @@
 // Shared pricing utilities and types
+import { findVariant, type ProductVariant } from './productVariants';
 
 export interface PricingTier {
   minQty: number;
@@ -24,6 +25,7 @@ export interface ProductPricingShape {
   price: number;
   pricingTiers?: PricingTier[];
   attributes?: AttributeGroup[];
+  variants?: ProductVariant[];
   stock: number;
 }
 
@@ -52,6 +54,21 @@ export function resolveBestVariant(
     }
   }
   return undefined;
+}
+
+/**
+ * The option whose price and tiers a cart line uses: `resolveBestVariant`, with the selected
+ * combination's price (`product.variants`) taking over the price when it has one. Same rule as
+ * `services/pricing/linePricing.ts`.
+ */
+export function resolvePricingVariant(
+  product: ProductPricingShape,
+  attributes: { name: string; value: string }[]
+): VariantOption | undefined {
+  const option = resolveBestVariant(product, attributes);
+  const combination = findVariant(product?.variants, attributes);
+  if (typeof combination?.price !== 'number') return option;
+  return { ...(option ?? { name: combination.key, stock: combination.stock, image: '' }), price: combination.price };
 }
 
 export function applyPricingTier(base: number, qty: number, tiers?: PricingTier[]): number {
