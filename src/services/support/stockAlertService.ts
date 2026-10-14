@@ -5,6 +5,7 @@ import EmailProcessor from '@/services/processor/EmailProcessor';
 import { getBrand } from '@/services/brand';
 import { productUrl } from '@/services/brand/links';
 import { logger } from '@/lib/logger';
+import { syncRestockMarkers } from '@/services/catalog/restock';
 import { CustomResponseType } from '@/types';
 
 /**
@@ -125,6 +126,8 @@ async function checkRestocked(productIds: Array<string | Types.ObjectId>): Promi
 /** Fire-and-forget wrapper for stock-changing code paths. */
 function notifyIfRestocked(productIds: Array<string | Types.ObjectId>): void {
   checkRestocked(productIds).catch((error) => logger.error('[stock-alerts] restock check failed', error));
+  // Back-in-stock collection and badge (no-op unless BACK_IN_STOCK_DAYS is set)
+  syncRestockMarkers(productIds).catch((error) => logger.error('[back-in-stock] restock marker failed', error));
 }
 
 /** Admin: products with waiting alerts, most-requested first. */

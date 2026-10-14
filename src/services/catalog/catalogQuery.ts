@@ -2,6 +2,8 @@ import mongoose, { PipelineStage, Types } from 'mongoose';
 import Category from '@/models/Category';
 import Order from '@/models/Order';
 import Settings from '@/models/Settings';
+import { collectionConditions } from './collections';
+import { backInStockCutoff, backInStockDays } from './restock';
 
 /**
  * Storefront catalog helpers shared by the product list, its filter facets, the category tree and
@@ -9,8 +11,13 @@ import Settings from '@/models/Settings';
  * id, specification filters, and the "new" / "best seller" flags.
  */
 
-export type Collection = 'best-sellers' | 'new-arrivals' | 'latest-drops';
-export const COLLECTIONS: Collection[] = ['best-sellers', 'new-arrivals', 'latest-drops'];
+export type BuiltInCollection = 'best-sellers' | 'new-arrivals' | 'latest-drops' | 'back-in-stock';
+export const COLLECTIONS: BuiltInCollection[] = ['best-sellers', 'new-arrivals', 'latest-drops'];
+/** Built-ins plus admin collections (StoreCollection slugs). */
+export type Collection = BuiltInCollection | (string & {});
+
+/** The built-in collections this deployment offers (back-in-stock only with BACK_IN_STOCK_DAYS). */
+export const builtInCollections = (): BuiltInCollection[] => (backInStockDays() ? [...COLLECTIONS, 'back-in-stock'] : COLLECTIONS);
 
 export type CatalogScope = {
   /** Category slug; includes every subcategory below it. */
@@ -126,8 +133,9 @@ export function parseIds(param: unknown, max = 50): string[] | undefined {
   return ids.length ? [...new Set(ids)].slice(0, max) : undefined;
 }
 
+/** A built-in key or anything shaped like a collection slug (resolved in buildScopeConditions). */
 export const parseCollection = (param: unknown): Collection | undefined =>
-  COLLECTIONS.includes(param as Collection) ? (param as Collection) : undefined;
+  typeof param === 'string' && /^[a-z0-9][a-z0-9-]{0,79}$/.test(param) ? param : undefined;
 
 /**
  * `$match` conditions for a catalog scope. `notFound` is set when the category slug is unknown.
@@ -169,6 +177,15 @@ export async function buildScopeConditions(
   } else if (scope.collection === 'new-arrivals' || scope.collection === 'latest-drops') {
     const { newArrivalDays } = await getCatalogSettings();
     conditions.push({ createdAt: { $gte: newArrivalCutoff(newArrivalDays) } });
+  } else if (scope.collection === 'back-in-stock') {
+    const days = backInStockDays();
+    if (!days) return { conditions, notFound: true };
+    conditions.push({ restockedAt: { $gte: backInStockCutoff(days) }, stock: { $gt: 0 } });
+  } else if (scope.collection) {
+    const custom = await collectionConditions(scope.collection);
+    if (!custom) return { conditions, notFound: true };
+    conditions.push(...custom.conditions);
+    rank = custom.rank;
   }
 
   return { conditions, rank };
@@ -192,23 +209,36 @@ export function rankSortStages(rank: Types.ObjectId[]): PipelineStage[] {
   ];
 }
 
-export type Badges = { isNew: boolean; isBestSeller: boolean };
+export type Badges = { isNew: boolean; isBestSeller: boolean; isBackInStock: boolean; isLowStock: boolean };
 
-/** Adds `badges: { isNew, isBestSeller }` to each product. */
-export async function withBadges<T extends { _id?: unknown; createdAt?: unknown }>(
+type BadgeFields = { _id?: unknown; createdAt?: unknown; stock?: unknown; lowStockThreshold?: unknown; restockedAt?: unknown };
+
+/**
+ * Adds `badges` to each product: new, best seller, back in stock (restocked within
+ * BACK_IN_STOCK_DAYS) and low stock (in stock, at or under its low-stock threshold).
+ */
+export async function withBadges<T extends BadgeFields>(
   products: T[]
 ): Promise<Array<T & { badges: Badges }>> {
   if (!products.length) return [];
   const [best, { newArrivalDays }] = await Promise.all([getBestSellerIds(), getCatalogSettings()]);
   const bestSet = new Set(best.map(String));
   const cutoff = newArrivalCutoff(newArrivalDays).getTime();
-  return products.map((p) => ({
-    ...p,
-    badges: {
-      isNew: !!p.createdAt && new Date(p.createdAt as string | Date).getTime() >= cutoff,
-      isBestSeller: bestSet.has(String(p._id)),
-    },
-  }));
+  const restockDays = backInStockDays();
+  const restockCutoff = restockDays ? backInStockCutoff(restockDays).getTime() : null;
+  return products.map((p) => {
+    const stock = Number(p.stock ?? 0);
+    const threshold = Number(p.lowStockThreshold ?? 0);
+    return {
+      ...p,
+      badges: {
+        isNew: !!p.createdAt && new Date(p.createdAt as string | Date).getTime() >= cutoff,
+        isBestSeller: bestSet.has(String(p._id)),
+        isBackInStock: restockCutoff !== null && stock > 0 && !!p.restockedAt && new Date(p.restockedAt as string | Date).getTime() >= restockCutoff,
+        isLowStock: stock > 0 && threshold > 0 && stock <= threshold,
+      },
+    };
+  });
 }
 
 /** Forget cached settings and best sellers (after a settings change, and in tests). */

@@ -79,6 +79,23 @@ const siteContentSchema = new Schema(
       type: new Schema({ warranty: { type: String, default: '' }, deliveryReturns: { type: String, default: '' } }, { _id: false }),
       default: {},
     },
+    // Offer tiles placed among the products on shop and collection pages, e.g. "Free delivery
+    // nationwide" after the 4th product. Images are optional.
+    listingTiles: {
+      type: [
+        new Schema(
+          {
+            title: { type: String, required: true },
+            text: { type: String, default: '' },
+            href: { type: String, default: '' },
+            image: { type: String, default: '' },
+            position: { type: Number, default: 4, min: 1 },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     testimonials: {
       type: [new Schema({ quote: { type: String, required: true }, author: { type: String, required: true } }, { _id: false })],
       default: [],

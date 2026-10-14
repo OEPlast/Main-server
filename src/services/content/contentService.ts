@@ -197,6 +197,7 @@ const getHomeContent = async () =>
         mission: { image: c.about?.mission?.image ?? '', title: c.about?.mission?.title ?? '', text: c.about?.mission?.text ?? '' },
         milestones: c.about?.milestones ?? [],
       },
+      listingTiles: c.listingTiles ?? [],
       productInfo: { warranty: c.productInfo?.warranty ?? '', deliveryReturns: c.productInfo?.deliveryReturns ?? '' },
       testimonials: c.testimonials,
       instagram: c.instagram,
@@ -215,7 +216,7 @@ const getSiteContent = async () => guard('Site content', async () => ok('Site co
 const updateSiteContent = async (input: Record<string, unknown>) =>
   guard('Site content', async () => {
     const c = await getOrCreateSiteContent();
-    const fields = ['home', 'about', 'productInfo', 'testimonials', 'instagram', 'popularSearches', 'articleCategories', 'newsletterPopup'] as const;
+    const fields = ['home', 'about', 'productInfo', 'listingTiles', 'testimonials', 'instagram', 'popularSearches', 'articleCategories', 'newsletterPopup'] as const;
     for (const f of fields) if (input[f] !== undefined) c.set(f, input[f]);
     await c.save();
     requestStorefrontRevalidation([StorefrontTag.CONTENT, StorefrontTag.ARTICLES]);

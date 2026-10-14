@@ -70,6 +70,7 @@ import AdminAuditLogRoute from '@/routes/admin/auditLog';
 import AdminNotificationsRoute from '@/routes/admin/notifications';
 import AdminVyluxRoute from '@/routes/admin/vylux';
 import AdminContentRoute from '@/routes/admin/content';
+import AdminCollectionsRoute from '@/routes/admin/collections';
 import { adminPickupRouter, adminSupportRouter } from '@/routes/admin/support';
 import ContentRoute from '@/routes/general/content';
 import ArticlesRoute from '@/routes/general/articles';
@@ -84,6 +85,7 @@ import { startPaymentReconciliation } from '@/cron/paymentReconciliation';
 import { startReviewRequests } from '@/cron/reviewRequests';
 import { startAccountDeletions } from '@/cron/accountDeletion';
 import { startVyluxDraftCleanup } from '@/cron/vyluxDrafts';
+import { startRestockMarkers } from '@/services/catalog/restock';
 import { startStorefrontBoundaries } from '@/cron/storefrontBoundaries';
 import { flushStorefrontRevalidation } from '@/services/storefront/revalidate';
 
@@ -212,6 +214,7 @@ app.use('/admin/delivery', AdminDeliveryRoute);
 app.use('/admin/gig', AdminGIGRoute);
 app.use('/admin/vylux', AdminVyluxRoute);
 app.use('/admin/content', AdminContentRoute);
+app.use('/admin/collections', AdminCollectionsRoute);
 app.use('/admin/support', adminSupportRouter);
 app.use('/admin/pickup-locations', adminPickupRouter);
 
@@ -322,6 +325,7 @@ async function startServer() {
     startAccountDeletions();
     startStorefrontBoundaries();
     startVyluxDraftCleanup();
+    startRestockMarkers();
     server = app.listen(port, () => {
       logger.info(`Server is listening on port ${port}`);
     });

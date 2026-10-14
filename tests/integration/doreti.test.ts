@@ -117,6 +117,7 @@ describe('Doreti Main-server', () => {
         STOREFRONT_REVALIDATE_URL: '',
         STOREFRONT_REVALIDATE_TAGS_URL: '',
         ADMIN_REVALIDATE_URL: '',
+        BACK_IN_STOCK_DAYS: '30',
         LOG_LEVEL: 'warn',
       },
     });
@@ -157,7 +158,7 @@ describe('Doreti Main-server', () => {
     await db.collection('products').insertMany([
       base({ _id: P.tennis, sku: 1, name: 'VVS Tennis Necklace', slug: 'vvs-tennis-necklace', price: 120000, stock: 100, originStock: 100, category: cats.tennis, tags: ['women'], specifications: [{ key: 'Material', value: '925 Sterling Silver' }], attributes: [{ name: 'Metal', children: [{ name: 'Gold', stock: 50, colorCode: '#D4AF37', images: ['product/gold.webp'] }, { name: 'Silver', stock: 50, colorCode: '#C0C0C0' }] }], addOns: [P.box], createdAt: new Date(now) }),
       base({ _id: P.cuban, sku: 2, name: 'Miami Cuban Chain', slug: 'miami-cuban-chain', price: 85000, stock: 100, originStock: 100, category: cats.necklaces, tags: ['men'], specifications: [{ key: 'Material', value: 'Stainless Steel' }], createdAt: new Date(now - 60 * 86400000) }),
-      base({ _id: P.ring, sku: 3, name: 'Solitaire Ring', slug: 'solitaire-ring', price: 45000, stock: 0, originStock: 0, category: cats.rings, attributes: [{ name: 'Ring Size', children: [{ name: '6', stock: 0 }, { name: '7', stock: 0 }] }], createdAt: new Date(now - 10 * 86400000) }),
+      base({ _id: P.ring, sku: 3, name: 'Solitaire Ring', slug: 'solitaire-ring', price: 45000, stock: 0, originStock: 0, category: cats.rings, attributes: [{ name: 'Ring Size', children: [{ name: '6', stock: 0 }, { name: '7', stock: 0 }] }], soldOutAt: new Date(now - 86400000), createdAt: new Date(now - 10 * 86400000) }),
       base({ _id: P.box, sku: 4, name: 'Velvet Gift Box', slug: 'velvet-gift-box', price: 5000, stock: 100, originStock: 100, category: cats.gifts, createdAt: new Date(now - 90 * 86400000) }),
       base({ _id: P.draft, sku: 5, name: 'Draft Necklace', slug: 'draft-necklace', price: 1, stock: 100, originStock: 100, category: cats.necklaces, status: 'inactive', createdAt: new Date(now) }),
     ]);
@@ -212,8 +213,8 @@ describe('Doreti Main-server', () => {
       const r = await sr('category=necklaces&limit=20');
       assert.equal(r.status, 200, JSON.stringify(r.json));
       assert.deepEqual(r.json.data.map((p: Json) => p.name).sort(), ['Miami Cuban Chain', 'VVS Tennis Necklace']);
-      assert.deepEqual(r.json.data.find((p: Json) => p.slug === 'vvs-tennis-necklace').badges, { isNew: true, isBestSeller: true });
-      assert.deepEqual(r.json.data.find((p: Json) => p.slug === 'miami-cuban-chain').badges, { isNew: false, isBestSeller: true });
+      assert.deepEqual(r.json.data.find((p: Json) => p.slug === 'vvs-tennis-necklace').badges, { isNew: true, isBestSeller: true, isBackInStock: false, isLowStock: false });
+      assert.deepEqual(r.json.data.find((p: Json) => p.slug === 'miami-cuban-chain').badges, { isNew: false, isBestSeller: true, isBackInStock: false, isLowStock: false });
       assert.equal(r.json.meta.total, 2);
     });
     test('best sellers by units sold; new arrivals in the 30-day window', async () => {
@@ -389,6 +390,48 @@ describe('Doreti Main-server', () => {
       assert.match(mail.text, /Ring Size: 7/);
       assert.match(mail.text, new RegExp(`${STOREFRONT}/product/solitaire-ring`));
       assert.ok((await db.collection('stockalerts').findOne({}))?.notifiedAt);
+    });
+  });
+
+  // ---------------------------------------------------------------- collections (after support: the ring is restocked there)
+  describe('collections', () => {
+    const slugs = (r: { json: Json }) => r.json.data.map((p: Json) => p.slug);
+    test('rules collection: price band, add-ons left out', async () => {
+      const c = await http('POST', '/admin/collections', { title: 'Gifts under ₦50k', group: 'gifting', rules: { maxPrice: 50000 } }, admin);
+      assert.equal(c.status, 201, JSON.stringify(c.json));
+      assert.equal(c.json.data.slug, 'gifts-under-50k');
+      assert.deepEqual(slugs(await http('GET', '/products/search-results?collection=gifts-under-50k')).sort(), ['pearl-studs', 'solitaire-ring']);
+    });
+    test('manual collection keeps the picked order; built-in names are reserved', async () => {
+      const c = await http('POST', '/admin/collections', { title: 'Bridal', mode: 'manual', products: [String(P.tennis), String(P.cuban)] }, admin);
+      assert.equal(c.status, 201, JSON.stringify(c.json));
+      assert.deepEqual(slugs(await http('GET', '/products/search-results?collection=bridal')), ['vvs-tennis-necklace', 'miami-cuban-chain']);
+      assert.equal((await http('POST', '/admin/collections', { title: 'Best Sellers' }, admin)).status, 400);
+      assert.equal((await http('POST', '/admin/collections', { title: 'Bridal' }, admin)).status, 409);
+      assert.equal((await http('GET', '/products/search-results?collection=no-such-thing')).status, 404);
+    });
+    test('category tree lists built-in and admin collections with groups and counts', async () => {
+      const tree = (await http('GET', '/categories/tree')).json.data.collections;
+      const byKey = Object.fromEntries(tree.map((c: Json) => [c.key, c]));
+      assert.equal(byKey['gifts-under-50k'].group, 'gifting');
+      assert.equal(byKey['gifts-under-50k'].count, 2);
+      assert.equal(byKey.bridal.count, 2);
+      assert.equal(byKey['best-sellers'].group, 'shop');
+      assert.ok(byKey['back-in-stock']);
+    });
+    test('back in stock and low stock: collection and badges', async () => {
+      assert.deepEqual(slugs(await http('GET', '/products/search-results?collection=back-in-stock')), ['solitaire-ring']);
+      const ring = (await http('GET', '/products/by-slug/solitaire-ring')).json.data;
+      assert.equal(ring.badges.isBackInStock, true);
+      assert.equal(ring.badges.isLowStock, true); // stock 5, threshold 5
+      const cuban = (await http('GET', '/products/by-slug/miami-cuban-chain')).json.data;
+      assert.equal(cuban.badges.isBackInStock, false);
+      assert.equal(cuban.badges.isLowStock, false);
+    });
+    test('offer tiles for listings in site content', async () => {
+      const r = await http('PUT', '/admin/content/site', { listingTiles: [{ title: 'Free delivery', text: 'On every order', href: '/shop', position: 4 }] }, admin);
+      assert.equal(r.status, 200, JSON.stringify(r.json));
+      assert.deepEqual((await http('GET', '/content/home')).json.data.listingTiles.map((t: Json) => [t.title, t.position]), [['Free delivery', 4]]);
     });
   });
 

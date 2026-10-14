@@ -277,6 +277,9 @@ const productSchema = new mongoose.Schema(
       type: [pricingTierSchema],
       default: undefined,
     },
+    // Back-in-stock markers (services/catalog/restock.ts; only written when BACK_IN_STOCK_DAYS is set)
+    soldOutAt: { type: Date },
+    restockedAt: { type: Date },
     packSizes: {
       type: [packSizeSchema],
       default: undefined, // optional — product may have no pack sizes defined

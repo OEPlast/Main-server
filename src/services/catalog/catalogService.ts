@@ -5,19 +5,34 @@ import { escapeRegex } from '@/helpers/regex';
 import { CustomResponseType } from '@/types';
 import ProductService from '@/services/productService';
 import SiteContent from '@/models/SiteContent';
+import { getActiveCollections } from './collections';
+import { backInStockCutoff, backInStockDays } from './restock';
 import {
-  Collection,
-  COLLECTIONS,
+  BuiltInCollection,
+  buildScopeConditions,
+  builtInCollections,
   getBestSellerIds,
   getCatalogSettings,
   newArrivalCutoff,
   withBadges,
 } from './catalogQuery';
 
-const COLLECTION_LABELS: Record<Collection, string> = {
+const COLLECTION_LABELS: Record<BuiltInCollection, string> = {
   'best-sellers': 'Best Sellers',
   'new-arrivals': 'New Arrivals',
   'latest-drops': 'Latest Drops',
+  'back-in-stock': 'Back in Stock',
+};
+
+/** A collection as the tree returns it: built-ins have group "shop"; admin ones their menu group. */
+export type TreeCollection = {
+  key: string;
+  label: string;
+  count: number;
+  image?: string;
+  group: 'shop' | 'collections' | 'gifting' | 'men';
+  description?: string;
+  showInMenu: boolean;
 };
 
 export type CategoryNode = {
@@ -44,7 +59,7 @@ const coverOf = (images?: Array<{ url?: string; cover_image?: boolean; mediaType
 const getCategoryTree = async (): Promise<
   CustomResponseType<{
     categories: CategoryNode[];
-    collections: Array<{ key: Collection; label: string; count: number; image?: string }>;
+    collections: TreeCollection[];
   }>
 > => {
   try {
@@ -100,18 +115,45 @@ const getCategoryTree = async (): Promise<
       return { count, image: coverOf(first?.description_images as never) };
     };
     const newMatch = { createdAt: { $gte: cutoff } };
-    const [bestStats, newStats] = await Promise.all([sample({ _id: { $in: best } }), sample(newMatch)]);
-    const stats: Record<Collection, { count: number; image?: string }> = {
+    const restockDays = backInStockDays();
+    const [bestStats, newStats, backStats] = await Promise.all([
+      sample({ _id: { $in: best } }),
+      sample(newMatch),
+      restockDays ? sample({ restockedAt: { $gte: backInStockCutoff(restockDays) }, stock: { $gt: 0 } }) : Promise.resolve({ count: 0 }),
+    ]);
+    const stats: Record<BuiltInCollection, { count: number; image?: string }> = {
       'best-sellers': bestStats,
       'new-arrivals': newStats,
       'latest-drops': newStats,
+      'back-in-stock': backStats,
     };
+    const custom = await Promise.all(
+      (await getActiveCollections()).map(async (c): Promise<TreeCollection> => {
+        // Same scope as the product list (so add-ons are left out of the count too)
+        const scope = await buildScopeConditions({ collection: c.slug });
+        const s: { count: number; image?: string } = scope.notFound
+          ? { count: 0 }
+          : await sample(scope.conditions.length ? { $and: scope.conditions } : {});
+        return {
+          key: c.slug,
+          label: c.title,
+          count: s.count,
+          image: c.image || s.image,
+          group: c.group as TreeCollection['group'],
+          description: c.description || undefined,
+          showInMenu: c.showInMenu !== false,
+        };
+      })
+    );
 
     return {
       message: 'Category tree retrieved successfully',
       data: {
         categories: roots,
-        collections: COLLECTIONS.map((key) => ({ key, label: COLLECTION_LABELS[key], ...stats[key] })),
+        collections: [
+          ...builtInCollections().map((key) => ({ key, label: COLLECTION_LABELS[key], group: 'shop' as const, showInMenu: true, ...stats[key] })),
+          ...custom,
+        ],
       },
       code: 200,
     };
