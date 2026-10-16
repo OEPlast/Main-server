@@ -25,6 +25,13 @@ import { requestStorefrontRevalidation, StorefrontTag } from '@/services/storefr
 
 const GIG_API_URL = process.env.GIG_API_URL || 'https://dev-thirdpartynode.theagilitysystems.com';
 const GIG_ACCESS_TOKEN = process.env.GIG_ACCESS_TOKEN || '';
+// With a login, tokens are fetched from /login and renewed before they expire (GIG tokens last
+// about 20 days). Without one, GIG_ACCESS_TOKEN is used as-is.
+const GIG_EMAIL = process.env.GIG_EMAIL || '';
+const GIG_PASSWORD = process.env.GIG_PASSWORD || '';
+const TOKEN_RENEW_BEFORE_MS = 24 * 60 * 60 * 1000;
+// GIG answers an invalid or expired token with HTTP 440.
+const AUTH_FAILURE_STATUSES = new Set([401, 403, 440]);
 
 // Maps admin config string values to GIG API numeric enum values
 const VEHICLE_TYPE_MAP: Record<string, GIGVehicleType> = {
@@ -185,17 +192,70 @@ const normalizeShipmentItemForGig = (
 /**
  * All GIG endpoints use the V3 response wrapper: { success, data: { message, apiId, status, data } }
  */
+/** Expiry of a JWT in ms, or null when it can't be read. */
+const tokenExpiry = (token: string): number | null => {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString('utf8'));
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : null;
+  } catch {
+    return null;
+  }
+};
+
+let cachedToken = GIG_ACCESS_TOKEN;
+let pendingLogin: Promise<string> | null = null;
+
+async function login(): Promise<string> {
+  const response = await fetch(`${GIG_API_URL}/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({ email: GIG_EMAIL, password: GIG_PASSWORD }),
+  });
+  const body = (await response.json().catch(() => null)) as {
+    status?: number;
+    message?: string;
+    data?: { 'access-token'?: string };
+  } | null;
+  const token = body?.data?.['access-token'];
+  if (!response.ok || body?.status !== 200 || !token) {
+    throw new Error(`GIG login failed (${response.status}): ${body?.message || 'no token returned'}`);
+  }
+  cachedToken = token;
+  return token;
+}
+
+/** The current token, logging in again when there is none or it expires within a day. */
+async function getAccessToken(forceRefresh = false): Promise<string> {
+  if (!GIG_EMAIL || !GIG_PASSWORD) return GIG_ACCESS_TOKEN;
+
+  const expiry = cachedToken ? tokenExpiry(cachedToken) : null;
+  const fresh = cachedToken && (expiry === null || expiry - Date.now() > TOKEN_RENEW_BEFORE_MS);
+  if (fresh && !forceRefresh) return cachedToken;
+
+  // One login at a time; concurrent requests share it.
+  pendingLogin ??= login().finally(() => {
+    pendingLogin = null;
+  });
+  return pendingLogin;
+}
+
 async function gigFetchV3<T>(path: string, options: RequestInit = {}): Promise<GIGV3APIResponse<T>> {
   const url = `${GIG_API_URL}${path}`;
 
-  const response = await fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'access-token': GIG_ACCESS_TOKEN,
-      ...options.headers,
-    },
-  });
+  const send = async (token: string) =>
+    fetch(url, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        'access-token': token,
+        ...options.headers,
+      },
+    });
+
+  let response = await send(await getAccessToken());
+  if (AUTH_FAILURE_STATUSES.has(response.status) && GIG_EMAIL && GIG_PASSWORD) {
+    response = await send(await getAccessToken(true));
+  }
 
   if (!response.ok) {
     const errorText = await response.text().catch(() => 'Unknown error');
