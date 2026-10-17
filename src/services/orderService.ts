@@ -690,6 +690,7 @@ const getOneOrder = async ({
 
           // Chosen pickup location (pickup orders) and the gift message, when there is one
           pickupLocation: 1,
+          gigServiceCentre: 1,
           giftMessage: 1,
 
           // Products with enriched details

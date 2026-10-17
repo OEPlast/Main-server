@@ -303,6 +303,31 @@ export interface GIGCalculateShippingInput {
   receiverName: string;
   receiverPhoneNumber: string;
   receiverCountryCode?: string;
+  /** Collect at this GIG service centre instead of door delivery. */
+  serviceCentre?: GIGPickupCentre;
+}
+
+/** A GIG service centre as /serviceCentresByStation returns it. */
+export interface GIGServiceCentre {
+  StationId: number;
+  StationName?: string;
+  ServiceCentreId: number;
+  ServiceCentreName: string;
+  ServiceCentreCode?: string;
+  Latitude?: number;
+  Longitude?: number;
+  Address?: string;
+}
+
+/** A GIG service centre a shopper can collect from (what the storefront lists and orders keep). */
+export interface GIGPickupCentre {
+  id: number;
+  name: string;
+  code: string;
+  address: string;
+  stationId: number;
+  latitude: number;
+  longitude: number;
 }
 
 export interface GIGCalculateShippingResult {

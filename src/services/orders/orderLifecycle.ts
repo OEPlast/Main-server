@@ -90,6 +90,18 @@ async function createGigPreshipment(order: OrderDocument): Promise<void> {
     receiverName: `${address.firstName || ''} ${address.lastName || ''}`.trim(),
     receiverPhoneNumber: address.phoneNumber || '',
     receiverEmail,
+    // Collected at a GIG service centre: GIG delivers the parcel there.
+    serviceCentre: order.gigServiceCentre?.id
+      ? {
+          id: order.gigServiceCentre.id,
+          name: order.gigServiceCentre.name ?? '',
+          code: order.gigServiceCentre.code ?? '',
+          address: order.gigServiceCentre.address ?? '',
+          stationId: order.gigServiceCentre.stationId ?? 0,
+          latitude: order.gigServiceCentre.latitude ?? 0,
+          longitude: order.gigServiceCentre.longitude ?? 0,
+        }
+      : undefined,
   });
 
   if (result.data?.waybillNumber) {

@@ -22,6 +22,7 @@ type OrderLike = {
   deliveredAt?: Date | null;
   cancelledAt?: Date | null;
   pickupLocation?: { name?: string; city?: string; state?: string } | null;
+  gigServiceCentre?: { name?: string; address?: string } | null;
   shippingAddress?: { city?: string; state?: string } | null;
 };
 
@@ -70,7 +71,9 @@ export async function buildTracking(order: OrderLike, shipment: ShipmentLike | n
   const carrier = pickup
     ? order.pickupLocation?.name || 'Store pickup'
     : order.deliveryType === 'gig'
-      ? 'GIG Logistics'
+      ? order.gigServiceCentre?.name
+        ? `GIG Logistics, collect at GIG ${order.gigServiceCentre.name}`
+        : 'GIG Logistics'
       : shipment?.courier || 'Standard delivery';
   const trackingNumber = order.gigWaybill || shipment?.trackingNumber || '';
   const estimatedDelivery =
@@ -181,6 +184,7 @@ async function respond(order: OrderLike & Record<string, unknown>): Promise<Cust
     shippingPrice: order.shippingPrice,
     couponDiscount: order.couponDiscount,
     pickupLocation: order.pickupLocation ?? undefined,
+    gigServiceCentre: order.gigServiceCentre ?? undefined,
     deliveryArea: order.shippingAddress
       ? { city: order.shippingAddress.city, state: order.shippingAddress.state }
       : undefined,

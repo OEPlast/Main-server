@@ -50,6 +50,8 @@ export type SecureCheckoutPayload = {
   notes?: string;
   /** Pickup orders: one of /checkout/pickup-locations. Without it pickup uses the store address. */
   pickupLocationId?: string;
+  /** GIG orders collected at a GIG service centre (one of /gig/service-centres for the address state). */
+  gigServiceCentreId?: number;
   giftMessage?: string;
 };
 

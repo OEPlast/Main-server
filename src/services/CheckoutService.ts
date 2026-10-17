@@ -14,6 +14,7 @@ import { CustomResponseType } from '@/types';
 import eventPublisher from '@/events/eventPublisher';
 import { cancelOrder } from '@/services/orders/orderLifecycle';
 import PickupService from '@/services/pickup/pickupService';
+import type { GIGPickupCentre } from '@/types/gig';
 import type {
   CheckoutDeliveryType,
   SecureCheckoutItemInput,
@@ -103,7 +104,7 @@ class CheckoutService {
   ): Promise<CustomResponseType<SecureCheckoutSuccess | SecureCheckoutCorrection>> {
     const {
       items,
-      shippingAddress,
+      shippingAddress: requestedShippingAddress,
       billingAddress,
       billingSameAsShipping = true,
       paymentMethod = 'paystack',
@@ -137,7 +138,7 @@ class CheckoutService {
       };
     }
 
-    if ((deliveryType === 'shipping' || deliveryType === 'gig') && !shippingAddress) {
+    if ((deliveryType === 'shipping' || deliveryType === 'gig') && !requestedShippingAddress) {
       return {
         message: 'Shipping address is required for delivery',
         data: null,
@@ -155,6 +156,24 @@ class CheckoutService {
         data: null,
         code: 400,
       };
+    }
+
+    // A GIG order collected at a service centre: the centre must be one of GIG's in the address
+    // state, and the order's address becomes the centre's (what GIG is quoted and booked with).
+    let gigServiceCentre: GIGPickupCentre | null = null;
+    let shippingAddress = requestedShippingAddress;
+    if (deliveryType === 'gig' && payload.gigServiceCentreId && shippingAddress) {
+      gigServiceCentre = await GIGService.findServiceCentre(shippingAddress.state || '', payload.gigServiceCentreId);
+      if (!gigServiceCentre) {
+        return { message: 'That GIG pickup centre is no longer available', data: null, code: 400 };
+      }
+      shippingAddress = {
+        ...shippingAddress,
+        address1: gigServiceCentre.address || gigServiceCentre.name,
+        city: gigServiceCentre.name,
+        latitude: gigServiceCentre.latitude,
+        longitude: gigServiceCentre.longitude,
+      } as typeof shippingAddress;
     }
 
     // A chosen pickup location is copied onto the order; an unknown or inactive one is refused.
@@ -223,6 +242,7 @@ class CheckoutService {
         receiverLongitude: (shippingAddress as Record<string, unknown>).longitude as number | undefined,
         receiverName: `${shippingAddress.firstName || ''} ${shippingAddress.lastName || ''}`.trim(),
         receiverPhoneNumber: shippingAddress.phoneNumber || '',
+        serviceCentre: gigServiceCentre ?? undefined,
       });
 
       if (!gigResult.data) {
@@ -400,6 +420,7 @@ class CheckoutService {
       status: 'Pending' as OrderType['status'],
       notes: payload.notes,
       pickupLocation: pickupLocation ?? undefined,
+      gigServiceCentre: gigServiceCentre ?? undefined,
       giftMessage: payload.giftMessage?.trim() || undefined,
       // Only present for guest checkout (the controller strips it for signed-in shoppers).
       guestContact: payload.guest

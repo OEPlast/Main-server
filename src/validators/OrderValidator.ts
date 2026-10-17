@@ -275,6 +275,12 @@ const validateSecureCheckout = async (req: Request, res: Response, next: NextFun
       optional: { options: { values: 'falsy' } },
       isMongoId: { errorMessage: 'pickupLocationId must be a valid id.' },
     },
+    gigServiceCentreId: {
+      in: ['body'],
+      optional: { options: { values: 'null' } },
+      isInt: { options: { min: 1 }, errorMessage: 'gigServiceCentreId must be a GIG service centre id.' },
+      toInt: true,
+    },
     giftMessage: {
       in: ['body'],
       optional: { options: { values: 'null' } },

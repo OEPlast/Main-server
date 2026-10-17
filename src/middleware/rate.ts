@@ -129,8 +129,21 @@ const ResetLink_Limiter = rateLimit({
   message: { message: 'Too many reset requests. Please wait 15 minutes and try again.' },
 });
 
+// GIG price for collecting at a service centre: open to guests, and each call asks GIG's API.
+// Generous for shoppers comparing centres behind one carrier IP; signed-in shoppers are skipped.
+const GigCentreQuote_Limiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  ipv6Subnet: 56,
+  skip: (req: Request) => !!(req as AuthenticatedRequest).userId,
+  message: { message: 'Too many delivery quotes. Please wait a few minutes and try again.' },
+});
+
 const RateLimits = {
   OTP_Limiter,
+  GigCentreQuote_Limiter,
   GuestCheckout_Limiter,
   Login_Limiter,
   CodeCheck_Limiter,

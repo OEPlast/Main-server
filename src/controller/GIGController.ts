@@ -5,39 +5,35 @@ import { GIGCalculateShippingInput, GIGShippingRequest } from '@/types/gig';
 import Product from '@/models/Product';
 import { applyFreeDelivery, priceCart } from '@/services/pricing';
 
+type QuoteItems = GIGShippingRequest['items'];
+
 /**
- * POST /gig/calculate-shipping
- * Client sends { items: [{ productId, quantity, selectedAttributes? }], receiverAddress, ... }
- * Backend resolves product dimensions + pricing then calls GIG price API.
+ * Prices the cart and gives each line its GIG weight, size and declared value (the line total
+ * from the shared pricing module, tiers and sales included, the same value checkout declares).
  */
-const calculateShipping = async (req: Request, res: Response) => {
-  try {
-    const body = req.body as GIGShippingRequest;
+async function resolveQuoteItems(
+  items: QuoteItems | undefined
+): Promise<{ error: string } | { items: GIGCalculateShippingInput['items']; itemsSubtotal: number }> {
+  if (!items || items.length === 0) return { error: 'No items provided' };
 
-    if (!body.items || body.items.length === 0) {
-      return res.status(400).json({ message: 'No items provided', data: null, code: 400 });
-    }
+  const validItems = items.filter((i) => mongoose.isValidObjectId(i.productId));
+  const priced = await priceCart(
+    validItems.map((i) => ({ product: i.productId, qty: i.quantity, selectedAttributes: i.selectedAttributes ?? [] }))
+  );
+  if (priced.missingProductIds.length > 0 || validItems.length !== items.length) {
+    return {
+      error: `Product not found: ${priced.missingProductIds[0] ?? items.find((i) => !mongoose.isValidObjectId(i.productId))?.productId}`,
+    };
+  }
 
-    const validItems = body.items.filter((i) => mongoose.isValidObjectId(i.productId));
-    const priced = await priceCart(
-      validItems.map((i) => ({ product: i.productId, qty: i.quantity, selectedAttributes: i.selectedAttributes ?? [] }))
-    );
-    if (priced.missingProductIds.length > 0 || validItems.length !== body.items.length) {
-      return res.status(400).json({
-        message: `Product not found: ${priced.missingProductIds[0] ?? body.items.find((i) => !mongoose.isValidObjectId(i.productId))?.productId}`,
-        data: null,
-        code: 400,
-      });
-    }
+  const products = await Product.find({ _id: { $in: validItems.map((i) => i.productId) } })
+    .select('name weight height width length isVolumetric')
+    .lean();
+  const productMap = new Map(products.map((p) => [String(p._id), p]));
 
-    const products = await Product.find({ _id: { $in: validItems.map((i) => i.productId) } })
-      .select('name weight height width length isVolumetric')
-      .lean();
-    const productMap = new Map(products.map((p) => [String(p._id), p]));
-
-    // Declared value per line = the line total from the shared pricing module (tiers and sales
-    // included), the same value checkout declares when it re-quotes.
-    const resolvedItems: GIGCalculateShippingInput['items'] = priced.lines.map((line) => {
+  return {
+    itemsSubtotal: priced.itemsSubtotal,
+    items: priced.lines.map((line) => {
       const product = productMap.get(line.productId);
       return {
         name: product?.name ?? line.name,
@@ -49,31 +45,111 @@ const calculateShipping = async (req: Request, res: Response) => {
         isVolumetric: product?.isVolumetric ?? false,
         value: line.lineTotal,
       };
-    });
+    }),
+  };
+}
 
-    const input: GIGCalculateShippingInput = {
-      items: resolvedItems,
-      receiverAddress: body.receiverAddress,
-      receiverState: body.receiverState,
-      receiverCity: body.receiverCity,
-      receiverLatitude: body.receiverLatitude,
-      receiverLongitude: body.receiverLongitude,
-      receiverName: body.receiverName,
-      receiverPhoneNumber: body.receiverPhoneNumber,
-      receiverCountryCode: 'NG',
-    };
-    const result = await GIGService.calculateShipping(input);
-    if (result.data) {
-      // Free delivery over the threshold applies to GIG too; checkout applies the same rule.
-      const { freeShippingThreshold } = (await GIGService.getPublicCheckoutConfig()).data;
-      const free = applyFreeDelivery(result.data.shippingCost, priced.itemsSubtotal, freeShippingThreshold);
-      return res.status(result.code).json({
-        message: result.message,
-        data: { ...result.data, shippingCost: free.amount, freeShippingApplied: free.freeDeliveryApplied, freeShippingThreshold },
-        code: result.code,
-      });
-    }
+/** Quotes GIG and answers with the price after free delivery over the threshold. */
+async function respondWithQuote(res: Response, input: GIGCalculateShippingInput, itemsSubtotal: number) {
+  const result = await GIGService.calculateShipping(input);
+  if (!result.data) {
     return res.status(result.code).json({ message: result.message, data: result.data, code: result.code });
+  }
+  // Free delivery over the threshold applies to GIG too; checkout applies the same rule.
+  const { freeShippingThreshold } = (await GIGService.getPublicCheckoutConfig()).data;
+  const free = applyFreeDelivery(result.data.shippingCost, itemsSubtotal, freeShippingThreshold);
+  return res.status(result.code).json({
+    message: result.message,
+    data: { ...result.data, shippingCost: free.amount, freeShippingApplied: free.freeDeliveryApplied, freeShippingThreshold },
+    code: result.code,
+  });
+}
+
+/**
+ * GET /gig/service-centres?state=Lagos
+ * GIG service centres in a state, where pickup orders can be collected.
+ */
+const getServiceCentres = async (req: Request, res: Response) => {
+  try {
+    const state = typeof req.query.state === 'string' ? req.query.state.trim() : '';
+    if (!state) return res.status(400).json({ message: 'state is required', data: null, code: 400 });
+    if (!(await GIGService.isDeliveryMethodEnabled('gig'))) {
+      return res.status(200).json({ message: 'GIG pickup is unavailable', data: [], code: 200 });
+    }
+    const result = await GIGService.getServiceCentresForState(state);
+    return res.status(result.code).json({ message: result.message, data: result.data, code: result.code });
+  } catch (error) {
+    console.error('Error fetching GIG service centres:', error);
+    return res.status(500).json({ message: 'Internal server error', data: null, code: 500 });
+  }
+};
+
+/**
+ * POST /gig/centre-quote { items, state, serviceCentreId }
+ * GIG price for collecting the cart at a service centre. Open to guests (rate limited).
+ */
+const centreQuote = async (req: Request, res: Response) => {
+  try {
+    const body = req.body as { items?: QuoteItems; state?: string; serviceCentreId?: number };
+    const state = typeof body.state === 'string' ? body.state.trim() : '';
+    const centreId = Number(body.serviceCentreId);
+    if (!state || !Number.isInteger(centreId)) {
+      return res.status(400).json({ message: 'state and serviceCentreId are required', data: null, code: 400 });
+    }
+
+    const resolved = await resolveQuoteItems(body.items);
+    if ('error' in resolved) return res.status(400).json({ message: resolved.error, data: null, code: 400 });
+
+    const centre = await GIGService.findServiceCentre(state, centreId);
+    if (!centre) {
+      return res.status(400).json({ message: 'That GIG pickup centre is no longer available', data: null, code: 400 });
+    }
+
+    return respondWithQuote(
+      res,
+      {
+        items: resolved.items,
+        receiverAddress: centre.address,
+        receiverState: state,
+        receiverName: '',
+        receiverPhoneNumber: '',
+        receiverCountryCode: 'NG',
+        serviceCentre: centre,
+      },
+      resolved.itemsSubtotal
+    );
+  } catch (error) {
+    console.error('Error quoting GIG centre pickup:', error);
+    return res.status(500).json({ message: 'Internal server error', data: null, code: 500 });
+  }
+};
+
+/**
+ * POST /gig/calculate-shipping
+ * Client sends { items: [{ productId, quantity, selectedAttributes? }], receiverAddress, ... }
+ * Backend resolves product dimensions + pricing then calls GIG price API.
+ */
+const calculateShipping = async (req: Request, res: Response) => {
+  try {
+    const body = req.body as GIGShippingRequest;
+    const resolved = await resolveQuoteItems(body.items);
+    if ('error' in resolved) return res.status(400).json({ message: resolved.error, data: null, code: 400 });
+
+    return respondWithQuote(
+      res,
+      {
+        items: resolved.items,
+        receiverAddress: body.receiverAddress,
+        receiverState: body.receiverState,
+        receiverCity: body.receiverCity,
+        receiverLatitude: body.receiverLatitude,
+        receiverLongitude: body.receiverLongitude,
+        receiverName: body.receiverName,
+        receiverPhoneNumber: body.receiverPhoneNumber,
+        receiverCountryCode: 'NG',
+      },
+      resolved.itemsSubtotal
+    );
   } catch (error) {
     console.error('Error calculating GIG shipping:', error);
     return res.status(500).json({ message: 'Internal server error', data: null, code: 500 });
@@ -128,6 +204,8 @@ const getCheckoutConfig = async (_req: Request, res: Response) => {
 
 const GIGController = {
   calculateShipping,
+  getServiceCentres,
+  centreQuote,
   getStations,
   trackShipment,
   getCheckoutConfig,

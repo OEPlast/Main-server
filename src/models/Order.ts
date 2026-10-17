@@ -290,6 +290,22 @@ const orderSchema = new mongoose.Schema(
       ),
       default: undefined,
     },
+    // GIG orders collected at a GIG service centre instead of door delivery (a copy of the centre).
+    gigServiceCentre: {
+      type: new mongoose.Schema(
+        {
+          id: Number,
+          name: String,
+          code: String,
+          address: String,
+          stationId: Number,
+          latitude: Number,
+          longitude: Number,
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
     // Message to print on the gift card / packing slip.
     giftMessage: {
       type: String,

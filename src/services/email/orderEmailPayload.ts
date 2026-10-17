@@ -232,9 +232,12 @@ async function buildShipping(order: OrderDocument, deliveryType: DeliveryType): 
 
   const shipment = order.shipmentId as unknown as { courier?: string; _id?: { toString(): string } } | null;
   const address = order.shippingAddress;
+  const centre = (order as unknown as { gigServiceCentre?: { name?: string } }).gigServiceCentre;
 
   return {
-    courier: shipment?.courier || (deliveryType === 'gig' ? 'GIG Logistics' : 'Standard Shipping'),
+    courier:
+      shipment?.courier ||
+      (deliveryType === 'gig' ? (centre?.name ? `GIG Logistics (collect at GIG ${centre.name})` : 'GIG Logistics') : 'Standard Shipping'),
     address: [address?.address1, address?.city, address?.state].filter(Boolean).join(', '),
     deliveryEstimateLabel: `${minDays} - ${maxDays} days`,
     recipientName: [address?.firstName, address?.lastName].filter(Boolean).join(' ') || undefined,

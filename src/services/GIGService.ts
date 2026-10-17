@@ -20,6 +20,8 @@ import {
   GIGCalculateShippingInput,
   GIGCalculateShippingResult,
   GIGPublicCheckoutConfig,
+  GIGServiceCentre,
+  GIGPickupCentre,
 } from '@/types/gig';
 import { requestStorefrontRevalidation, StorefrontTag } from '@/services/storefront/revalidate';
 
@@ -274,9 +276,17 @@ async function gigFetchV3<T>(path: string, options: RequestInit = {}): Promise<G
 /**
  * Get all GIG stations
  */
+// GIG's station list rarely changes; every quote and centre lookup reads it.
+const STATIONS_TTL_MS = 6 * 60 * 60 * 1000;
+let stationsCache: { at: number; stations: GIGStation[] } | null = null;
+
 async function getStations(): Promise<{ message: string; data: GIGStation[] | null; code: number }> {
   try {
+    if (stationsCache && Date.now() - stationsCache.at < STATIONS_TTL_MS) {
+      return { message: 'Stations retrieved successfully', data: stationsCache.stations, code: 200 };
+    }
     const result = await gigFetchV3<GIGStation[]>('/localstations/get');
+    if (Array.isArray(result.data) && result.data.length) stationsCache = { at: Date.now(), stations: result.data };
     return { message: 'Stations retrieved successfully', data: result.data, code: 200 };
   } catch (error) {
     console.error('GIG getStations error:', error);
@@ -450,6 +460,64 @@ async function getStationIdForState(stateName: string): Promise<number | null> {
 }
 
 // ============================================
+// Service centres (pickup at a GIG centre)
+// ============================================
+
+const SERVICE_CENTRE_TTL_MS = 6 * 60 * 60 * 1000;
+const serviceCentreCache = new Map<number, { at: number; centres: GIGPickupCentre[] }>();
+
+async function getServiceCentresForStation(stationId: number): Promise<GIGPickupCentre[]> {
+  const cached = serviceCentreCache.get(stationId);
+  if (cached && Date.now() - cached.at < SERVICE_CENTRE_TTL_MS) return cached.centres;
+
+  const result = await gigFetchV3<GIGServiceCentre[]>(`/serviceCentresByStation?StationId=${stationId}`);
+  const centres = (result.data ?? [])
+    .filter((c) => c.ServiceCentreId && c.ServiceCentreName)
+    .map((c) => ({
+      id: c.ServiceCentreId,
+      name: c.ServiceCentreName.trim(),
+      code: c.ServiceCentreCode?.trim() ?? '',
+      address: (c.Address ?? '').trim(),
+      stationId: c.StationId || stationId,
+      latitude: Number(c.Latitude) || 0,
+      longitude: Number(c.Longitude) || 0,
+    }));
+  serviceCentreCache.set(stationId, { at: Date.now(), centres });
+  return centres;
+}
+
+/**
+ * GIG service centres in a state, across all of its stations, sorted by name. Shoppers collect
+ * pickup orders from one of these.
+ */
+async function getServiceCentresForState(
+  stateName: string
+): Promise<{ message: string; data: GIGPickupCentre[] | null; code: number }> {
+  try {
+    const stations = await getStations();
+    if (!stations.data) return { message: stations.message, data: null, code: stations.code };
+
+    const normalized = stateName.trim().toLowerCase();
+    let ids = stations.data.filter((s) => s.StateName?.toLowerCase() === normalized).map((s) => s.StationId);
+    if (!ids.length) ids = stations.data.filter((s) => s.StationName?.toLowerCase() === normalized).map((s) => s.StationId);
+
+    const centres = (await Promise.all(ids.map(getServiceCentresForStation))).flat();
+    centres.sort((a, b) => a.name.localeCompare(b.name));
+    return { message: 'Service centres retrieved', data: centres, code: 200 };
+  } catch (error) {
+    console.error('GIG getServiceCentresForState error:', error);
+    const errMsg = error instanceof Error ? error.message : 'Failed to fetch GIG service centres';
+    return { message: errMsg, data: null, code: 503 };
+  }
+}
+
+/** One service centre in a state, or null when it isn't (or is no longer) one of GIG's. */
+async function findServiceCentre(stateName: string, centreId: number): Promise<GIGPickupCentre | null> {
+  const result = await getServiceCentresForState(stateName);
+  return result.data?.find((c) => c.id === centreId) ?? null;
+}
+
+// ============================================
 // High-level: Calculate Shipping for Cart
 // ============================================
 
@@ -476,8 +544,9 @@ async function calculateShipping(
     return { message: 'GIG delivery is currently unavailable', data: null, code: 400 };
   }
 
-  // Resolve receiver station
-  const receiverStationId = await getStationIdForState(input.receiverState);
+  // Resolve receiver station (a service centre pickup goes to that centre's station)
+  const centre = input.serviceCentre;
+  const receiverStationId = centre?.stationId ?? (await getStationIdForState(input.receiverState));
   if (!receiverStationId) {
     return {
       message: `GIG shipping is not available for ${input.receiverState}`,
@@ -487,7 +556,9 @@ async function calculateShipping(
   }
 
   const vehicleType = VEHICLE_TYPE_MAP[config.vehicleType?.toUpperCase() ?? ''] ?? GIG_VEHICLE_TYPE.Bike;
-  const pickupOption = PICKUP_OPTION_MAP[config.defaultPickUpOptions ?? ''] ?? GIG_PICKUP_OPTION.HomeDelivery;
+  const pickupOption = centre
+    ? GIG_PICKUP_OPTION.ServiceCentre
+    : (PICKUP_OPTION_MAP[config.defaultPickUpOptions ?? ''] ?? GIG_PICKUP_OPTION.HomeDelivery);
 
   const pricePayload: GIGPriceV3Request = {
     SenderStationId: config.senderStationId,
@@ -498,8 +569,8 @@ async function calculateShipping(
       Longitude: config.senderLongitude,
     },
     ReceiverLocation: {
-      Latitude: input.receiverLatitude ?? 0,
-      Longitude: input.receiverLongitude ?? 0,
+      Latitude: centre?.latitude ?? input.receiverLatitude ?? 0,
+      Longitude: centre?.longitude ?? input.receiverLongitude ?? 0,
     },
     PickUpOptions: pickupOption,
     ShipmentItems: input.items.map((item) => normalizeShipmentItemForGig(item, GIG_SHIPMENT_TYPE.Regular)),
@@ -561,12 +632,14 @@ async function createShipmentForOrder(
     return { message: 'GIG delivery is currently unavailable', data: null, code: 400 };
   }
 
-  const receiverStationId = await getStationIdForState(input.receiverState);
+  const centre = input.serviceCentre;
+  const receiverStationId = centre?.stationId ?? (await getStationIdForState(input.receiverState));
   if (!receiverStationId) {
     return { message: `No GIG station found for ${input.receiverState}`, data: null, code: 400 };
   }
 
   const vehicleType = VEHICLE_TYPE_MAP[config.vehicleType?.toUpperCase() ?? ''] ?? GIG_VEHICLE_TYPE.Bike;
+  const receiverAddress = centre ? `${centre.name}, ${centre.address}` : input.receiverAddress;
 
   const preshipmentPayload: GIGPreshipmentRequest = {
     SenderDetails: {
@@ -588,15 +661,17 @@ async function createShipmentForOrder(
       ReceiverStationId: receiverStationId,
       ReceiverName: input.receiverName,
       ReceiverPhoneNumber: input.receiverPhoneNumber,
-      ReceiverAddress: input.receiverAddress,
-      InputtedReceiverAddress: input.receiverAddress,
+      ReceiverAddress: receiverAddress,
+      InputtedReceiverAddress: receiverAddress,
       ReceiverLocation: {
-        Latitude: String(input.receiverLatitude ?? 0),
-        Longitude: String(input.receiverLongitude ?? 0),
+        Latitude: String(centre?.latitude ?? input.receiverLatitude ?? 0),
+        Longitude: String(centre?.longitude ?? input.receiverLongitude ?? 0),
         FormattedAddress: '',
         Name: '',
         LGA: '',
       },
+      // The shopper collects the parcel at this centre.
+      ...(centre ? { DestinationServiceCenterId: centre.id } : {}),
     },
     ShipmentDetails: {
       VehicleType: vehicleType,
@@ -631,6 +706,8 @@ const GIGService = {
   applyDeliveryDiscountByMethod,
   upsertConfig,
   getStationIdForState,
+  getServiceCentresForState,
+  findServiceCentre,
   calculateShipping,
   createShipmentForOrder,
 };
