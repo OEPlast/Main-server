@@ -79,6 +79,8 @@ const signup = async (userData: {
   firstName: string;
   lastName: string;
   country: string;
+  /** International format, e.g. "+2348012345678" (optional; Doreti's signup requires it). */
+  phoneNumber?: string;
   /** Opt in to marketing email (the newsletter) at signup. */
   marketingEmails?: boolean;
   /** Recorded consent to marketing texts. */

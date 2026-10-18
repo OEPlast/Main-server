@@ -79,6 +79,12 @@ const registerValidator = async (req: Request, res: Response, next: NextFunction
       isString: true,
       errorMessage: 'lastName must be a string',
     },
+    phoneNumber: {
+      in: ['body'],
+      optional: { options: { values: 'falsy' } },
+      matches: { options: [/^\+[1-9]\d{6,14}$/] },
+      errorMessage: 'phoneNumber must be an international number, e.g. +2348012345678',
+    },
   }).run(req);
   const errors = validationResult(req);
   if (!errors.isEmpty()) {

@@ -39,13 +39,14 @@ const userLogout = async (req: Request, res: Response) => {
 const userRegister = async (req: Request, res: Response) => {
   try {
     // Logic for user registration
-    const { email, password, firstName, lastName, country, marketingEmails, marketingTexts } = req.body;
+    const { email, password, firstName, lastName, country, phoneNumber, marketingEmails, marketingTexts } = req.body;
     const { data, message, code } = await AuthService.signup({
       email,
       password,
       firstName,
       lastName,
       country,
+      ...(typeof phoneNumber === 'string' && phoneNumber.trim() ? { phoneNumber: phoneNumber.trim() } : {}),
       marketingEmails: marketingEmails === true || marketingEmails === 'true',
       marketingTexts: typeof marketingTexts === 'boolean' ? marketingTexts : undefined,
     });
