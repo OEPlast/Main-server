@@ -57,6 +57,12 @@ const createCategoryValidator = async (req: Request, res: Response, next: NextFu
         isBoolean: true,
         errorMessage: 'isAddOnCategory should be a boolean',
       },
+      showInMenu: {
+        in: ['body'],
+        optional: true,
+        isBoolean: true,
+        errorMessage: 'showInMenu should be a boolean',
+      },
     })
   ).run(req);
   const errors = validationResult(req);

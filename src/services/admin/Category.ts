@@ -25,6 +25,19 @@ const revalidateCategory = (...slugs: Array<string | null | undefined>): void =>
   ]);
 };
 
+/** Categories the storefront menu lists; the rest are under "All categories". */
+export const MENU_CATEGORY_LIMIT = 20;
+
+/** True when MENU_CATEGORY_LIMIT other categories are already in the menu. */
+const menuIsFull = async (exceptId?: string) =>
+  (await Category.countDocuments({ showInMenu: true, ...(exceptId ? { _id: { $ne: exceptId } } : {}) })) >= MENU_CATEGORY_LIMIT;
+
+const menuFullResponse = {
+  message: `The menu already shows ${MENU_CATEGORY_LIMIT} categories. Take one out of the menu first.`,
+  data: null,
+  code: 400,
+};
+
 const createCategory = async ({
   name,
   banner,
@@ -32,6 +45,7 @@ const createCategory = async ({
   parent,
   sizeChart,
   isAddOnCategory,
+  showInMenu,
 }: {
   name: string;
   banner?: string;
@@ -39,10 +53,12 @@ const createCategory = async ({
   description?: string;
   sizeChart?: string;
   isAddOnCategory?: boolean;
+  showInMenu?: boolean;
 }): CustomResponseTypeWithMeta<CategoryType> => {
   try {
+    if (showInMenu && (await menuIsFull())) return menuFullResponse;
     const slug = name.trim().replace(/\s+/g, '_');
-    const category = new Category({ name, slug, banner, description, parent, sizeChart, isAddOnCategory });
+    const category = new Category({ name, slug, banner, description, parent, sizeChart, isAddOnCategory, showInMenu });
     await category.save();
     revalidateCategory(category.slug);
     return {
@@ -121,6 +137,7 @@ const getAllCategories = async ({
                 slug: 1,
                 description: 1,
                 priority: 1,
+                showInMenu: 1,
                 parent: 1,
                 createdAt: 1,
                 updatedAt: 1,
@@ -266,6 +283,7 @@ const getCategoryById = async (categoryId: string): CustomResponseTypeWithMeta<C
           priority: 1,
           sizeChart: 1,
           isAddOnCategory: 1,
+          showInMenu: 1,
           createdAt: 1,
           updatedAt: 1,
           sub_categories: 1,
@@ -304,6 +322,7 @@ const updateCategory = async ({
   slug,
   sizeChart,
   isAddOnCategory,
+  showInMenu,
 }: {
   categoryId: string;
   name?: string;
@@ -314,6 +333,7 @@ const updateCategory = async ({
   parent: mongoose.Types.ObjectId[];
   sizeChart?: string | null;
   isAddOnCategory?: boolean;
+  showInMenu?: boolean;
 }): CustomResponseTypeWithMeta<CategoryType> => {
   try {
     if (!categoryId) {
@@ -336,6 +356,10 @@ const updateCategory = async ({
     }
     if (sizeChart) (updatePayload as Record<string, unknown>).sizeChart = sizeChart;
     if (typeof isAddOnCategory === 'boolean') updatePayload.isAddOnCategory = isAddOnCategory;
+    if (typeof showInMenu === 'boolean') {
+      if (showInMenu && (await menuIsFull(categoryId))) return menuFullResponse;
+      updatePayload.showInMenu = showInMenu;
+    }
     // Empty string / null clears the size chart (an undefined key would just be dropped from the update).
     const clearSizeChart = sizeChart === '' || sizeChart === null;
 

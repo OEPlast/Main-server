@@ -45,6 +45,8 @@ export type CategoryNode = {
   description?: string;
   sizeChart?: string;
   isAddOnCategory?: boolean;
+  /** Picked by the admin for the storefront menu. */
+  showInMenu?: boolean;
   count: number;
   children: CategoryNode[];
 };
@@ -84,6 +86,7 @@ const getCategoryTree = async (): Promise<
         description: c.description ?? undefined,
         sizeChart: (c as { sizeChart?: string }).sizeChart,
         isAddOnCategory: (c as { isAddOnCategory?: boolean }).isAddOnCategory || undefined,
+        showInMenu: (c as { showInMenu?: boolean }).showInMenu || undefined,
         count: 0,
         children: [],
       });

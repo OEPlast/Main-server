@@ -45,6 +45,11 @@ const categorySchema = new mongoose.Schema(
       required: false,
     },
     // Products in an add-on category (e.g. Gift Boxes) are suggested as add-ons on product pages.
+    // Doreti: listed in the storefront menu (the admin picks up to 20; the rest are under All categories).
+    showInMenu: {
+      type: Boolean,
+      default: false,
+    },
     isAddOnCategory: {
       type: Boolean,
       required: false,
