@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { CustomResponseType, CustomResponseTypeWithMeta } from '@/types';
 import Banner, { BannerType } from '../../models/Banner';
 import { requestStorefrontRevalidation, StorefrontTag } from '@/services/storefront/revalidate';
@@ -259,6 +260,35 @@ const toggleBannerActive = async (bannerId: string): Promise<CustomResponseType<
   }
 };
 
+/**
+ * Saves the admin's drag-and-drop order: `ids` from top to bottom become positions 1, 2, 3…
+ * One order across every category; each category on the storefront keeps that relative order
+ * (it sorts by position). Banners left out of `ids` keep their position after the listed ones.
+ */
+const reorderBanners = async (ids: string[]): Promise<CustomResponseType<{ updated: number }>> => {
+  try {
+    if (!Array.isArray(ids) || !ids.length) return { message: 'ids must be a non-empty list', data: null, code: 400 };
+    if (ids.some((id) => !mongoose.Types.ObjectId.isValid(id))) return { message: 'Invalid banner id', data: null, code: 400 };
+    if (new Set(ids).size !== ids.length) return { message: 'Each banner may appear once', data: null, code: 400 };
+    const result = await Banner.bulkWrite(
+      ids.map((id, i) => ({ updateOne: { filter: { _id: new mongoose.Types.ObjectId(id) }, update: { $set: { position: i + 1 } } } }))
+    );
+    // Anything not in the list goes after the ordered ones, keeping its own relative order.
+    const rest = await Banner.find({ _id: { $nin: ids.map((id) => new mongoose.Types.ObjectId(id)) } })
+      .sort({ position: 1, createdAt: -1 })
+      .select('_id')
+      .lean();
+    if (rest.length) {
+      await Banner.bulkWrite(rest.map((b, i) => ({ updateOne: { filter: { _id: b._id }, update: { $set: { position: ids.length + i + 1 } } } })));
+    }
+    revalidateBanners();
+    return { message: 'Banner order saved', data: { updated: result.modifiedCount + rest.length }, code: 200 };
+  } catch (error) {
+    console.error('Error reordering banners:', error);
+    return { message: 'Failed to save the banner order', data: null, code: 500 };
+  }
+};
+
 const BannerService = {
   createBanner,
   updateBanner,
@@ -266,6 +296,7 @@ const BannerService = {
   getBannerById,
   getBanners,
   toggleBannerActive,
+  reorderBanners,
 };
 
 export default BannerService;

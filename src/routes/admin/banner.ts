@@ -14,6 +14,8 @@ router.get(
   requirePermission('banners', 'read'),
   Admin_BannerController.getBanners
 );
+// Save the drag-and-drop order: { ids: [top…bottom] } → positions 1, 2, 3…
+router.post('/reorder', requirePermission('banners', 'update'), Admin_BannerController.reorderBanners);
 router.post(
   '/',
   requirePermission('banners', 'create'),
