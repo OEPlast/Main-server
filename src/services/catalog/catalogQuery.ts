@@ -66,6 +66,9 @@ export async function getRankedBestSellers(): Promise<Types.ObjectId[]> {
     { $match: { isPaid: true, status: { $in: ['Processing', 'Completed'] } } },
     { $unwind: '$products' },
     { $group: { _id: '$products.product', sold: { $sum: '$products.qty' } } },
+    // Only products that still exist and are live: a deleted one would hold a slot and show nothing.
+    { $lookup: { from: 'products', localField: '_id', foreignField: '_id', pipeline: [{ $project: { status: 1 } }], as: 'product' } },
+    { $match: { 'product.status': 'active' } },
     { $sort: { sold: -1, _id: 1 } },
     { $limit: 500 },
   ]);
