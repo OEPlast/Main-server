@@ -80,7 +80,18 @@ const toggleBannerActive = async (req: Request, res: Response) => {
   }
 };
 
+const reorderBanners = async (req: Request, res: Response) => {
+  try {
+    const { data, code, message } = await BannerService.reorderBanners(req.body?.ids);
+    return res.status(code).json({ data, message });
+  } catch (error) {
+    console.error('Error in reorderBanners:', error);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
 const Admin_BannerController = {
+  reorderBanners,
   getBanners,
   getBannerById,
   createBanner,
