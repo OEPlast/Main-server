@@ -66,6 +66,7 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
 
       attributes: { optional: true, isArray: true },
       'attributes.*.name': { optional: true, isString: true, notEmpty: true },
+      'attributes.*.optional': { optional: true, isBoolean: true },
       'attributes.*.children': { optional: true, isArray: true },
       'attributes.*.children.*.name': { optional: true, isString: true, notEmpty: true },
       'attributes.*.children.*.price': { optional: true, isNumeric: true },
@@ -108,6 +109,7 @@ const createProductValidator = async (req: Request, res: Response, next: NextFun
       length: { optional: true, isFloat: { options: { min: 0 } }, errorMessage: 'length must be a non-negative number' },
       isVolumetric: { optional: true, isBoolean: true },
       variants: { optional: true, isArray: { options: { max: 300 } }, errorMessage: 'variants must be a list of at most 300 combinations' },
+      extras: { optional: true, isArray: { options: { max: 10 } }, errorMessage: 'extras must be a list of at most 10 add-ons' },
       addOns: { optional: true, isArray: { options: { max: 10 } }, errorMessage: 'addOns must be at most 10 product ids' },
       'addOns.*': { optional: true, isMongoId: true, errorMessage: 'addOns must contain product ids' },
       sizeChart: { optional: { options: { values: 'null' } }, isString: true, trim: true },
@@ -178,6 +180,7 @@ const updateProductValidator = async (req: Request, res: Response, next: NextFun
 
       attributes: { optional: true, isArray: true },
       'attributes.*.name': { optional: true, isString: true },
+      'attributes.*.optional': { optional: true, isBoolean: true },
       'attributes.*.children': { optional: true, isArray: true },
       'attributes.*.children.*.name': { optional: true, isString: true },
       'attributes.*.children.*.price': { optional: true, isNumeric: true },
@@ -220,6 +223,7 @@ const updateProductValidator = async (req: Request, res: Response, next: NextFun
       length: { optional: true, isFloat: { options: { min: 0 } }, errorMessage: 'length must be a non-negative number' },
       isVolumetric: { optional: true, isBoolean: true },
       variants: { optional: true, isArray: { options: { max: 300 } }, errorMessage: 'variants must be a list of at most 300 combinations' },
+      extras: { optional: true, isArray: { options: { max: 10 } }, errorMessage: 'extras must be a list of at most 10 add-ons' },
       addOns: { optional: true, isArray: { options: { max: 10 } }, errorMessage: 'addOns must be at most 10 product ids' },
       'addOns.*': { optional: true, isMongoId: true, errorMessage: 'addOns must contain product ids' },
       sizeChart: { optional: { options: { values: 'null' } }, isString: true, trim: true },

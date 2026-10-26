@@ -11,6 +11,7 @@ import {
   PricingTier,
 } from '@/helpers/pricingUtils';
 import { availableStock } from '@/helpers/productVariants';
+import { extrasUnitPrice } from '@/helpers/productExtras';
 import mongoose from 'mongoose';
 
 // Type definitions for aggregation results
@@ -86,11 +87,14 @@ function calculateItemPricing({
   variant,
   qty,
   saleContext,
+  selectedAttributes,
 }: {
   product: ProductPricingShape;
   variant?: VariantOption;
   qty: number;
   saleContext?: { discount?: number; amountOff?: number };
+  /** For the ticked extras, added per unit after tier and sale (as in linePricing). */
+  selectedAttributes?: Array<{ name: string; value: string }>;
 }): {
   unitPrice: number;
   totalPrice: number;
@@ -145,6 +149,7 @@ function calculateItemPricing({
     appliedDiscountPct = (saleContext.amountOff / priceAfterTier) * 100;
   }
 
+  unitPrice += extrasUnitPrice(product.extras, selectedAttributes);
   const totalPrice = unitPrice * qty;
   const totalDiscountAmount = discountAmount * qty;
 
@@ -658,6 +663,7 @@ type CartProductDetails = Pick<
   | 'tags'
   | 'attributes'
   | 'variants'
+  | 'extras'
   | 'specifications'
   | 'description_images'
   | 'dimension'
@@ -719,6 +725,7 @@ const mapProductForResponse = (product?: ProductDocument): CartProductDetails | 
     tags: product.tags ?? [],
     attributes: product.attributes,
     variants: product.variants,
+    extras: product.extras,
     specifications: product.specifications,
     category: categoryId,
     description_images: product.description_images,
@@ -839,6 +846,7 @@ const getCartItems = async (userId: string): Promise<CustomResponseType<CartWith
         variant,
         qty: item.qty,
         saleContext,
+        selectedAttributes: item.selectedAttributes || [],
       });
 
       const itemWithPricing: CartItemWithPricing = {
@@ -1090,6 +1098,7 @@ const validateCartSales = async (
         variant,
         qty: item.qty,
         saleContext,
+        selectedAttributes: item.selectedAttributes || [],
       });
 
       newSubtotal += newPricing.totalPrice;

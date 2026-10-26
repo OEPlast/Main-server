@@ -1,5 +1,6 @@
 // Shared pricing utilities and types
 import { findVariant, type ProductVariant } from './productVariants';
+import type { ProductExtra } from './productExtras';
 
 export interface PricingTier {
   minQty: number;
@@ -26,6 +27,7 @@ export interface ProductPricingShape {
   pricingTiers?: PricingTier[];
   attributes?: AttributeGroup[];
   variants?: ProductVariant[];
+  extras?: ProductExtra[];
   stock: number;
 }
 

@@ -519,6 +519,32 @@ describe('Doreti Main-server', () => {
     });
   });
 
+  describe('extras and optional options', () => {
+    test('admin saves extras and optional groups; checkout adds ticked extras to the price', async () => {
+      const r = await http('POST', '/admin/products/create', {
+        sku: 79, name: 'Moissanite Engagement Ring', description: 'VVS moissanite', price: 75000, category: String(cats.rings), stock: 10,
+        weight: 0.05, height: 2, width: 2, length: 2, isVolumetric: false, status: 'active',
+        attributes: [
+          { name: 'Ring', children: [{ name: 'Engagement', stock: 5, price: 75000 }, { name: 'Wedding (2 in 1)', stock: 5, price: 120000 }] },
+          { name: 'Engraving', optional: true, children: [{ name: 'Initials', stock: 10 }] },
+        ],
+        extras: [{ name: 'Tester', price: 18000 }, { name: 'Silver polish', price: 0 }],
+      }, admin);
+      assert.equal(r.status, 201, JSON.stringify(r.json));
+      assert.deepEqual(r.json.data.extras.map((e: Json) => [e.name, e.price]), [['Tester', 18000], ['Silver polish', 0]]);
+      assert.equal(r.json.data.attributes[1].optional, true);
+      const id = r.json.data._id;
+
+      const bad = await http('PATCH', `/admin/products/${id}`, { extras: [{ name: 'Tester', price: -5 }] }, admin);
+      assert.equal(bad.status, 400);
+
+      const subtotal = async (selectedAttributes: Json[]) =>
+        (await http('POST', '/checkout/shipping-options', { items: [{ productId: id, qty: 1, selectedAttributes }] })).json.data.itemsSubtotal;
+      assert.equal(await subtotal([{ name: 'Ring', value: 'Wedding (2 in 1)' }]), 120000);
+      assert.equal(await subtotal([{ name: 'Ring', value: 'Engagement' }, { name: 'Add-on', value: 'Tester' }, { name: 'Add-on', value: 'Silver polish' }]), 93000);
+    });
+  });
+
   // ---------------------------------------------------------------- reviews
   describe('reviews', () => {
     const reviewId = oid();

@@ -68,6 +68,12 @@ const attributeSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // Optional groups can be left unpicked on the product page (e.g. an engraving or colour choice
+    // that isn't needed); required ones (the default) start on a value and must keep one.
+    optional: {
+      type: Boolean,
+      default: undefined,
+    },
     children: [
       {
         name: {
@@ -308,6 +314,20 @@ const productSchema = new mongoose.Schema(
       type: String,
       enum: ['active', 'inactive', 'archived'],
       default: 'inactive',
+    },
+    // Optional add-ons that aren't products (e.g. a tester, free polish); see helpers/productExtras.ts.
+    extras: {
+      type: [
+        new mongoose.Schema(
+          {
+            name: { type: String, required: true, trim: true },
+            price: { type: Number, required: true, default: 0, min: 0 },
+            description: { type: String, required: false },
+          },
+          { _id: false }
+        ),
+      ],
+      default: undefined,
     },
     // Price and stock per option combination. When set, `stock` is their sum.
     variants: {

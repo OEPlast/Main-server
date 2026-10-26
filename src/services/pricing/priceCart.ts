@@ -45,7 +45,7 @@ export async function priceCart(
 ): Promise<PricedCart> {
   const ids = [...new Set(items.map((item) => String(item.product)))].filter((id) => mongoose.isValidObjectId(id));
 
-  const productQuery = Product.find({ _id: { $in: ids } }).select('name price pricingTiers attributes variants category');
+  const productQuery = Product.find({ _id: { $in: ids } }).select('name price pricingTiers attributes variants extras category');
   const saleQuery = Sales.find({ product: { $in: ids }, isActive: true, deleted: { $ne: true } });
   if (options.session) {
     productQuery.session(options.session);

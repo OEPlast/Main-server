@@ -11,10 +11,12 @@
  *   2. Bulk tier: the option's tiers when it has any, else the product's. The matching tier with
  *      the highest minQty wins. A tier never raises the price.
  *   3. Sale: taken off the tier price (percent of it, or a fixed amount capped at it).
+ *   4. Extras: the ticked add-ons' prices are added per unit, after tier and sale.
  *
  * Pure: no database access. `priceCart.ts` loads the product and sale documents.
  */
 
+import { extrasUnitPrice, type ProductExtra } from '@/helpers/productExtras';
 import { findVariant } from '@/helpers/productVariants';
 
 export type TierStrategy ='fixedPrice' | 'percentOff' | 'amountOff';
@@ -37,6 +39,7 @@ export interface PricingProduct {
   pricingTiers?: PricingTier[] | null;
   attributes?: Array<{ name: string; children: PricingOption[] }> | null;
   variants?: Array<{ options: Array<{ name: string; value: string }>; price?: number | null }> | null;
+  extras?: ProductExtra[] | null;
 }
 
 export type SaleType = 'Flash' | 'Limited' | 'Normal';
@@ -206,7 +209,9 @@ export function priceLine(input: {
       amountOff > 0 ? Math.min(amountOff, tierUnitPrice) : (tierUnitPrice * (match.variant.discount ?? 0)) / 100;
   }
 
-  const unitPrice = roundKobo(Math.max(0, tierUnitPrice - unitDiscount));
+  const itemUnitPrice = roundKobo(Math.max(0, tierUnitPrice - unitDiscount));
+  const extras = roundKobo(extrasUnitPrice(product.extras, selected));
+  const unitPrice = roundKobo(itemUnitPrice + extras);
   const roundedTierUnit = roundKobo(tierUnitPrice);
   const sale: AppliedSale | null =
     match && input.sale
@@ -216,19 +221,19 @@ export function priceLine(input: {
           variantIndex: match.index,
           attributeName: match.variant.attributeName ?? null,
           attributeValue: match.variant.attributeValue ?? null,
-          unitDiscount: roundKobo(roundedTierUnit - unitPrice),
+          unitDiscount: roundKobo(roundedTierUnit - itemUnitPrice),
         }
       : null;
 
   return {
     qty,
-    listUnitPrice: roundKobo(listUnitPrice),
-    tierUnitPrice: roundedTierUnit,
+    listUnitPrice: roundKobo(listUnitPrice + extras),
+    tierUnitPrice: roundKobo(roundedTierUnit + extras),
     unitPrice,
     lineTotal: roundKobo(unitPrice * qty),
     tier: tier && roundedTierUnit < roundKobo(listUnitPrice) ? tier : null,
     sale,
     tierDiscountTotal: roundKobo((roundKobo(listUnitPrice) - roundedTierUnit) * qty),
-    saleDiscountTotal: roundKobo((roundedTierUnit - unitPrice) * qty),
+    saleDiscountTotal: roundKobo((roundedTierUnit - itemUnitPrice) * qty),
   };
 }

@@ -8,6 +8,7 @@ import Category from '@/models/Category';
 import { revalidateProductDocs } from '@/services/storefront/productRevalidation';
 import StockAlertService from '@/services/support/stockAlertService';
 import { normaliseVariants, totalVariantStock } from '@/helpers/productVariants';
+import { normaliseExtras } from '@/helpers/productExtras';
 
 function escapeRegex(input: string): string {
   return input.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -54,6 +55,7 @@ type CreateProductData = {
   isVolumetric?: boolean;
   attributes?: {
     name: string;
+    optional?: boolean;
     children: {
       name: string;
       price?: number;
@@ -67,6 +69,8 @@ type CreateProductData = {
   pricingTiers?: PricingTier[];
   /** Price and stock per option combination; see `helpers/productVariants.ts`. */
   variants?: unknown[];
+  /** Optional priced add-ons; see `helpers/productExtras.ts`. */
+  extras?: unknown[];
   stock: number;
   lowStockThreshold?: number;
   status?: 'active' | 'inactive' | 'archived';
@@ -131,6 +135,10 @@ const createProduct = async (data: CreateProductData): Promise<CustomResponseTyp
         }
       }
     }
+
+    const checkedExtras = normaliseExtras(newData.extras);
+    if ('error' in checkedExtras) return { message: checkedExtras.error, data: null, code: 400 };
+    newData.extras = checkedExtras.extras.length ? checkedExtras.extras : undefined;
 
     // Combinations: checked against the option groups; the product's stock is their total.
     const checkedVariants = normaliseVariants(newData.variants, newData.attributes);
@@ -218,6 +226,12 @@ const updateProduct = async (
 
     type ProductUpdate = Partial<CreateProductData> & { originStock?: number };
     const update: ProductUpdate = { ...data };
+
+    if (data.extras !== undefined) {
+      const checkedExtras = normaliseExtras(data.extras);
+      if ('error' in checkedExtras) return { message: checkedExtras.error, data: null, code: 400 };
+      update.extras = checkedExtras.extras;
+    }
 
     // Combinations: re-checked whenever they or the option groups change, since removing an
     // option can orphan a combination. The product's stock is their total.
@@ -435,6 +449,7 @@ const duplicateProduct = async (id: string): Promise<CustomResponseType<ProductT
       })),
       // Same combinations and prices, no stock.
       variants: productObj.variants?.map((v) => ({ ...v, stock: 0 })),
+      extras: productObj.extras,
     };
 
     const duplicatedProduct = await Product.create(duplicatedProductData);
