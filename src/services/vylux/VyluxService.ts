@@ -64,6 +64,17 @@ export type VyluxImportItem = {
   price: number;
   name?: string;
   description?: string;
+  /** Skip products whose post has no image instead of using a video thumbnail as the cover. */
+  requireImage?: boolean;
+  /**
+   * `copy` (default) copies every file into this store's storage. `link` stores the scraper's own
+   * CDN URLs instead: instant, but the pictures then depend on the scraper never deleting them.
+   */
+  media?: 'copy' | 'link';
+  /** false: don't tell the scraper it was imported (test imports into a local database). */
+  markImported?: boolean;
+  /** Further product fields (tags, specifications, attributes, variants, extras, status…); `status` defaults to inactive. */
+  fields?: Partial<Omit<Parameters<typeof Admin_ProductService.createProduct>[0], 'sku' | 'source' | 'description_images'>>;
 };
 
 export type VyluxImportResult = { vyluxId: number; ok: boolean; productId?: string; error?: string };
@@ -104,8 +115,13 @@ export function stripPriceLines(caption: string, prices: VyluxPriceLine[]): stri
     .trim();
 }
 
-const readyMedia = (p: VyluxProduct) =>
-  [...p.media].filter((m) => m.ready && m.url).sort((a, b) => a.position - b.position);
+/** Ready media in store order: the first image (the cover), then the videos, then the other images. */
+const readyMedia = (p: VyluxProduct) => {
+  const ready = [...p.media].filter((m) => m.ready && m.url).sort((a, b) => a.position - b.position);
+  const images = ready.filter((m) => m.type === 'image');
+  const videos = ready.filter((m) => m.type === 'video');
+  return images.length ? [images[0]!, ...videos, ...images.slice(1)] : videos;
+};
 
 const toListItem = (p: VyluxProduct, importedProductId: string | null): VyluxListItem => ({
   vyluxId: p.id,
@@ -218,6 +234,19 @@ async function copyMedia(product: VyluxProduct, uploadedPaths: string[], groups?
   return stored;
 }
 
+/** The scraper's own files, in store order, without copying; the first image is the cover. */
+function linkMedia(product: VyluxProduct): StoredImage[] {
+  const stored: StoredImage[] = readyMedia(product).map((m) =>
+    m.type === 'video'
+      ? { url: m.url!, mediaType: 'video', ...(m.posterUrl ? { miniUrl: m.posterUrl } : {}), cover_image: false }
+      : { url: m.url!, mediaType: 'image', cover_image: false }
+  );
+  const cover = stored.find((m) => m.mediaType === 'image');
+  if (!cover) throw new Error('This product has no usable image');
+  cover.cover_image = true;
+  return stored;
+}
+
 async function importOne(item: VyluxImportItem): Promise<VyluxImportResult> {
   const vyluxId = item.vyluxId;
   if ((await importedIds([vyluxId])).has(String(vyluxId))) {
@@ -228,28 +257,32 @@ async function importOne(item: VyluxImportItem): Promise<VyluxImportResult> {
   try {
     const { data } = await api().get(`/products/${vyluxId}`);
     const product: VyluxProduct = data.data;
-    const images = await copyMedia(product, uploadedPaths);
+    if (item.requireImage && !readyMedia(product).some((m) => m.type === 'image')) {
+      return { vyluxId, ok: false, error: 'Video-only product skipped' };
+    }
+    const images = item.media === 'link' ? linkMedia(product) : await copyMedia(product, uploadedPaths);
     const name = item.name?.trim() || product.title;
     const description = item.description?.trim() || stripPriceLines(product.caption, product.prices) || name;
 
     const created = await Admin_ProductService.createProduct({
+      ...PARCEL,
+      ...item.fields,
       sku: await nextSku(),
       name,
       description,
       price: item.price,
       category: item.categoryId,
       description_images: images,
-      stock: IMPORT_STOCK,
-      status: 'inactive',
+      stock: item.fields?.stock ?? IMPORT_STOCK,
+      status: item.fields?.status ?? 'inactive',
       condition: 'new',
-      ...PARCEL,
       source: { provider: PROVIDER, externalId: String(vyluxId), importedAt: new Date() },
     });
     if (!created.data) throw new Error(created.message);
     const productId = String((created.data as unknown as { _id: unknown })._id);
 
     // Only hides it from the scraper's "not synced" list; the unique index already stops a second import.
-    api()
+    if (item.markImported !== false) api()
       .patch(`/products/${vyluxId}`, { storeProductId: productId })
       .catch((error) => logger.warn(`[vylux] could not mark ${vyluxId} as imported: ${(error as Error).message}`));
 
