@@ -3,6 +3,7 @@ import path from 'path';
 import Product from '@/models/Product';
 import Category from '@/models/Category';
 import VyluxDraft from '@/models/VyluxDraft';
+import ProductSourcesService, { SourceLink } from '@/services/admin/productSources';
 import Counter, { ensureSequenceAtLeast, nextSequence } from '@/models/Counter';
 import FileUploadService from '@/services/FileUploadService';
 import Admin_ProductService from '@/services/admin/Product';
@@ -44,7 +45,7 @@ type VyluxProduct = {
   prices: VyluxPriceLine[];
   postedAt: string | null;
   media: VyluxMedia[];
-  telegram?: { url?: string };
+  telegram?: { url?: string; anchorMessageId?: number; messageIds?: number[] };
 };
 
 export type VyluxListItem = {
@@ -286,6 +287,7 @@ async function importOne(item: VyluxImportItem): Promise<VyluxImportResult> {
       .patch(`/products/${vyluxId}`, { storeProductId: productId })
       .catch((error) => logger.warn(`[vylux] could not mark ${vyluxId} as imported: ${(error as Error).message}`));
 
+    await recordSources(productId, product).catch((error) => logger.warn(`[vylux] sources for ${vyluxId} not saved: ${(error as Error).message}`));
     return { vyluxId, ok: true, productId };
   } catch (error) {
     await Promise.all(uploadedPaths.map((p) => FileUploadService.deleteFile(p).catch(() => undefined)));
@@ -373,6 +375,41 @@ const productSource = (vyluxId: number) =>
 const isImported = async (vyluxId: number) => (await importedIds([vyluxId])).has(String(vyluxId));
 
 /** Hides the scraper product from the "not synced" list. Fire and forget. */
+/**
+ * Links back to where a product came from, for the admin's Source section: the scraper's page for
+ * it (VYLUX_DASHBOARD_URL, else VYLUX_API_URL without /api/v1) and each Telegram message.
+ */
+export function sourceLinksFor(product: VyluxProduct): SourceLink[] {
+  const dashboard = (process.env.VYLUX_DASHBOARD_URL?.trim() || process.env.VYLUX_API_URL?.replace(/\/api\/v\d+\/?$/, '') || '').replace(/\/+$/, '');
+  const links: SourceLink[] = [];
+  if (dashboard) links.push({ label: `Vylux product #${product.id}`, url: `${dashboard}/products/${product.id}` });
+  const post = product.telegram?.url;
+  if (post) {
+    const channel = post.replace(/\/\d+(\?.*)?$/, '');
+    const ids = product.telegram?.messageIds?.length ? product.telegram.messageIds : [];
+    links.push({ label: 'Telegram post', url: post });
+    for (const id of ids) {
+      const url = `${channel}/${id}`;
+      if (url !== post) links.push({ label: `Telegram message ${id}`, url });
+    }
+  }
+  return links.slice(0, 20);
+}
+
+async function recordSources(productId: string, product: VyluxProduct): Promise<void> {
+  const links = sourceLinksFor(product);
+  if (links.length) await ProductSourcesService.setSources(productId, links);
+}
+
+/** After "Add product" → Create Product: fetches the scraper product and saves its links. Fire and forget. */
+const recordSourcesFor = (vyluxId: number, productId: string) => {
+  if (!isConfigured()) return;
+  api()
+    .get(`/products/${vyluxId}`)
+    .then(({ data }) => recordSources(productId, data.data as VyluxProduct))
+    .catch((error) => logger.warn(`[vylux] sources for ${vyluxId} not saved: ${(error as Error).message}`));
+};
+
 const markImported = (vyluxId: number, productId: string) => {
   if (!isConfigured()) return;
   api()
@@ -421,5 +458,5 @@ const cleanupDrafts = async (olderThanMs: number, batch = 100): Promise<{ drafts
   return { drafts: drafts.length, deletedFiles };
 };
 
-const VyluxService = { isConfigured, listProducts, importProducts, prepareProduct, productSource, isImported, markImported, cleanupDrafts };
+const VyluxService = { isConfigured, listProducts, importProducts, prepareProduct, productSource, isImported, markImported, recordSourcesFor, cleanupDrafts };
 export default VyluxService;

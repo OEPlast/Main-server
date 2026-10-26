@@ -135,7 +135,11 @@ const createProduct = async (req: Request, res: Response) => {
       sizeChart,
       ...(source ? { source } : {}),
     });
-    if (source && data) VyluxService.markImported(vyluxId, String((data as unknown as { _id: unknown })._id));
+    if (source && data) {
+      const productId = String((data as unknown as { _id: unknown })._id);
+      VyluxService.markImported(vyluxId, productId);
+      VyluxService.recordSourcesFor(vyluxId, productId);
+    }
     return res.status(code).json({ message, data });
   } catch (error) {
     console.error('Error in deleteProduct:', error);

@@ -30,7 +30,7 @@ export type TreeCollection = {
   label: string;
   count: number;
   image?: string;
-  group: 'shop' | 'collections' | 'gifting' | 'men';
+  group: 'shop' | 'collections' | 'gifting' | 'men' | 'diamonds';
   description?: string;
   showInMenu: boolean;
 };

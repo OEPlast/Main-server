@@ -74,7 +74,7 @@ type CollectionInput = Partial<{
   title: string;
   description: string;
   image: string;
-  group: 'collections' | 'gifting' | 'men';
+  group: 'collections' | 'gifting' | 'men' | 'diamonds';
   order: number;
   showInMenu: boolean;
   active: boolean;

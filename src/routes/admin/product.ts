@@ -3,6 +3,7 @@ import ProductValidator from '@/validators/admin/Products';
 import GeneralProductValidator from '@/validators/ProductValidator';
 import { isAdmin, authenticateUser, requirePermission } from '@/middleware/auth';
 import Admin_ProductController from '@/controller/admin/ProductController';
+import ProductSourcesService from '@/services/admin/productSources';
 
 const router = express.Router();
 
@@ -74,6 +75,16 @@ router.get(
   ProductValidator.getProductByIdValidator,
   Admin_ProductController.getProductById
 );
+
+// Where the product came from (scraper page, Telegram messages…); admin only, never on the storefront.
+router.get('/:id/sources', authenticateUser, isAdmin, requirePermission('products', 'read'), async (req, res) => {
+  const r = await ProductSourcesService.getSources(req.params.id as string);
+  res.status(r.code).json({ message: r.message, data: r.data });
+});
+router.put('/:id/sources', authenticateUser, isAdmin, requirePermission('products', 'update'), async (req, res) => {
+  const r = await ProductSourcesService.setSources(req.params.id as string, req.body?.links);
+  res.status(r.code).json({ message: r.message, data: r.data });
+});
 
 // Update product
 router.patch(

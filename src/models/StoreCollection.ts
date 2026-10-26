@@ -16,7 +16,7 @@ const storeCollectionSchema = new Schema(
     title: { type: String, required: true, trim: true, maxlength: 80 },
     description: { type: String, default: '', maxlength: 400 },
     image: { type: String, default: '' },
-    group: { type: String, enum: ['collections', 'gifting', 'men'], default: 'collections' },
+    group: { type: String, enum: ['collections', 'gifting', 'men', 'diamonds'], default: 'collections' },
     order: { type: Number, default: 0 },
     showInMenu: { type: Boolean, default: true },
     active: { type: Boolean, default: true },

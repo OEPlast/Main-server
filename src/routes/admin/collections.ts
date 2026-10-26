@@ -27,7 +27,7 @@ const fields = (update: boolean) => [
   body('slug').optional().isString().trim().isLength({ max: 80 }),
   body('description').optional().isString().trim().isLength({ max: 400 }),
   body('image').optional().isString().trim(),
-  body('group').optional().isIn(['collections', 'gifting', 'men']).withMessage('group must be collections, gifting or men'),
+  body('group').optional().isIn(['collections', 'gifting', 'men', 'diamonds']).withMessage('group must be collections, gifting, men or diamonds'),
   body('order').optional().isInt({ min: 0, max: 999 }).toInt(),
   body('showInMenu').optional().isBoolean().toBoolean(),
   body('active').optional().isBoolean().toBoolean(),
