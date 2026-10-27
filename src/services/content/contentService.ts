@@ -176,6 +176,9 @@ const deleteArticle = async (id: string) =>
 
 const getOrCreateSiteContent = async () => (await SiteContent.findOne()) ?? (await SiteContent.create({}));
 
+/** Feature blocks with their products' names and pictures, for the admin form. */
+const FEATURE_PRODUCT_FIELDS = 'name slug status description_images images';
+
 const getHomeContent = async () =>
   guard('Site content', async () => {
     const c = await getOrCreateSiteContent();
@@ -190,6 +193,15 @@ const getHomeContent = async () =>
           ctaLabel: c.home?.feature?.ctaLabel ?? '',
           ctaHref: c.home?.feature?.ctaHref ?? '',
         },
+        // Product ids only: the storefront reads the products themselves (live prices and stock).
+        features: (c.home?.features ?? []).map((f) => ({
+          image: f.image,
+          title: f.title ?? '',
+          text: f.text ?? '',
+          ctaLabel: f.ctaLabel ?? '',
+          ctaHref: f.ctaHref ?? '',
+          products: (f.products ?? []).map(String),
+        })),
       },
       about: {
         hero: { image: c.about?.hero?.image ?? '', title: c.about?.hero?.title ?? '', text: c.about?.hero?.text ?? '' },
@@ -211,7 +223,12 @@ const getHomeContent = async () =>
     });
   });
 
-const getSiteContent = async () => guard('Site content', async () => ok('Site content retrieved', await getOrCreateSiteContent()));
+const getSiteContent = async () =>
+  guard('Site content', async () => {
+    const c = await getOrCreateSiteContent();
+    await c.populate({ path: 'home.features.products', select: FEATURE_PRODUCT_FIELDS });
+    return ok('Site content retrieved', c);
+  });
 
 const updateSiteContent = async (input: Record<string, unknown>) =>
   guard('Site content', async () => {
@@ -220,6 +237,7 @@ const updateSiteContent = async (input: Record<string, unknown>) =>
     for (const f of fields) if (input[f] !== undefined) c.set(f, input[f]);
     await c.save();
     requestStorefrontRevalidation([StorefrontTag.CONTENT, StorefrontTag.ARTICLES]);
+    await c.populate({ path: 'home.features.products', select: FEATURE_PRODUCT_FIELDS });
     return ok('Site content updated successfully', c);
   });
 

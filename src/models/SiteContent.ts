@@ -41,6 +41,24 @@ const siteContentSchema = new Schema(
             ),
             default: {},
           },
+          // Several "Just landed" blocks; the storefront shows one at random per visit (falls back
+          // to `feature` when empty). Each has its own cover image and up to 3 chosen products.
+          features: {
+            type: [
+              new Schema(
+                {
+                  image: { type: String, required: true },
+                  title: { type: String, default: '' },
+                  text: { type: String, default: '' },
+                  ctaLabel: { type: String, default: '' },
+                  ctaHref: { type: String, default: '' },
+                  products: { type: [{ type: Schema.Types.ObjectId, ref: 'Product' }], default: [] },
+                },
+                { _id: false }
+              ),
+            ],
+            default: [],
+          },
         },
         { _id: false }
       ),
