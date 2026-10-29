@@ -2606,13 +2606,6 @@ const getNewProductsFilters = async (): Promise<
             { $group: { _id: '$packSizes.label', count: { $sum: 1 } } },
             { $project: { _id: 0, label: '$_id', count: 1 } },
           ],
-          // Matches per (leaf) category, so a storefront can show "Rings 12" beside its category tabs.
-          categories: [
-            { $group: { _id: '$category', count: { $sum: 1 } } },
-            { $lookup: { from: 'categories', localField: '_id', foreignField: '_id', as: 'cat' } },
-            { $unwind: '$cat' },
-            { $project: { _id: 0, slug: '$cat.slug', count: 1 } },
-          ],
         },
       },
       {
@@ -2625,7 +2618,6 @@ const getNewProductsFilters = async (): Promise<
           specifications: 1,
           tags: 1,
           packSizes: 1,
-          categories: 1,
         },
       },
     ];
@@ -3175,6 +3167,13 @@ const getSearchFilters = async (
             { $group: { _id: '$packSizes.label', count: { $sum: 1 } } },
             { $project: { _id: 0, label: '$_id', count: 1 } },
           ],
+          // Matches per (leaf) category, so a storefront can show "Rings 12" beside its category tabs.
+          categories: [
+            { $group: { _id: '$category', count: { $sum: 1 } } },
+            { $lookup: { from: 'categories', localField: '_id', foreignField: '_id', as: 'cat' } },
+            { $unwind: '$cat' },
+            { $project: { _id: 0, slug: '$cat.slug', count: 1 } },
+          ],
         },
       },
       {
@@ -3187,6 +3186,7 @@ const getSearchFilters = async (
           specifications: 1,
           tags: 1,
           packSizes: 1,
+          categories: 1,
         },
       },
     ];
