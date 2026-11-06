@@ -144,7 +144,8 @@ const signup = async (userData: {
       firstName: newUser.firstName!,
       otpCode: `${createOTP.data}`,
       email: newUser.email,
-      expiresInMinutes: 10,
+      // The code's real lifetime (the OTP document expires then), not a guess.
+      expiresInMinutes: OTP_EXPIRY_MINUTES,
     });
 
     return {
